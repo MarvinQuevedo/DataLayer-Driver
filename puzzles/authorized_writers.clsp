@@ -1,0 +1,35 @@
+; authorized_writers.clsp
+; for DataLayer.storage by yakuhito
+
+;; Allows the data store owner to set a list of authorized writers that:
+;;  - CAN update the store root hash, label, description, and any other metadata
+;;  - CAN update oracle address and fee, if the store has an oracle layer
+;;  - CANNOT uptade the authorized writers list
+;;
+;; Note: This layer can be added/exited any time by the owner. It's up to the inner
+;;       puzzle to wrap CREATE_COIN puzzle hashes with this layer.
+(mod (
+  ; first curry
+  INNER_PUZZLE_HASH
+  AUTHORIZED_WRITERS_HASH
+  ; second curry
+  SELF_HASH
+  authorized_writers_list_reveal ; () if running inner puzzle
+  puzzle_reveal ; reveal of either inner puzzle or authorized writer puzzle
+  solution ; solution for authorized writer puzzle or inner puzzle
+)
+  (include condition_codes.clib)
+  (include sha256tree.clib)
+
+  ; main
+  (if authorized_writers_list_reveal
+    ; authorized writer spend
+    (list (list REMARK "todo"))
+    ; else - owner spend
+    (if (= (sha256tree puzzle_reveal) INNER_PUZZLE_HASH)
+      (a puzzle_reveal solution)
+      ; else
+      (x)
+    )
+  )
+)

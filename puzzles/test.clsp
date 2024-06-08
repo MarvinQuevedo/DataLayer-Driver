@@ -1,9 +1,0 @@
-(mod
-  ()
-
-  (include condition_codes.clib)
-
-  (list
-    (list REMARK)
-  )
-)
