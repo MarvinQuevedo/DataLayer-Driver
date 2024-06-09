@@ -41,7 +41,7 @@
   )
 
   ;; we know that another CREATE_COIN [odd_amount] or CREATE -113 will make the ownership layer error out
-  (defun validate_and_return_conditions (conditions)
+  (defun validate_conditions (conditions)
     (if conditions
       (if (any ; todo: negative tests for these
           (= (f (f conditions)) -10) ; -10 is NEW_OWNER_CONDITION for ownership layer
@@ -50,12 +50,20 @@
             (not (= (f (r (r (f (r ( r (f conditions))))))) ())) ; check authorized writer isn't using metadata updater to emit 'illegal' conditions
           )
         )
-        (x "nice try - authorized puzzle contained invalid output conditions")
+        ()
         ; else
-        (c (f conditions) (validate_and_return_conditions (r conditions)))
+        (validate_and_return_conditions (r conditions))
       )
-      ; else - no conditions left to validate 
-      ()
+      ; else - all conditions checked
+      1
+    )
+  )
+
+  (defun validate_and_return_conditions (conditions)
+    (if (validate_conditions conditions)
+      conditions
+      ; else
+      (x "nice try - authorized puzzle contained invalid output conditions")
     )
   )
 
