@@ -27,6 +27,7 @@
 )
   (include condition_codes.clib)
   (include sha256tree.clib)
+  (include curry.clib)
 
   (defun item_in_list (item the_list)
     (if the_list
@@ -75,7 +76,11 @@
         (item_in_list (sha256tree puzzle_reveal) authorized_writers_list_reveal)
       )
       (c
-        (list CREATE_COIN SELF_HASH 1) ; todo: this is not gud
+        (list
+          CREATE_COIN
+          (curry_hashes SELF_HASH (sha256 1 SELF_HASH))
+          1
+        )
         (validate_and_return_conditions (a puzzle_reveal solution))
       )
       ; else

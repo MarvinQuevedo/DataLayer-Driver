@@ -1,0 +1,24 @@
+; dl_oracle.clsp
+; for DataLayer.storage by yakuhito
+
+;; Allows anyone to spend the DL store and use it as an oracle. Because this
+;; layer cannot be updated, it supports any metadata updater and metadata as
+;; long as the first metadata item is the root hash.
+;;
+;; Note: This layer cannot be removed/exited - once added, any announcement
+;;       starting with 'o' that is 33-bytes-long is made from the oracle layer. 
+;;
+;; Warning: The owner still controls which puzzles are whitelited to run, and
+;;          the oracle functionality can be disabled by setting an unreasonable
+;;          oracle fee.
+
+(mod (
+    SINGLETON_STRUCT
+    STATE_LAYER_MOD_HASH
+    INNER_PUZZLE_HASH
+    my_full_puzzle_hash ; () if running inner puzzle
+    puzzle_reveal ; metadata reveal if oracle spend, inner puzzle reveal otherwise
+    metadata_updater_hash_hash_or_inner_solution
+    state_layer_inner_puzzle_hash_hash
+  )
+)
