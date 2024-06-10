@@ -23,7 +23,7 @@
       ; where ORACLE_CONDITION = (list CREATE_COIN [oracle fee payment address] [oracle fee])
       ; and AUTHORIZED_ORACLE_PUZZLES = (list [oracle puzzle hash 1] [oracle puzzle hash 2] ...)
     INNER_PUZZLE_HASH
-    oracle_config_reveal
+    oracle_config_reveal ; () if running inner puzzle
     metadata_reveal
     puzzle_reveal ; metadata updater reveal
     state_layer_puzzle_hash
@@ -36,6 +36,14 @@
   (defconstant NEW_ORACLE_CONFIG_CONDITION -13)
   (defconstant ANNOUNCEMENT_PREFIX 'o')
 
+  (defun-inline non_oracle_announcement_condition (cond)
+    (if (all (= (f cond) CREATE_PUZZLE_ANNOUCEMENT) (= (substr (f (r cond)) 0 1) ANNOUNCEMENT_PREFIX))
+      (x)
+      ; else
+      cond
+    )
+  )
+
   (defun morph_conditions (SELF_HASH ORACLE_CONFIG conditions odd_create_coin_args optional_new_oracle_config)
     (if conditions
       (if (all (= optional_new_oracle_config ()) (= (f (f conditions)) NEW_ORACLE_CONFIG_CONDITION))
@@ -44,7 +52,7 @@
         (if (all (= (f (f conditions)) CREATE_COIN) (= (logand (f (r (r (f conditions)))) 1) 1))
           (morph_conditions SELF_HASH ORACLE_CONFIG (r conditions) (r (f conditions)) optional_new_oracle_config)
           ; else
-          (c (f conditions)
+          (c (non_oracle_announcement_condition (f conditions))
             (morph_conditions SELF_HASH ORACLE_CONFIG (r conditions) odd_create_coin_args optional_new_oracle_config)
           )
         )
@@ -70,6 +78,23 @@
     )
   )
 
+  (defun validate_metadata_output (conditions)
+    (if conditions
+      (if (all (= (f (non_oracle_announcement_condition (f conditions))) CREATE_COIN) (= (logand (f (r (r (f conditions)))) 1) 1))
+        ()
+        ; else
+        (validate_metadata_output (r conditions))
+      )
+      ; else
+      1
+    )
+  )
+
+  ;(if (= oracle_config_reveal ()) 
+  ;  ; run inner puzzle
+  ;  ; else
+  ;  ; oracle ann from either oracle puzzle or '$'
+  ;)
   ; oracle spend
   (list
     ; check that metadata & updater are correct
