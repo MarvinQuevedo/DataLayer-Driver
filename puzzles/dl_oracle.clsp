@@ -3,22 +3,47 @@
 
 ;; Allows anyone to spend the DL store and use it as an oracle. Because this
 ;; layer cannot be updated, it supports any metadata updater and metadata as
-;; long as the first metadata item is the root hash.
+;; long as (f metadata) item is the root hash.
 ;;
 ;; Note: This layer cannot be removed/exited - once added, any announcement
 ;;       starting with 'o' that is 33-bytes-long is made from the oracle layer. 
 ;;
-;; Warning: The owner still controls which puzzles are whitelited to run, and
+;; Warning: The owner still controls which puzzles are whitelisted to run, and
 ;;          the oracle functionality can be disabled by setting an unreasonable
 ;;          oracle fee.
 
 (mod (
+    ; first curry
     SINGLETON_STRUCT
     STATE_LAYER_MOD_HASH
+    ; second curry
+    SELF_HASH
+    AUTHORIZED_PUZZLES ; (list ph1 ph2 ...)
+    ORACLE_INFO ; (list ORACLE_ADDRESS ORACLE_FEE)
     INNER_PUZZLE_HASH
-    my_full_puzzle_hash ; () if running inner puzzle
-    puzzle_reveal ; metadata reveal if oracle spend, inner puzzle reveal otherwise
-    metadata_updater_hash_hash_or_inner_solution
-    state_layer_inner_puzzle_hash_hash
+    metadata_reveal
+    puzzle_reveal ; metadata updater reveal
+    state_layer_puzzle_hash
+  )
+
+  (include condition_codes.clib)
+  (include sha256tree.clib)
+  (include curry.clib)
+
+  ; oracle spend
+  (list
+    ; check that metadata & updater are correct
+    (list
+      ASSERT_MY_PUZZLEHASH
+      (curry_hashes (f SINGLETON_STRUCT)
+        (sha256tree SINGLETON_STRUCT)
+        (curry_hashes STATE_LAYER_MOD_HASH
+          (sha256 1 STATE_LAYER_MOD_HASH)
+          (sha256tree metadata_reveal)
+          (sha256tree puzzle_reveal)
+          state_layer_puzzle_hash
+        )
+      )
+    )
   )
 )
