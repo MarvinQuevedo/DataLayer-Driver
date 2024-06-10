@@ -40,7 +40,7 @@
           (list
             CREATE_COIN
             (curry_hashes_inline MOD_HASH (sha256 1 MOD_HASH) (sha256 1 MERKLE_ROOT))
-            1 ; NFT1 amount is always 1
+            1
           )
         )
       )
