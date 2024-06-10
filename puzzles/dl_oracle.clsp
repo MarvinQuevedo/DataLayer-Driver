@@ -18,9 +18,12 @@
     STATE_LAYER_MOD_HASH
     ; second curry
     SELF_HASH
-    AUTHORIZED_PUZZLES ; (list ph1 ph2 ...)
-    ORACLE_INFO ; (list ORACLE_ADDRESS ORACLE_FEE)
+    ORACLE_CONFIG
+      ; (ORACLE_CONDITION . AUTHORIZED_ORACLE_PUZZLES)
+      ; where ORACLE_CONDITION = (list CREATE_COIN [oracle fee payment address] [oracle fee])
+      ; and AUTHORIZED_ORACLE_PUZZLES = (list [oracle puzzle hash 1] [oracle puzzle hash 2] ...)
     INNER_PUZZLE_HASH
+    oracle_config_reveal
     metadata_reveal
     puzzle_reveal ; metadata updater reveal
     state_layer_puzzle_hash
@@ -29,6 +32,43 @@
   (include condition_codes.clib)
   (include sha256tree.clib)
   (include curry.clib)
+
+  (defconstant NEW_ORACLE_CONFIG_CONDITION -13)
+  (defconstant ANNOUNCEMENT_PREFIX 'o')
+
+  (defun morph_conditions (SELF_HASH ORACLE_CONFIG conditions odd_create_coin_args optional_new_oracle_config)
+    (if conditions
+      (if (all (= optional_new_oracle_config ()) (= (f (f conditions)) NEW_ORACLE_CONFIG_CONDITION))
+        (morph_conditions SELF_HASH ORACLE_CONFIG (r conditions) odd_create_coin_args (r (f conditions)))
+        ; else
+        (if (all (= (f (f conditions)) CREATE_COIN) (= (logand (f (r (r (f conditions)))) 1) 1))
+          (morph_conditions SELF_HASH ORACLE_CONFIG (r conditions) (r (f conditions)) optional_new_oracle_config)
+          ; else
+          (c (f conditions)
+            (morph_conditions SELF_HASH ORACLE_CONFIG (r conditions) odd_create_coin_args optional_new_oracle_config)
+          )
+        )
+      )
+      ; else
+      (list
+        (list
+          CREATE_COIN
+          (curry_hashes SELF_HASH
+            (sha256 1 SELF_HASH)
+            (sha256 1
+              (if optional_new_oracle_config
+                (sha256tree optional_new_oracle_config) ; reveal new config on-chain
+                ; else
+                ORACLE_CONFIG
+              )
+            )
+            (sha256 1 (f odd_create_coin_args)) ; inner puzzle hash
+          ) ; wrap inner puzzle with this layer
+          (r odd_create_coin_args)
+        )
+      )
+    )
+  )
 
   ; oracle spend
   (list
@@ -45,5 +85,6 @@
         )
       )
     )
+    (f oracle_config_reveal) ; payment cond
   )
 )
