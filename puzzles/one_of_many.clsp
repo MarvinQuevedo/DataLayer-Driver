@@ -18,17 +18,29 @@
   (include sha256tree.clib)
   (include curry.clib)
 
+  (defconstant NEW_MERKLE_ROOT_CONDITION -13)
+
   ; only one odd CREATE_COIN enforced in upper layers
-  (defun morph_conditions (MOD_HASH MERKLE_ROOT conditions odd_create_coin_found)
+  (defun morph_conditions (MOD_HASH MERKLE_ROOT conditions new_merkle_root odd_create_coin_found)
     (if conditions
-      (c
-        (f conditions)
+      (if (all (= (f (f conditions)) NEW_MERKLE_ROOT_CONDITION) (= (strlen (f (r (f conditions)))) 32))
         (morph_conditions
           MOD_HASH MERKLE_ROOT
           (r conditions)
-          (any
-            odd_create_coin_found
-            (all (= (f (f conditions)) CREATE_COIN) (= (logand (f (r (r (f conditions)))) 1) 1))
+          (f (r (f conditions)))
+          odd_create_coin_found
+        )
+        ; else
+        (c
+          (f conditions)
+          (morph_conditions
+            MOD_HASH MERKLE_ROOT
+            (r conditions)
+            new_merkle_root
+            (any
+              odd_create_coin_found
+              (all (= (f (f conditions)) CREATE_COIN) (= (logand (f (r (r (f conditions)))) 1) 1))
+            )
           )
         )
       )
@@ -39,7 +51,10 @@
         (list
           (list
             CREATE_COIN
-            (curry_hashes_inline MOD_HASH (sha256 1 MOD_HASH) (sha256 1 MERKLE_ROOT))
+            (curry_hashes_inline MOD_HASH
+              (sha256 1 MOD_HASH)
+              (sha256 1 (if new_merkle_root new_merkle_root MERKLE_ROOT))
+            )
             1
           )
         )
@@ -48,7 +63,7 @@
   )
 
   (if (= MERKLE_ROOT (simplify_merkle_proof (sha256tree puzzle_reveal) merkle_proof))
-    (morph_conditions MOD_HASH MERKLE_ROOT (a puzzle_reveal puzzle_solution) ())
+    (morph_conditions MOD_HASH MERKLE_ROOT (a puzzle_reveal puzzle_solution) () ())
     ; else
     (x "ph proof invalid")
   )
