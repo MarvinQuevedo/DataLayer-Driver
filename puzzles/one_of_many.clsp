@@ -18,29 +18,25 @@
   (include sha256tree.clib)
   (include curry.clib)
 
-  (defun should_recreate (conditions)
+  (defun get_recreate_condition (MOD_HASH MERKLE_ROOT conditions)
     (if conditions
       (if (all (= (f (f conditions)) CREATE_COIN) (= (logand (f (r (r (f conditions)))) 1) 1))
-        ()
+        (list REMARK)
         ; else
-        (should_recreate (r conditions))
+        (get_recreate_condition MOD_HASH MERKLE_ROOT (r conditions))
       )
       ; else
-      1
+      (list
+        CREATE_COIN
+        (curry_hashes_inline MOD_HASH (sha256 1 MOD_HASH) (sha256 1 MERKLE_ROOT))
+        1 ; NFT1 amount is always 1
+      )
     )
   )
 
   (defun main (MOD_HASH MERKLE_ROOT output_conditions)
-    (if (should_recreate output_conditions)
-      (c
-        (list
-          CREATE_COIN
-          (curry_hashes_inline MOD_HASH (sha256 1 MOD_HASH) (sha256 1 MERKLE_ROOT))
-          1 ; NFT1 amount is always 1
-        )
-        output_conditions
-      )
-      ; else
+    (c
+      (get_recreate_condition MOD_HASH MERKLE_ROOT output_conditions)
       output_conditions
     )
   )
