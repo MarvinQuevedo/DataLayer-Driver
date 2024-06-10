@@ -1,0 +1,36 @@
+; authorized_writer_filter.clsp
+; for DataLayer.storage by yakuhito
+
+;; Used as a filter that wraps an authorized writer puzzle.
+;; Allows the data store owner to add authorized writers that:
+;;  - CAN update the store root hash, label, description, and any other metadata
+;;    (i.e., call the metadata updatter via the -24 condition)
+;;  - CAN update oracle payout condition (the -13 condition)
+;;  - CANNOT update the authorized writers list
+;;    (i.e., cannot create odd CREATE_COINs)
+;;  - CANNOT emit NEW_OWNER_CONDITION for the ownership layer
+
+(mod (
+    INNER_PUZZLE
+    inner_solution
+  )
+
+  ;; we know that another CREATE_COIN [odd_amount] or CREATE -113 will make the ownership layer error out
+  (defun validate_conditions (conditions)
+    (if conditions
+      (if (= (f (f conditions)) -10) ; -10 is NEW_OWNER_CONDITION for ownership layer
+        ()
+        ; else
+        (validate_conditions (r conditions))
+      )
+      ; else - all conditions checked
+      1
+    )
+  )
+
+  (defun main (conditions)
+    (if (validate_conditions conditions) conditions (x))
+  )
+
+  (main (a INNER_PUZZLE inner_solution))
+)
