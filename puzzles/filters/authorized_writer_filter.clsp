@@ -1,16 +1,13 @@
 ; authorized_writer_filter.clsp
 ; for DataLayer.storage by yakuhito
 
-;; Used as a filter that wraps an authorized writer puzzle.
 ;; Allows the data store owner to add authorized writers that:
 ;;  - CAN update the store root hash, label, description, and any other metadata
 ;;    (i.e., call the metadata updatter via the -24 condition)
-;;  - CAN update oracle payout condition
-;;    (i.e., use the -13 condition)
-;;  - CANNOT update the authorized writers list
+;;  - CANNOT update the authorized puzzles list
 ;;    (i.e., cannot create CREATE_COINs)
-;;  - CANNOT emit NEW_OWNER_CONDITION for the ownership layer
-;;    (i.e., cannot use the -10 condition)
+;;
+;; Warning: This filter only works for the default data layer metadata updater (11).
 
 (mod (
     INNER_PUZZLE
@@ -22,8 +19,15 @@
   (defun morph_conditions (conditions)
     (if conditions
       (if (any
-        (= (f (f conditions)) -10) ; -10 is NEW_OWNER_CONDITION for ownership layer
         (= (f (f conditions)) CREATE_COIN)
+        (= (f (f conditions)) -113) ; don't allow melting
+        (= (f (f conditions)) -13) ; don't allow updating merkle root
+        (all
+          (= (f (f conditions)) -24)
+          ; condition is (list -24 [metadata updater puzzle reveal] [solution])
+          ; for this puzzle, solution is (list (list [new metadaa] [new updater ph]) [new conditions])
+          (not (= (f (r (f (r (r (f conditions)))))) ()))
+        ) ; don't allow metadata updater to create extra conditions
       )
         (x)
         ; else
