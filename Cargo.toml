@@ -1,0 +1,10 @@
+[package]
+name = "datalayer_driver"
+version = "0.1.0"
+edition = "2021"
+license = "MIT"
+authors = ["yakuhito <y@kuhi.to>"]
+homepage = "https://github.com/Datalayer-Storage/DataLayer-Driver"
+repository = "https://github.com/Datalayer-Storage/DataLayer-Driver"
+
+[dependencies]
