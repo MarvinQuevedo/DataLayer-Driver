@@ -22,5 +22,24 @@ pub const DELEGATION_LAYER_PUZZLE: [u8; 798] = hex!(
     ff0101ff058080ff0180ff02ffff03ff1bffff01ff02ff1effff04ff02ffff04ffff02ffff03ffff
     18ffff0101ff1380ffff01ff0bffff0102ff2bff0580ffff01ff0bffff0102ff05ff2b8080ff0180
     ffff04ffff04ffff17ff13ffff0181ff80ff3b80ff8080808080ffff010580ff0180ff018080
-  "
+    "
+);
+
+pub const ADMIN_FILTER_PUZZLE: [u8; 153] = hex!(
+    "
+    ff02ffff01ff02ff06ffff04ff02ffff04ffff02ff05ff0b80ff80808080ffff04ffff01ff33ff02
+    ffff03ff05ffff01ff02ffff03ffff21ffff09ff11ff0480ffff09ff11ffff01818f80ffff22ffff
+    09ff11ffff0181e880ffff20ffff09ff820159ff8080808080ffff01ff0880ffff01ff04ff09ffff
+    02ff06ffff04ff02ffff04ff0dff808080808080ff0180ff8080ff0180ff018080
+    "
+);
+
+pub const WRITER_FILTER_PUZZLE: [u8; 164] = hex!(
+    "
+    ff02ffff01ff02ff06ffff04ff02ffff04ffff02ff05ff0b80ff80808080ffff04ffff01ff33ff02
+    ffff03ff05ffff01ff02ffff03ffff21ffff09ff11ff0480ffff09ff11ffff01818f80ffff09ff11
+    ffff0181f380ffff22ffff09ff11ffff0181e880ffff20ffff09ff820159ff8080808080ffff01ff
+    0880ffff01ff04ff09ffff02ff06ffff04ff02ffff04ff0dff808080808080ff0180ff8080ff0180
+    ff018080
+    "
 );
