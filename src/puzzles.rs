@@ -1,4 +1,37 @@
+use chia_protocol::Bytes32;
+use clvm_traits::{apply_constants, FromClvm, ToClvm};
+use clvm_utils::ToTreeHash;
+use clvm_utils::{CurriedProgram, TreeHash};
 use hex_literal::hex;
+
+#[derive(ToClvm, FromClvm)]
+#[apply_constants]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[clvm(curry)]
+pub struct DelegationLayerArgs {
+    pub mod_hash: Bytes32,
+    pub merkle_root: Bytes32,
+}
+
+impl DelegationLayerArgs {
+    pub fn new(merkle_root: Bytes32) -> Self {
+        Self {
+            mod_hash: DELEGATION_LAYER_PUZZLE_HASH.into(),
+            merkle_root,
+        }
+    }
+
+    pub fn curry_tree_hash(merkle_root: Bytes32) -> TreeHash {
+        CurriedProgram {
+            program: DELEGATION_LAYER_PUZZLE,
+            args: DelegationLayerArgs {
+                mod_hash: DELEGATION_LAYER_PUZZLE_HASH.into(),
+                merkle_root,
+            },
+        }
+        .tree_hash()
+    }
+}
 
 pub const DELEGATION_LAYER_PUZZLE: [u8; 798] = hex!(
     "
@@ -22,6 +55,12 @@ pub const DELEGATION_LAYER_PUZZLE: [u8; 798] = hex!(
     ff0101ff058080ff0180ff02ffff03ff1bffff01ff02ff1effff04ff02ffff04ffff02ffff03ffff
     18ffff0101ff1380ffff01ff0bffff0102ff2bff0580ffff01ff0bffff0102ff05ff2b8080ff0180
     ffff04ffff04ffff17ff13ffff0181ff80ff3b80ff8080808080ffff010580ff0180ff018080
+    "
+);
+
+pub const DELEGATION_LAYER_PUZZLE_HASH: [u8; 32] = hex!(
+    "
+    f777f3e115ccc5899de8cd92b1549c5c7f6e1895008445d12cf625073c6d5ff5
     "
 );
 
