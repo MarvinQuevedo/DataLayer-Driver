@@ -1,9 +1,11 @@
-; one_of_many.clsp
+; delegation_layer.clsp
 ; for DataLayer.storage by yakuhito
 
-;; Allows running one inner puzzle out of a set of multiple possibilities.
+;; Allows the owner of a store to delegate a fixed set of capabilities to
+;; other puzzle hashes.
 ;; This layer will only re-create itself if the inner puzzle did not emit any
 ;; odd-amount CREATE_COIN condition. 
+;; Capabilities are restricted via filters.
 
 (mod (
     MOD_HASH

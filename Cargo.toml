@@ -8,3 +8,7 @@ homepage = "https://github.com/Datalayer-Storage/DataLayer-Driver"
 repository = "https://github.com/Datalayer-Storage/DataLayer-Driver"
 
 [dependencies]
+chia = "0.9.0"
+hex-literal = "0.4.1"
+chia-protocol = "0.9.0"
+chia-puzzles = "0.9.0"
