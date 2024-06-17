@@ -12,10 +12,13 @@ pub enum DelegatedPuzzle {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[must_use]
 pub struct DataStoreInfo<M> {
-    pub launcher_id: Bytes32,
     pub coin: Coin,
+    // singleton layer
+    pub launcher_id: Bytes32,
     pub proof: Proof,
+    // NFT state layer
     pub metadata: M,
+    // inner puzzle (either p2 or delegation_layer + p2)
     pub owner_puzzle_hash: Bytes32,
     pub oracle_address: Option<Bytes32>,
     pub oracle_fee: Option<u64>,
