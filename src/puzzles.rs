@@ -58,11 +58,11 @@ pub const DELEGATION_LAYER_PUZZLE: [u8; 798] = hex!(
     "
 );
 
-pub const DELEGATION_LAYER_PUZZLE_HASH: [u8; 32] = hex!(
+pub const DELEGATION_LAYER_PUZZLE_HASH: TreeHash = TreeHash::new(hex!(
     "
     f777f3e115ccc5899de8cd92b1549c5c7f6e1895008445d12cf625073c6d5ff5
     "
-);
+));
 
 pub const ADMIN_FILTER_PUZZLE: [u8; 153] = hex!(
     "
@@ -73,6 +73,12 @@ pub const ADMIN_FILTER_PUZZLE: [u8; 153] = hex!(
     "
 );
 
+pub const ADMIN_FILTER_PUZZLE_HASH: TreeHash = TreeHash::new(hex!(
+    "
+    6332f1941eb746501c02026c711d9cacf20e8372d33cf558b360055b602aa471
+    "
+));
+
 pub const WRITER_FILTER_PUZZLE: [u8; 164] = hex!(
     "
     ff02ffff01ff02ff06ffff04ff02ffff04ffff02ff05ff0b80ff80808080ffff04ffff01ff33ff02
@@ -82,3 +88,33 @@ pub const WRITER_FILTER_PUZZLE: [u8; 164] = hex!(
     ff018080
     "
 );
+
+pub const WRITER_FILTER_PUZZLE_HASH: TreeHash = TreeHash::new(hex!(
+    "
+    964e71163cd206795769a083c7ec17efabe86afad1391e3d68e837125564e8d9
+    "
+));
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    // unfortunately, this isn't publicly exported, so I had to copy-paste
+    // use chia_puzzles::assert_puzzle_hash;
+    #[macro_export]
+    macro_rules! assert_puzzle_hash {
+        ($puzzle:ident => $puzzle_hash:ident) => {
+            let mut a = clvmr::Allocator::new();
+            let ptr = clvmr::serde::node_from_bytes(&mut a, &$puzzle).unwrap();
+            let hash = clvm_utils::tree_hash(&mut a, ptr);
+            assert_eq!($puzzle_hash, hash);
+        };
+    }
+
+    #[test]
+    fn puzzle_hashes() {
+        assert_puzzle_hash!(DELEGATION_LAYER_PUZZLE => DELEGATION_LAYER_PUZZLE_HASH);
+        assert_puzzle_hash!(ADMIN_FILTER_PUZZLE => ADMIN_FILTER_PUZZLE_HASH);
+        assert_puzzle_hash!(WRITER_FILTER_PUZZLE => WRITER_FILTER_PUZZLE_HASH);
+    }
+}
