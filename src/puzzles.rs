@@ -1,4 +1,3 @@
-use chia::consensus::merkle_tree::MerkleSet;
 use chia_protocol::Bytes32;
 use clvm_traits::{apply_constants, FromClvm, ToClvm};
 use clvm_utils::ToTreeHash;
@@ -78,9 +77,31 @@ pub const DELEGATION_LAYER_PUZZLE: [u8; 941] = hex!(
 
 pub const DELEGATION_LAYER_PUZZLE_HASH: TreeHash = TreeHash::new(hex!(
     "
-    298f8ff883c8c672a28ac5940ab3e4ea3a1e4675c7364a362308fa57901a1321
+    2a53d425e438b238358d8b9351c3847b2f1b4a4dcb42420550e012a6b5a213bf
     "
 ));
+
+#[derive(ToClvm, FromClvm)]
+#[apply_constants]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[clvm(curry)]
+pub struct AdminFilterArgs<I> {
+    pub inner_puzzle: I,
+}
+
+impl<I> AdminFilterArgs<I> {
+    pub fn new(inner_puzzle: I) -> Self {
+        Self { inner_puzzle }
+    }
+}
+
+#[derive(ToClvm, FromClvm)]
+#[apply_constants]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[clvm(list)]
+pub struct AdminFilterSolution<I> {
+    pub inner_solution: I,
+}
 
 pub const ADMIN_FILTER_PUZZLE: [u8; 153] = hex!(
     "
@@ -96,6 +117,28 @@ pub const ADMIN_FILTER_PUZZLE_HASH: TreeHash = TreeHash::new(hex!(
     6332f1941eb746501c02026c711d9cacf20e8372d33cf558b360055b602aa471
     "
 ));
+
+#[derive(ToClvm, FromClvm)]
+#[apply_constants]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[clvm(curry)]
+pub struct WriterFilterArgs<I> {
+    pub inner_puzzle: I,
+}
+
+impl<I> WriterFilterArgs<I> {
+    pub fn new(inner_puzzle: I) -> Self {
+        Self { inner_puzzle }
+    }
+}
+
+#[derive(ToClvm, FromClvm)]
+#[apply_constants]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[clvm(list)]
+pub struct WriterFilterSolution<I> {
+    pub inner_solution: I,
+}
 
 pub const WRITER_FILTER_PUZZLE: [u8; 164] = hex!(
     "
