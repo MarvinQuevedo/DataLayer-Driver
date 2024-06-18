@@ -1,7 +1,8 @@
 use crate::{
     puzzles_info::{DataStoreInfo, DelegatedPuzzle},
-    DelegationLayerArgs, ADMIN_FILTER_PUZZLE, ADMIN_FILTER_PUZZLE_HASH, DELEGATION_LAYER_PUZZLE,
-    DELEGATION_LAYER_PUZZLE_HASH, WRITER_FILTER_PUZZLE, WRITER_FILTER_PUZZLE_HASH,
+    DelegationLayerArgs, DelegationLayerSolution, ADMIN_FILTER_PUZZLE, ADMIN_FILTER_PUZZLE_HASH,
+    DELEGATION_LAYER_PUZZLE, DELEGATION_LAYER_PUZZLE_HASH, WRITER_FILTER_PUZZLE,
+    WRITER_FILTER_PUZZLE_HASH,
 };
 use chia::consensus::merkle_tree::MerkleSet;
 use chia_protocol::CoinSpend;
@@ -10,7 +11,7 @@ use chia_sdk_driver::{
 };
 use clvm_traits::ToClvm;
 use clvm_utils::CurriedProgram;
-use clvmr::{reduction::EvalErr, Allocator, NodePtr};
+use clvmr::{reduction::EvalErr, NodePtr};
 
 pub trait SpendContextExt {
     fn delegation_layer_puzzle(&mut self) -> Result<NodePtr, SpendError>;
@@ -33,8 +34,8 @@ impl<'a> SpendContextExt for SpendContext<'a> {
 }
 
 pub enum DatastoreInnerSpend {
-    OwnerPuzzleSpend(InnerSpend),
-    DelegatedPuzzleSpend(DelegatedPuzzle, InnerSpend),
+    OwnerPuzzleSpend(InnerSpend),                   // owner puzzle spend
+    DelegatedPuzzleSpend(DelegatedPuzzle, NodePtr), // delegated puzzle info + solution
 }
 
 pub fn datastore_spend<M>(
@@ -51,7 +52,7 @@ where
             DatastoreInnerSpend::OwnerPuzzleSpend(inner_spend) => Ok(inner_spend),
             DatastoreInnerSpend::DelegatedPuzzleSpend(_, inner_spend) => {
                 Err(SpendError::Eval(EvalErr(
-                    inner_spend.puzzle(),
+                    inner_spend,
                     String::from("data store does not have a delegation layer"),
                 )))
             }
@@ -61,7 +62,7 @@ where
                 .iter()
                 .map(|hash| -> [u8; 32] {
                     match hash {
-                        // todo
+                        // todo - morph by adding filters
                         _ => [0; 32],
                     }
                 })
@@ -70,7 +71,8 @@ where
             let merkle_root: [u8; 32] = merkle_set.get_root();
 
             let new_inner_puzzle_mod = ctx.delegation_layer_puzzle()?;
-            let new_inner_puzzle_args = DelegationLayerArgs::new(merkle_root.into());
+            let new_inner_puzzle_args =
+                DelegationLayerArgs::new(datastore_info.owner_puzzle_hash, merkle_root.into());
 
             let new_inner_puzzle = CurriedProgram {
                 program: new_inner_puzzle_mod,
@@ -78,32 +80,38 @@ where
             };
 
             let new_inner_solution = match inner_datastore_spend {
-                DatastoreInnerSpend::OwnerPuzzleSpend(_) => {
-                    unimplemented!("todo")
+                DatastoreInnerSpend::OwnerPuzzleSpend(owner_puzzle_spend) => {
+                    DelegationLayerSolution {
+                        merkle_proof: None,
+                        puzzle_reveal: owner_puzzle_spend.puzzle(),
+                        puzzle_solution: owner_puzzle_spend.solution(),
+                    }
                 }
-                DatastoreInnerSpend::DelegatedPuzzleSpend(delegated_puzzle, _) => {
+                DatastoreInnerSpend::DelegatedPuzzleSpend(delegated_puzzle, solution) => {
                     let delegated_puzzle = match delegated_puzzle {
+                        // todo
                         DelegatedPuzzle::Admin(_) => ctx.delegated_admin_filter()?,
                         DelegatedPuzzle::Writer(_) => ctx.delegated_writer_filter()?,
                         DelegatedPuzzle::Oracle(_) => {
                             return Err(SpendError::Eval(EvalErr(
-                                new_inner_puzzle.to_clvm(ctx.allocator())?,
+                                new_inner_puzzle.to_clvm(ctx.allocator_mut())?,
                                 String::from("data store does not have a delegation layer"),
                             )))
                         }
                     };
-                    CurriedProgram {
-                        program: delegated_puzzle,
-                        args: new_inner_puzzle.to_clvm(ctx.allocator())?,
+
+                    DelegationLayerSolution {
+                        merkle_proof: None,
+                        puzzle_reveal: delegated_puzzle,
+                        puzzle_solution: solution,
                     }
                 }
             };
 
-            let a = &mut Allocator::new();
-            Ok(InnerSpend {
-                puzzle: new_inner_puzzle.to_clvm(a)?,
-                solution: unimplemented!("todo"),
-            })
+            Ok(InnerSpend::new(
+                new_inner_puzzle.to_clvm(ctx.allocator_mut())?,
+                new_inner_solution.to_clvm(ctx.allocator_mut())?,
+            ))
         }
     };
     let inner_spend = inner_spend?;

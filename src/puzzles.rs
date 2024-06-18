@@ -1,3 +1,4 @@
+use chia::consensus::merkle_tree::MerkleSet;
 use chia_protocol::Bytes32;
 use clvm_traits::{apply_constants, FromClvm, ToClvm};
 use clvm_utils::ToTreeHash;
@@ -10,22 +11,25 @@ use hex_literal::hex;
 #[clvm(curry)]
 pub struct DelegationLayerArgs {
     pub mod_hash: Bytes32,
+    pub inner_puzzle_hash: Bytes32,
     pub merkle_root: Bytes32,
 }
 
 impl DelegationLayerArgs {
-    pub fn new(merkle_root: Bytes32) -> Self {
+    pub fn new(inner_puzzle_hash: Bytes32, merkle_root: Bytes32) -> Self {
         Self {
             mod_hash: DELEGATION_LAYER_PUZZLE_HASH.into(),
+            inner_puzzle_hash,
             merkle_root,
         }
     }
 
-    pub fn curry_tree_hash(merkle_root: Bytes32) -> TreeHash {
+    pub fn curry_tree_hash(inner_puzzle_hash: Bytes32, merkle_root: Bytes32) -> TreeHash {
         CurriedProgram {
             program: DELEGATION_LAYER_PUZZLE,
             args: DelegationLayerArgs {
                 mod_hash: DELEGATION_LAYER_PUZZLE_HASH.into(),
+                inner_puzzle_hash,
                 merkle_root,
             },
         }
@@ -33,31 +37,42 @@ impl DelegationLayerArgs {
     }
 }
 
-pub const DELEGATION_LAYER_PUZZLE: [u8; 882] = hex!(
+#[derive(ToClvm, FromClvm)]
+#[apply_constants]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[clvm(list)]
+pub struct DelegationLayerSolution<P, S> {
+    pub merkle_proof: Option<Vec<u8>>,
+    pub puzzle_reveal: P,
+    pub puzzle_solution: S,
+}
+
+pub const DELEGATION_LAYER_PUZZLE: [u8; 941] = hex!(
     "
     ff02ffff01ff02ffff03ff2fffff01ff02ffff03ffff09ff17ffff02ff1effff04ff02ffff04ffff
     0bffff0101ffff02ff16ffff04ff02ffff04ff5fff8080808080ffff04ff2fff808080808080ffff
-    01ff02ff1affff04ff02ffff04ff05ffff04ffff02ff5fff81bf80ffff04ff17ffff01ff80808080
-    808080ffff01ff08ffff019070682070726f6f6620696e76616c69648080ff0180ffff01ff02ffff
-    03ffff09ffff02ff16ffff04ff02ffff04ff5fff80808080ff0b80ffff01ff02ff5fff81bf80ffff
-    01ff08ffff018a706820696e76616c69648080ff018080ff0180ffff04ffff01ffff33ff81f302ff
-    ffffffa04bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785459aa09dcf97
-    a184f32623d11a73124ceb99a5709b083721e878a16d78f596718ba7b2ffa102a12871fee210fb86
-    19291eaea194581cbd2531e4b23759d225f6806923f63222a102a8d5dd63fba471ebcb1f3e8f7c1e
-    1879b7152a6e7298a91ce119a63400ade7c5ff02ffff03ff0bffff01ff02ffff03ffff22ffff09ff
-    23ff1480ffff09ffff0dff5380ffff01208080ffff01ff02ff1affff04ff02ffff04ff05ffff04ff
-    1bffff04ff53ffff04ff2fff80808080808080ffff01ff04ff13ffff02ff1affff04ff02ffff04ff
-    05ffff04ff1bffff04ff17ffff04ffff21ff2fffff22ffff09ff23ff0880ffff09ffff18ff81b3ff
-    ff010180ffff0101808080ff808080808080808080ff0180ffff01ff02ffff03ff2fff80ffff01ff
-    04ffff04ff08ffff04ffff0bff52ffff0bff1cffff0bff1cff62ff0580ffff0bff1cffff0bff72ff
-    ff0bff1cffff0bff1cff62ffff0bffff0101ff058080ffff0bff1cffff0bff72ffff0bff1cffff0b
-    ff1cff62ffff0bffff0101ff178080ffff0bff1cff62ff42808080ff42808080ff42808080ffff01
-    ff01808080ff808080ff018080ff0180ffff02ffff03ffff07ff0580ffff01ff0bffff0102ffff02
-    ff16ffff04ff02ffff04ff09ff80808080ffff02ff16ffff04ff02ffff04ff0dff8080808080ffff
-    01ff0bffff0101ff058080ff0180ff02ffff03ff1bffff01ff02ff1effff04ff02ffff04ffff02ff
-    ff03ffff18ffff0101ff1380ffff01ff0bffff0102ff2bff0580ffff01ff0bffff0102ff05ff2b80
-    80ff0180ffff04ffff04ffff17ff13ffff0181ff80ff3b80ff8080808080ffff010580ff0180ff01
-    8080
+    01ff02ff1affff04ff02ffff04ff05ffff04ff0bffff04ffff02ff5fff81bf80ffff04ff17ffff01
+    ff8080808080808080ffff01ff08ffff019070682070726f6f6620696e76616c69648080ff0180ff
+    ff01ff02ffff03ffff09ffff02ff16ffff04ff02ffff04ff5fff80808080ff0b80ffff01ff02ff5f
+    ff81bf80ffff01ff08ffff018a706820696e76616c69648080ff018080ff0180ffff04ffff01ffff
+    33ff81f302ffffffffa04bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5d7cce23c7785
+    459aa09dcf97a184f32623d11a73124ceb99a5709b083721e878a16d78f596718ba7b2ffa102a128
+    71fee210fb8619291eaea194581cbd2531e4b23759d225f6806923f63222a102a8d5dd63fba471eb
+    cb1f3e8f7c1e1879b7152a6e7298a91ce119a63400ade7c5ff02ffff03ff17ffff01ff02ffff03ff
+    ff22ffff09ff47ff1480ffff09ffff0dff81a780ffff01208080ffff01ff02ff1affff04ff02ffff
+    04ff05ffff04ff0bffff04ff37ffff04ff81a7ffff04ff5fff8080808080808080ffff01ff04ff27
+    ffff02ff1affff04ff02ffff04ff05ffff04ff0bffff04ff37ffff04ff2fffff04ffff21ff5fffff
+    22ffff09ff47ff0880ffff09ffff18ff820167ffff010180ffff0101808080ff8080808080808080
+    8080ff0180ffff01ff02ffff03ff5fff80ffff01ff04ffff04ff08ffff04ffff0bff52ffff0bff1c
+    ffff0bff1cff62ff0580ffff0bff1cffff0bff72ffff0bff1cffff0bff1cff62ffff0bffff0101ff
+    058080ffff0bff1cffff0bff72ffff0bff1cffff0bff1cff62ffff0bffff0101ff0b8080ffff0bff
+    1cffff0bff72ffff0bff1cffff0bff1cff62ffff0bffff0101ff2f8080ffff0bff1cff62ff428080
+    80ff42808080ff42808080ff42808080ffff01ff01808080ff808080ff018080ff0180ffff02ffff
+    03ffff07ff0580ffff01ff0bffff0102ffff02ff16ffff04ff02ffff04ff09ff80808080ffff02ff
+    16ffff04ff02ffff04ff0dff8080808080ffff01ff0bffff0101ff058080ff0180ff02ffff03ff1b
+    ffff01ff02ff1effff04ff02ffff04ffff02ffff03ffff18ffff0101ff1380ffff01ff0bffff0102
+    ff2bff0580ffff01ff0bffff0102ff05ff2b8080ff0180ffff04ffff04ffff17ff13ffff0181ff80
+    ff3b80ff8080808080ffff010580ff0180ff018080
     "
 );
 

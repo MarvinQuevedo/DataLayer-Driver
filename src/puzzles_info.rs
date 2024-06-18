@@ -15,7 +15,7 @@ pub enum DelegatedPuzzleHash {
 pub enum DelegatedPuzzle {
     Admin(NodePtr),
     Writer(NodePtr),
-    Oracle(NodePtr),
+    Oracle(Bytes32, u32),
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
