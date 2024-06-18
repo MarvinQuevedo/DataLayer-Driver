@@ -9,9 +9,10 @@
 
 (mod (
     MOD_HASH
+    INNER_PUZZLE_HASH
     MERKLE_ROOT
+    merkle_proof ; () if running inner puzzle
     puzzle_reveal
-    merkle_proof
     puzzle_solution
   )
 
@@ -64,9 +65,23 @@
     )
   )
 
-  (if (= MERKLE_ROOT (simplify_merkle_proof (sha256tree puzzle_reveal) merkle_proof))
-    (morph_conditions MOD_HASH (a puzzle_reveal puzzle_solution) MERKLE_ROOT ())
-    ; else
-    (x "ph proof invalid")
+  (defun-inline main (
+    puzzle_hash
   )
+    (if merkle_proof
+      (if (= MERKLE_ROOT (simplify_merkle_proof (sha256tree puzzle_reveal) merkle_proof))
+        (morph_conditions MOD_HASH (a puzzle_reveal puzzle_solution) MERKLE_ROOT ())
+        ; else
+        (x "ph proof invalid")
+      )
+      ; else
+      (if (= puzzle_hash INNER_PUZZLE_HASH)
+        (a puzzle_reveal puzzle_solution)
+        ; else
+        (x "ph invalid")
+      )
+    )
+  )
+
+  (main (sha256tree puzzle_reveal))
 )
