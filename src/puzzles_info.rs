@@ -94,16 +94,11 @@ pub fn merkle_root_for_delegated_puzzles(delegated_puzzles: Vec<DelegatedPuzzle>
 
 impl<M> DataStoreInfo<M> {
     pub fn get_merkle_set(self) -> Option<MerkleSet> {
-        match self.delegated_puzzles {
-            None => None,
-            Some(delegated_puzzles) => Some(merkle_set_for_delegated_puzzles(delegated_puzzles)),
-        }
+        self.delegated_puzzles.map(merkle_set_for_delegated_puzzles)
     }
 
     pub fn get_merkle_root(self) -> Option<Bytes32> {
-        match self.delegated_puzzles {
-            None => None,
-            Some(delegated_puzzles) => Some(merkle_root_for_delegated_puzzles(delegated_puzzles)),
-        }
+        self.delegated_puzzles
+            .map(merkle_root_for_delegated_puzzles)
     }
 }
