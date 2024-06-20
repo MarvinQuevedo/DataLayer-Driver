@@ -265,12 +265,12 @@ mod tests {
     use super::*;
 
     use chia_puzzles::standard::StandardArgs;
-    use chia_sdk_driver::{Launcher, StandardSpend};
-    use chia_sdk_test::{test_transaction, Simulator};
+    use chia_sdk_driver::{Launcher, P2Spend, StandardSpend};
+    use chia_sdk_test::{debug_announcements, test_transaction, Simulator};
     use clvmr::Allocator;
 
     #[tokio::test]
-    async fn test_create_datastore() -> anyhow::Result<()> {
+    async fn test_vanilla_datastore() -> anyhow::Result<()> {
         let sim = Simulator::new().await?;
         let peer = sim.connect().await?;
 
@@ -298,6 +298,13 @@ mod tests {
             .chain(launch_singleton)
             .finish(ctx, coin, pk)?;
 
+        let datastore_inner_spend = StandardSpend::new()
+            .chain(SpendConditions::new().create_coin(ctx, puzzle_hash, 1)?)
+            .inner_spend(ctx, pk)?;
+        let inner_datastore_spend = DatastoreInnerSpend::OwnerPuzzleSpend(datastore_inner_spend);
+        let new_spend = datastore_spend(ctx, &datastore_info, inner_datastore_spend)?;
+        ctx.spend(new_spend);
+
         test_transaction(
             &peer,
             ctx.take_spends(),
@@ -306,7 +313,7 @@ mod tests {
         )
         .await;
 
-        // Make sure the DID was created.
+        // Make sure the datastore was created.
         let coin_state = sim
             .coin_state(datastore_info.coin.coin_id())
             .await
