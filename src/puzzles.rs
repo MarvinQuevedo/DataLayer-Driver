@@ -25,7 +25,7 @@ impl DelegationLayerArgs {
 
     pub fn curry_tree_hash(inner_puzzle_hash: Bytes32, merkle_root: Bytes32) -> TreeHash {
         CurriedProgram {
-            program: DELEGATION_LAYER_PUZZLE,
+            program: DELEGATION_LAYER_PUZZLE_HASH,
             args: DelegationLayerArgs {
                 mod_hash: DELEGATION_LAYER_PUZZLE_HASH.into(),
                 inner_puzzle_hash,

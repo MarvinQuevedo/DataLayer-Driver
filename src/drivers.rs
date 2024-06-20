@@ -1,21 +1,19 @@
 use crate::{
-    merkle_root_for_delegated_puzzles,
+    merkle_root_for_delegated_puzzles, merkle_set_for_delegated_puzzles,
     puzzles_info::{DataStoreInfo, DelegatedPuzzle},
     DelegationLayerArgs, DelegationLayerSolution, ADMIN_FILTER_PUZZLE, ADMIN_FILTER_PUZZLE_HASH,
     DELEGATION_LAYER_PUZZLE, DELEGATION_LAYER_PUZZLE_HASH, WRITER_FILTER_PUZZLE,
     WRITER_FILTER_PUZZLE_HASH,
 };
-use chia::consensus::{
-    gen::opcodes::{CREATE_COIN, CREATE_PUZZLE_ANNOUNCEMENT},
-    merkle_tree::MerkleSet,
-};
+use chia::consensus::gen::opcodes::{CREATE_COIN, CREATE_PUZZLE_ANNOUNCEMENT};
 use chia_protocol::{Bytes32, CoinSpend};
+use chia_puzzles::{nft::NftStateLayerArgs, singleton::SingletonArgs, EveProof, Proof};
 use chia_sdk_driver::{
-    spend_nft_state_layer, spend_singleton, InnerSpend, Launcher, SpendConditions, SpendContext,
-    SpendError,
+    spend_nft_state_layer, spend_singleton, InnerSpend, SpendConditions, SpendContext, SpendError,
+    SpendableLauncher,
 };
 use clvm_traits::{FromClvmError, ToClvm};
-use clvm_utils::CurriedProgram;
+use clvm_utils::{CurriedProgram, TreeHash};
 use clvmr::{reduction::EvalErr, Allocator, NodePtr};
 
 pub trait SpendContextExt {
@@ -103,7 +101,8 @@ where
         };
     }
 
-    let merkle_root = datastore_info.get_merkle_root().unwrap();
+    let merkle_root =
+        merkle_root_for_delegated_puzzles(&datastore_info.delegated_puzzles.as_ref().unwrap());
 
     let new_inner_puzzle_mod = ctx.delegation_layer_puzzle()?;
     let new_inner_puzzle_args =
@@ -141,15 +140,14 @@ where
         ))
     })?;
 
-    let merkle_proof_result = datastore_info
-        .get_merkle_set()
-        .unwrap()
-        .generate_proof(&delegated_puzzle.puzzle_hash.into())
-        .map_err(|_| {
-            SpendError::FromClvm(FromClvmError::Custom(String::from(
-                "could not generate merkle proof for spent puzzle",
-            )))
-        })?;
+    let merkle_proof_result =
+        merkle_set_for_delegated_puzzles(&datastore_info.delegated_puzzles.as_ref().unwrap())
+            .generate_proof(&delegated_puzzle.puzzle_hash.into())
+            .map_err(|_| {
+                SpendError::FromClvm(FromClvmError::Custom(String::from(
+                    "could not generate merkle proof for spent puzzle",
+                )))
+            })?;
 
     let merkle_proof = if merkle_proof_result.0 {
         merkle_proof_result.1
@@ -199,7 +197,7 @@ pub struct DataStoreMintInfo<M> {
     // NFT state layer
     pub metadata: M,
     // inner puzzle (either p2 or delegation_layer + p2)
-    pub owner_puzzle_hash: Bytes32,
+    pub owner_puzzle_hash: TreeHash,
     pub delegated_puzzles: Option<Vec<DelegatedPuzzle>>,
 }
 
@@ -207,32 +205,57 @@ pub trait LauncherExt {
     fn mint_datastore<M>(
         self,
         ctx: &mut SpendContext<'_>,
-        info: DataStoreMintInfo<M>,
+        info: &DataStoreMintInfo<M>,
     ) -> Result<(SpendConditions, DataStoreInfo<M>), SpendError>
     where
         M: ToClvm<NodePtr> + Clone,
         Self: Sized;
 }
 
-impl<'a> LauncherExt for Launcher {
+impl<'a> LauncherExt for SpendableLauncher {
     fn mint_datastore<M>(
         self,
         ctx: &mut SpendContext<'_>,
-        info: DataStoreMintInfo<M>,
+        info: &DataStoreMintInfo<M>,
     ) -> Result<(SpendConditions, DataStoreInfo<M>), SpendError>
     where
         M: ToClvm<NodePtr> + Clone,
         Self: Sized,
     {
-        let inner_puzzle_hash = match info.delegated_puzzles {
+        let inner_puzzle_hash: TreeHash = match &info.delegated_puzzles {
             None => info.owner_puzzle_hash,
             Some(delegated_puzzles) => DelegationLayerArgs::curry_tree_hash(
-                info.owner_puzzle_hash,
+                info.owner_puzzle_hash.into(),
                 merkle_root_for_delegated_puzzles(delegated_puzzles),
-            )
-            .into(),
+            ),
         };
 
-        unimplemented!("todo")
+        let metadata_ptr = ctx.alloc(&info.metadata)?;
+        let metadata_hash = ctx.tree_hash(metadata_ptr);
+        let state_layer_hash: TreeHash =
+            NftStateLayerArgs::curry_tree_hash(metadata_hash, inner_puzzle_hash);
+
+        let launcher_coin = self.coin();
+        let launcher_id = launcher_coin.coin_id();
+        let singleton_inner_puzzle_hash =
+            SingletonArgs::curry_tree_hash(launcher_id, state_layer_hash);
+
+        let (chained_spend, eve_coin) = self.spend(ctx, singleton_inner_puzzle_hash.into(), ())?;
+
+        let proof: Proof = Proof::Eve(EveProof {
+            parent_coin_info: launcher_coin.parent_coin_info,
+            amount: launcher_coin.amount,
+        });
+
+        let data_store_info = DataStoreInfo {
+            launcher_id,
+            coin: eve_coin,
+            proof,
+            metadata: info.metadata.clone(),
+            owner_puzzle_hash: info.owner_puzzle_hash.into(),
+            delegated_puzzles: info.delegated_puzzles.clone(),
+        };
+
+        Ok((chained_spend, data_store_info))
     }
 }
