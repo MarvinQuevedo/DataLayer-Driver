@@ -1,3 +1,4 @@
+use chia::consensus::merkle_tree::MerkleSet;
 use chia_protocol::{Bytes32, Coin};
 use chia_puzzles::Proof;
 use chia_sdk_driver::SpendContext;
@@ -74,4 +75,35 @@ pub struct DataStoreInfo<M> {
     // inner puzzle (either p2 or delegation_layer + p2)
     pub owner_puzzle_hash: Bytes32,
     pub delegated_puzzles: Option<Vec<DelegatedPuzzle>>,
+}
+
+pub fn merkle_set_for_delegated_puzzles(delegated_puzzles: Vec<DelegatedPuzzle>) -> MerkleSet {
+    let mut leafs: Vec<[u8; 32]> = delegated_puzzles
+        .iter()
+        .map(|delegated_puzzle| -> [u8; 32] { delegated_puzzle.puzzle_hash.into() })
+        .collect();
+
+    MerkleSet::from_leafs(&mut leafs)
+}
+
+pub fn merkle_root_for_delegated_puzzles(delegated_puzzles: Vec<DelegatedPuzzle>) -> Bytes32 {
+    merkle_set_for_delegated_puzzles(delegated_puzzles)
+        .get_root()
+        .into()
+}
+
+impl<M> DataStoreInfo<M> {
+    pub fn get_merkle_set(self) -> Option<MerkleSet> {
+        match self.delegated_puzzles {
+            None => None,
+            Some(delegated_puzzles) => Some(merkle_set_for_delegated_puzzles(delegated_puzzles)),
+        }
+    }
+
+    pub fn get_merkle_root(self) -> Option<Bytes32> {
+        match self.delegated_puzzles {
+            None => None,
+            Some(delegated_puzzles) => Some(merkle_root_for_delegated_puzzles(delegated_puzzles)),
+        }
+    }
 }

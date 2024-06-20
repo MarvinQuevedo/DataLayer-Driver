@@ -1,4 +1,5 @@
 use crate::{
+    merkle_root_for_delegated_puzzles,
     puzzles_info::{DataStoreInfo, DelegatedPuzzle},
     DelegationLayerArgs, DelegationLayerSolution, ADMIN_FILTER_PUZZLE, ADMIN_FILTER_PUZZLE_HASH,
     DELEGATION_LAYER_PUZZLE, DELEGATION_LAYER_PUZZLE_HASH, WRITER_FILTER_PUZZLE,
@@ -102,14 +103,7 @@ where
         };
     }
 
-    let delegated_puzzles = datastore_info.delegated_puzzles.as_ref().unwrap();
-
-    let mut leafs: Vec<[u8; 32]> = delegated_puzzles
-        .iter()
-        .map(|delegated_puzzle| -> [u8; 32] { delegated_puzzle.puzzle_hash.into() })
-        .collect();
-    let merkle_set = MerkleSet::from_leafs(&mut leafs);
-    let merkle_root: [u8; 32] = merkle_set.get_root();
+    let merkle_root = datastore_info.get_merkle_root().unwrap();
 
     let new_inner_puzzle_mod = ctx.delegation_layer_puzzle()?;
     let new_inner_puzzle_args =
@@ -147,7 +141,9 @@ where
         ))
     })?;
 
-    let merkle_proof_result = merkle_set
+    let merkle_proof_result = datastore_info
+        .get_merkle_set()
+        .unwrap()
         .generate_proof(&delegated_puzzle.puzzle_hash.into())
         .map_err(|_| {
             SpendError::FromClvm(FromClvmError::Custom(String::from(
@@ -228,6 +224,15 @@ impl<'a> LauncherExt for Launcher {
         M: ToClvm<NodePtr> + Clone,
         Self: Sized,
     {
+        let inner_puzzle_hash = match info.delegated_puzzles {
+            None => info.owner_puzzle_hash,
+            Some(delegated_puzzles) => DelegationLayerArgs::curry_tree_hash(
+                info.owner_puzzle_hash,
+                merkle_root_for_delegated_puzzles(delegated_puzzles),
+            )
+            .into(),
+        };
+
         unimplemented!("todo")
     }
 }
