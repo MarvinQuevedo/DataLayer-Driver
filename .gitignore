@@ -171,6 +171,7 @@ cython_debug/
 
 # yak
 main.sym
+sb.debug
 
 # Rust
 /target

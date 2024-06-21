@@ -1,3 +1,5 @@
+use std::{fs::File, io::Write, path::Path};
+
 use chia::bls::G2Element;
 use chia_protocol::{Coin, CoinSpend, SpendBundle};
 use hex::encode;
@@ -62,13 +64,24 @@ impl From<&SpendBundle> for SerializableSpendBundle {
     }
 }
 
-pub fn print_spend_bundle(spends: Vec<CoinSpend>, agg_sig: G2Element) {
+pub fn get_spend_bundle_json(spends: Vec<CoinSpend>, agg_sig: G2Element) -> String {
     let spend_bundle = SpendBundle {
         coin_spends: spends,
         aggregated_signature: agg_sig,
     };
 
     let serializable_bundle = SerializableSpendBundle::from(&spend_bundle);
-    let json = serde_json::to_string(&serializable_bundle).expect("Serialization failed");
-    println!("{}", json);
+    serde_json::to_string(&serializable_bundle).expect("Serialization failed")
+}
+
+pub fn print_spend_bundle(spends: Vec<CoinSpend>, agg_sig: G2Element) {
+    println!("{}", get_spend_bundle_json(spends, agg_sig));
+}
+
+pub fn print_spend_bundle_to_file(spends: Vec<CoinSpend>, agg_sig: G2Element, file_path: &str) {
+    let json_string = get_spend_bundle_json(spends, agg_sig);
+    let path = Path::new(file_path);
+    let mut file = File::create(&path).expect("Unable to create file");
+    file.write_all(json_string.as_bytes())
+        .expect("Unable to write data");
 }

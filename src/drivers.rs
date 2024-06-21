@@ -261,7 +261,7 @@ impl<'a> LauncherExt for SpendableLauncher {
 
 #[cfg(test)]
 mod tests {
-    use crate::print_spend_bundle;
+    use crate::print_spend_bundle_to_file;
 
     use super::*;
 
@@ -331,20 +331,41 @@ mod tests {
         let sim = Simulator::new().await?;
         let peer = sim.connect().await?;
 
-        let sk = sim.secret_key().await?;
-        let pk = sk.public_key();
+        let owner_sk = sim.secret_key().await?;
+        let owner_pk = owner_sk.public_key();
 
-        let puzzle_hash = StandardArgs::curry_tree_hash(pk).into();
-        let coin = sim.mint_coin(puzzle_hash, 1).await;
+        let admin_sk = sim.secret_key().await?;
+        let admin_pk = admin_sk.public_key();
+
+        let writer_sk = sim.secret_key().await?;
+        let writer_pk = writer_sk.public_key();
+
+        let oracle_puzzle_hash: Bytes32 = [1; 32].into();
+        let oracle_fee = 1000;
+
+        let owner_puzzle_hash = StandardArgs::curry_tree_hash(owner_pk).into();
+        let coin = sim.mint_coin(owner_puzzle_hash, 1).await;
 
         let mut allocator = Allocator::new();
         let ctx = &mut SpendContext::new(&mut allocator);
 
-        let inner_puzzle = CurriedProgram {
+        // let owner_puzzle: NodePtr = CurriedProgram {
+        //     program: ctx.standard_puzzle()?,
+        //     args: StandardArgs::new(owner_pk),
+        // }
+        // .to_clvm(ctx.allocator_mut())?;
+
+        let admin_puzzle: NodePtr = CurriedProgram {
             program: ctx.standard_puzzle()?,
-            args: StandardArgs::new(pk),
-        };
-        let inner_puzzle = inner_puzzle.to_clvm(ctx.allocator_mut())?;
+            args: StandardArgs::new(admin_pk),
+        }
+        .to_clvm(ctx.allocator_mut())?;
+
+        let writer_puzzle: NodePtr = CurriedProgram {
+            program: ctx.standard_puzzle()?,
+            args: StandardArgs::new(writer_pk),
+        }
+        .to_clvm(ctx.allocator_mut())?;
 
         let (launch_singleton, datastore_info) = Launcher::new(coin.coin_id(), 1)
             .create(ctx)?
@@ -352,29 +373,37 @@ mod tests {
                 ctx,
                 &DataStoreMintInfo {
                     metadata: (),
-                    owner_puzzle_hash: puzzle_hash.into(),
+                    owner_puzzle_hash: owner_puzzle_hash.into(),
                     delegated_puzzles: Some(vec![
-                        DelegatedPuzzle::new_admin(inner_puzzle).unwrap(),
-                        DelegatedPuzzle::new_writer(inner_puzzle).unwrap(),
-                        DelegatedPuzzle::new_oracle(puzzle_hash, 1000).unwrap(),
+                        DelegatedPuzzle::new_admin(admin_puzzle).unwrap(),
+                        DelegatedPuzzle::new_writer(writer_puzzle).unwrap(),
+                        DelegatedPuzzle::new_oracle(oracle_puzzle_hash, oracle_fee).unwrap(),
                     ]),
                 },
             )?;
 
         StandardSpend::new()
             .chain(launch_singleton)
-            .finish(ctx, coin, pk)?;
+            .finish(ctx, coin, owner_pk)?;
 
-        let datastore_inner_spend = StandardSpend::new()
-            .chain(SpendConditions::new().create_coin(ctx, puzzle_hash, 1)?)
-            .inner_spend(ctx, pk)?;
-        let inner_datastore_spend = DatastoreInnerSpend::OwnerPuzzleSpend(datastore_inner_spend);
+        // finally, remove delegation layer altogether
+        let datastore_remove_delegation_layer_inner_spend = StandardSpend::new()
+            .chain(SpendConditions::new().create_coin(ctx, owner_puzzle_hash, 1)?)
+            .inner_spend(ctx, owner_pk)?;
+        let inner_datastore_spend =
+            DatastoreInnerSpend::OwnerPuzzleSpend(datastore_remove_delegation_layer_inner_spend);
         let new_spend = datastore_spend(ctx, &datastore_info, inner_datastore_spend)?;
         ctx.spend(new_spend);
 
         let spends = ctx.take_spends();
-        print_spend_bundle(spends.clone(), G2Element::default());
-        test_transaction(&peer, spends, &[sk], sim.config().genesis_challenge).await;
+        print_spend_bundle_to_file(spends.clone(), G2Element::default(), "sb.debug");
+        test_transaction(
+            &peer,
+            spends,
+            &[owner_sk, admin_sk, writer_sk],
+            sim.config().genesis_challenge,
+        )
+        .await;
 
         // Make sure the datastore was created.
         let coin_state = sim
