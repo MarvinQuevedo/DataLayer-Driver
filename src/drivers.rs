@@ -7,7 +7,7 @@ use crate::{
 };
 use chia::consensus::gen::opcodes::{CREATE_COIN, CREATE_PUZZLE_ANNOUNCEMENT};
 use chia_protocol::{Bytes32, CoinSpend};
-use chia_puzzles::{nft::NftStateLayerArgs, singleton::SingletonArgs, EveProof, Proof};
+use chia_puzzles::{nft::NftStateLayerArgs, EveProof, Proof};
 use chia_sdk_driver::{
     spend_nft_state_layer, spend_singleton, InnerSpend, SpendConditions, SpendContext, SpendError,
     SpendableLauncher,
@@ -15,6 +15,7 @@ use chia_sdk_driver::{
 use clvm_traits::{FromClvmError, ToClvm};
 use clvm_utils::{CurriedProgram, TreeHash};
 use clvmr::{reduction::EvalErr, Allocator, NodePtr};
+use hex::encode;
 
 pub trait SpendContextExt {
     fn delegation_layer_puzzle(&mut self) -> Result<NodePtr, SpendError>;
@@ -229,18 +230,16 @@ impl<'a> LauncherExt for SpendableLauncher {
                 merkle_root_for_delegated_puzzles(delegated_puzzles),
             ),
         };
+        println!("inner_puzzle_hash: {:?}", encode(inner_puzzle_hash));
 
         let metadata_ptr = ctx.alloc(&info.metadata)?;
         let metadata_hash = ctx.tree_hash(metadata_ptr);
         let state_layer_hash: TreeHash =
             NftStateLayerArgs::curry_tree_hash(metadata_hash, inner_puzzle_hash);
+        println!("state_layer_hash: {:?}", encode(state_layer_hash));
 
         let launcher_coin = self.coin();
-        let launcher_id = launcher_coin.coin_id();
-        let singleton_inner_puzzle_hash =
-            SingletonArgs::curry_tree_hash(launcher_id, state_layer_hash);
-
-        let (chained_spend, eve_coin) = self.spend(ctx, singleton_inner_puzzle_hash.into(), ())?;
+        let (chained_spend, eve_coin) = self.spend(ctx, state_layer_hash.into(), ())?;
 
         let proof: Proof = Proof::Eve(EveProof {
             parent_coin_info: launcher_coin.parent_coin_info,
@@ -248,7 +247,7 @@ impl<'a> LauncherExt for SpendableLauncher {
         });
 
         let data_store_info = DataStoreInfo {
-            launcher_id,
+            launcher_id: launcher_coin.coin_id(),
             coin: eve_coin,
             proof,
             metadata: info.metadata.clone(),
@@ -262,11 +261,8 @@ impl<'a> LauncherExt for SpendableLauncher {
 
 #[cfg(test)]
 mod tests {
-    use crate::print_spend_bundle;
-
     use super::*;
 
-    use chia::bls::G2Element;
     use chia_puzzles::standard::StandardArgs;
     use chia_sdk_driver::{Launcher, P2Spend, StandardSpend};
     use chia_sdk_test::{test_transaction, Simulator};
@@ -308,9 +304,6 @@ mod tests {
         let new_spend = datastore_spend(ctx, &datastore_info, inner_datastore_spend)?;
         ctx.spend(new_spend);
 
-        let spends = ctx.take_spends();
-        print_spend_bundle(spends, G2Element::default());
-        println!("Testing tx 123...");
         test_transaction(
             &peer,
             ctx.take_spends(),
@@ -325,6 +318,7 @@ mod tests {
             .await
             .expect("expected datastore coin");
         assert_eq!(coin_state.coin, datastore_info.coin);
+        assert!(coin_state.spent_height.is_some());
 
         Ok(())
     }
