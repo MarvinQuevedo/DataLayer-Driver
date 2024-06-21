@@ -2,9 +2,9 @@ use chia::consensus::merkle_tree::MerkleSet;
 use chia_protocol::{Bytes32, Coin};
 use chia_puzzles::Proof;
 use chia_sdk_driver::SpendContext;
-use clvm_traits::ToClvm;
-use clvm_utils::CurriedProgram;
-use clvmr::NodePtr;
+use clvm_traits::{ToClvm, ToClvmError};
+use clvm_utils::{tree_hash, CurriedProgram};
+use clvmr::{reduction::EvalErr, Allocator, NodePtr};
 
 use crate::{
     get_oracle_puzzle, AdminFilterArgs, WriterFilterArgs, ADMIN_FILTER_PUZZLE, WRITER_FILTER_PUZZLE,
@@ -25,6 +25,49 @@ pub struct DelegatedPuzzle {
 }
 
 impl DelegatedPuzzle {
+    pub fn new_admin(inner_puzzle: NodePtr) -> Result<Self, ToClvmError> {
+        let mut allocator = Allocator::new();
+
+        let curried_prog = CurriedProgram {
+            program: ADMIN_FILTER_PUZZLE,
+            args: AdminFilterArgs { inner_puzzle },
+        };
+
+        let full_puzzle = curried_prog.to_clvm(&mut allocator)?;
+
+        Ok(Self {
+            puzzle_hash: tree_hash(&allocator, full_puzzle).into(),
+            puzzle_info: Some(DelegatedPuzzleInfo::Admin(inner_puzzle)),
+        })
+    }
+
+    pub fn new_writer(inner_puzzle: NodePtr) -> Result<Self, ToClvmError> {
+        let mut allocator = Allocator::new();
+
+        let curried_prog = CurriedProgram {
+            program: WRITER_FILTER_PUZZLE,
+            args: WriterFilterArgs { inner_puzzle },
+        };
+
+        let full_puzzle = curried_prog.to_clvm(&mut allocator)?;
+
+        Ok(Self {
+            puzzle_hash: tree_hash(&allocator, full_puzzle).into(),
+            puzzle_info: Some(DelegatedPuzzleInfo::Writer(inner_puzzle)),
+        })
+    }
+
+    pub fn new_oracle(oracle_puzzle_hash: Bytes32, oracle_fee: u64) -> Result<Self, EvalErr> {
+        let mut allocator = Allocator::new();
+
+        let full_puzzle = get_oracle_puzzle(&mut allocator, &oracle_puzzle_hash, oracle_fee)?;
+
+        Ok(Self {
+            puzzle_hash: tree_hash(&allocator, full_puzzle).into(),
+            puzzle_info: Some(DelegatedPuzzleInfo::Oracle(oracle_puzzle_hash, oracle_fee)),
+        })
+    }
+
     pub fn get_full_puzzle(&self, ctx: &mut SpendContext<'_>) -> Result<NodePtr, String> {
         match self.puzzle_info {
             Some(DelegatedPuzzleInfo::Admin(inner_puzzle)) => {

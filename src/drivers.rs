@@ -261,15 +261,18 @@ impl<'a> LauncherExt for SpendableLauncher {
 
 #[cfg(test)]
 mod tests {
+    use crate::print_spend_bundle;
+
     use super::*;
 
+    use chia::bls::G2Element;
     use chia_puzzles::standard::StandardArgs;
     use chia_sdk_driver::{Launcher, P2Spend, StandardSpend};
     use chia_sdk_test::{test_transaction, Simulator};
     use clvmr::Allocator;
 
     #[tokio::test]
-    async fn test_vanilla_datastore() -> anyhow::Result<()> {
+    async fn test_simple_datastore() -> anyhow::Result<()> {
         let sim = Simulator::new().await?;
         let peer = sim.connect().await?;
 
@@ -311,6 +314,67 @@ mod tests {
             sim.config().genesis_challenge,
         )
         .await;
+
+        // Make sure the datastore was created.
+        let coin_state = sim
+            .coin_state(datastore_info.coin.coin_id())
+            .await
+            .expect("expected datastore coin");
+        assert_eq!(coin_state.coin, datastore_info.coin);
+        assert!(coin_state.spent_height.is_some());
+
+        Ok(())
+    }
+
+    #[tokio::test]
+    async fn test_datastore_with_delegation_layer() -> anyhow::Result<()> {
+        let sim = Simulator::new().await?;
+        let peer = sim.connect().await?;
+
+        let sk = sim.secret_key().await?;
+        let pk = sk.public_key();
+
+        let puzzle_hash = StandardArgs::curry_tree_hash(pk).into();
+        let coin = sim.mint_coin(puzzle_hash, 1).await;
+
+        let mut allocator = Allocator::new();
+        let ctx = &mut SpendContext::new(&mut allocator);
+
+        let inner_puzzle = CurriedProgram {
+            program: ctx.standard_puzzle()?,
+            args: StandardArgs::new(pk),
+        };
+        let inner_puzzle = inner_puzzle.to_clvm(ctx.allocator_mut())?;
+
+        let (launch_singleton, datastore_info) = Launcher::new(coin.coin_id(), 1)
+            .create(ctx)?
+            .mint_datastore(
+                ctx,
+                &DataStoreMintInfo {
+                    metadata: (),
+                    owner_puzzle_hash: puzzle_hash.into(),
+                    delegated_puzzles: Some(vec![
+                        DelegatedPuzzle::new_admin(inner_puzzle).unwrap(),
+                        DelegatedPuzzle::new_writer(inner_puzzle).unwrap(),
+                        DelegatedPuzzle::new_oracle(puzzle_hash, 1000).unwrap(),
+                    ]),
+                },
+            )?;
+
+        StandardSpend::new()
+            .chain(launch_singleton)
+            .finish(ctx, coin, pk)?;
+
+        let datastore_inner_spend = StandardSpend::new()
+            .chain(SpendConditions::new().create_coin(ctx, puzzle_hash, 1)?)
+            .inner_spend(ctx, pk)?;
+        let inner_datastore_spend = DatastoreInnerSpend::OwnerPuzzleSpend(datastore_inner_spend);
+        let new_spend = datastore_spend(ctx, &datastore_info, inner_datastore_spend)?;
+        ctx.spend(new_spend);
+
+        let spends = ctx.take_spends();
+        print_spend_bundle(spends.clone(), G2Element::default());
+        test_transaction(&peer, spends, &[sk], sim.config().genesis_challenge).await;
 
         // Make sure the datastore was created.
         let coin_state = sim
