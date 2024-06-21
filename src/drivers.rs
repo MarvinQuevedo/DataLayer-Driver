@@ -262,11 +262,14 @@ impl<'a> LauncherExt for SpendableLauncher {
 
 #[cfg(test)]
 mod tests {
+    use crate::print_spend_bundle;
+
     use super::*;
 
+    use chia::bls::G2Element;
     use chia_puzzles::standard::StandardArgs;
     use chia_sdk_driver::{Launcher, P2Spend, StandardSpend};
-    use chia_sdk_test::{debug_announcements, test_transaction, Simulator};
+    use chia_sdk_test::{test_transaction, Simulator};
     use clvmr::Allocator;
 
     #[tokio::test]
@@ -305,6 +308,9 @@ mod tests {
         let new_spend = datastore_spend(ctx, &datastore_info, inner_datastore_spend)?;
         ctx.spend(new_spend);
 
+        let spends = ctx.take_spends();
+        print_spend_bundle(spends, G2Element::default());
+        println!("Testing tx 123...");
         test_transaction(
             &peer,
             ctx.take_spends(),
