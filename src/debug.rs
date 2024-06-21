@@ -26,8 +26,8 @@ struct SerializableSpendBundle {
 impl From<&Coin> for SerializableCoin {
     fn from(coin: &Coin) -> Self {
         SerializableCoin {
-            parent_coin_info: encode(coin.parent_coin_info),
-            puzzle_hash: encode(coin.puzzle_hash),
+            parent_coin_info: format!("0x{}", encode(&coin.parent_coin_info)),
+            puzzle_hash: format!("0x{}", encode(&coin.puzzle_hash)),
             amount: coin.amount,
         }
     }
@@ -37,8 +37,11 @@ impl From<&CoinSpend> for SerializableCoinSpend {
     fn from(coin_spend: &CoinSpend) -> Self {
         SerializableCoinSpend {
             coin: SerializableCoin::from(&coin_spend.coin),
-            puzzle_reveal: encode(coin_spend.puzzle_reveal.clone().into_bytes()),
-            solution: encode(coin_spend.solution.clone().into_bytes()),
+            puzzle_reveal: format!(
+                "0x{}",
+                encode(coin_spend.puzzle_reveal.clone().into_bytes())
+            ),
+            solution: format!("0x{}", encode(coin_spend.solution.clone().into_bytes())),
         }
     }
 }
@@ -51,7 +54,10 @@ impl From<&SpendBundle> for SerializableSpendBundle {
                 .iter()
                 .map(SerializableCoinSpend::from)
                 .collect(),
-            aggregated_signature: encode(spend_bundle.aggregated_signature.to_bytes()),
+            aggregated_signature: format!(
+                "0x{}",
+                encode(spend_bundle.aggregated_signature.to_bytes())
+            ),
         }
     }
 }
