@@ -1,10 +1,14 @@
 use chia::consensus::merkle_tree::MerkleSet;
-use chia_protocol::{Bytes32, Coin};
-use chia_puzzles::Proof;
+use chia_protocol::{Bytes, Bytes32, Coin, CoinSpend};
+use chia_puzzles::{
+    singleton::{LauncherSolution, SINGLETON_LAUNCHER_PUZZLE_HASH},
+    Proof,
+};
 use chia_sdk_driver::SpendContext;
-use clvm_traits::{ToClvm, ToClvmError};
+use chia_sdk_parser::{CurriedPuzzle, ParseError, Puzzle};
+use clvm_traits::{match_list, FromClvm, ToClvm, ToClvmError, ToNodePtr};
 use clvm_utils::{tree_hash, CurriedProgram};
-use clvmr::{reduction::EvalErr, Allocator, NodePtr};
+use clvmr::{reduction::EvalErr, Allocator, NodePtr, SExp};
 
 use crate::{
     get_oracle_puzzle, AdminFilterArgs, WriterFilterArgs, ADMIN_FILTER_PUZZLE, WRITER_FILTER_PUZZLE,
@@ -118,6 +122,68 @@ pub struct DataStoreInfo<M> {
     // inner puzzle (either p2 or delegation_layer + p2)
     pub owner_puzzle_hash: Bytes32,
     pub delegated_puzzles: Option<Vec<DelegatedPuzzle>>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ToClvm, FromClvm)]
+#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[clvm(list)]
+pub struct KeyValueList<T> {
+    pub singleton_puzzle_hash: Bytes32,
+    pub amount: u64,
+    pub key_value_list: T,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, ToClvm, FromClvm)]
+#[clvm(list)]
+pub struct MetadataItem<T = NodePtr> {
+    key: Bytes,
+    #[clvm(rest)]
+    value: Vec<T>,
+}
+
+pub type Metadata<T = NodePtr> = Vec<MetadataItem<T>>;
+
+impl<M> DataStoreInfo<M> {
+    pub fn from_spend(
+        allocator: &mut Allocator,
+        cs: &CoinSpend,
+    ) -> Result<DataStoreInfo<M>, ParseError>
+    where
+        M: FromClvm<NodePtr>,
+    {
+        let Ok(puzzle_node_ptr) = cs.puzzle_reveal.to_node_ptr(allocator) else {
+            return Err(ParseError::NonStandardLayer);
+        };
+
+        let puzzle = Puzzle::parse(allocator, puzzle_node_ptr);
+        let Some(puzzle): Option<CurriedPuzzle> = puzzle.as_curried() else {
+            return Err(ParseError::NonStandardLayer);
+        };
+
+        if puzzle.mod_hash == SINGLETON_LAUNCHER_PUZZLE_HASH {
+            // we're just launching this singleton :)
+            // solution is (singleton_full_puzzle_hash amount key_value_list)
+            let Ok(solution_node_ptr) = cs.solution.to_node_ptr(allocator) else {
+                return Err(ParseError::NonStandardLayer);
+            };
+
+            let solution = LauncherSolution::<Metadata>::from_clvm(allocator, solution_node_ptr)
+                .map_err(|_| ParseError::NonStandardLayer)?;
+
+            let hint_key = &Bytes::new("h".into()); // stands for 'hint(s)'
+            solution.key_value_list.iter().for_each(|item| {
+                if item.key.eq(hint_key) {
+                    return;
+                }
+
+                // todo
+            });
+
+            return Err(ParseError::NonStandardLayer);
+        }
+
+        return Err(ParseError::NonStandardLayer);
+    }
 }
 
 pub fn merkle_set_for_delegated_puzzles(delegated_puzzles: &Vec<DelegatedPuzzle>) -> MerkleSet {
