@@ -6,7 +6,7 @@ use crate::{
     ADMIN_FILTER_PUZZLE_HASH, DELEGATION_LAYER_PUZZLE, DELEGATION_LAYER_PUZZLE_HASH,
     WRITER_FILTER_PUZZLE, WRITER_FILTER_PUZZLE_HASH,
 };
-use chia_protocol::CoinSpend;
+use chia_protocol::{Bytes32, CoinSpend};
 use chia_puzzles::{nft::NftStateLayerArgs, EveProof, Proof};
 use chia_sdk_driver::{
     spend_nft_state_layer, spend_singleton, InnerSpend, SpendConditions, SpendContext, SpendError,
@@ -169,6 +169,64 @@ pub trait LauncherExt {
         Self: Sized;
 }
 
+fn get_memos(
+    ctx: &mut SpendContext<'_>,
+    owner_puzzle_hash: TreeHash,
+    delegated_puzzles: Option<Vec<DelegatedPuzzle>>,
+) -> Result<Vec<NodePtr>, SpendError> {
+    let mut memos = vec![ctx.alloc::<Bytes32>(&owner_puzzle_hash.into()).unwrap()];
+
+    if let Some(delegated_puzzles) = delegated_puzzles {
+        let hint_contents: Vec<HintContents> = delegated_puzzles
+            .clone()
+            .iter()
+            .map(
+                |delegated_puzzle: &DelegatedPuzzle| -> Result<HintContents<NodePtr>, SpendError> {
+                    match delegated_puzzle.puzzle_info {
+                        DelegatedPuzzleInfo::Admin(inner_puzzle_hash) => {
+                            Ok(HintContents::<NodePtr> {
+                                puzzle_type: HintType::AdminPuzzle,
+                                puzzle_info: vec![ctx.alloc(&inner_puzzle_hash)?],
+                            })
+                        }
+                        DelegatedPuzzleInfo::Writer(inner_puzzle_hash) => {
+                            Ok(HintContents::<NodePtr> {
+                                puzzle_type: HintType::WriterPuzzle,
+                                puzzle_info: vec![ctx.alloc(&inner_puzzle_hash)?],
+                            })
+                        }
+                        DelegatedPuzzleInfo::Oracle(oracle_puzzle_hash, oracle_fee) => {
+                            Ok(HintContents::<NodePtr> {
+                                puzzle_type: HintType::OraclePuzzle,
+                                puzzle_info: vec![
+                                    ctx.alloc(&oracle_puzzle_hash)?,
+                                    ctx.alloc(&oracle_fee)?,
+                                ],
+                            })
+                        }
+                    }
+                },
+            )
+            .collect::<Result<_, _>>()?;
+
+        let results: Result<Vec<NodePtr>, SpendError> = hint_contents
+            .iter()
+            .map(|hint_content| {
+                hint_content
+                    .to_clvm(ctx.allocator_mut())
+                    .map_err(SpendError::ToClvm)
+            })
+            .collect();
+
+        match results {
+            Ok(memos_vec) => memos.extend(memos_vec),
+            Err(e) => return Err(e),
+        }
+    }
+
+    Ok(memos)
+}
+
 impl<'a> LauncherExt for SpendableLauncher {
     fn mint_datastore(
         self,
@@ -192,53 +250,16 @@ impl<'a> LauncherExt for SpendableLauncher {
             NftStateLayerArgs::curry_tree_hash(metadata_hash, inner_puzzle_hash);
 
         let metadata_list = Metadata::<NodePtr>::from_clvm(ctx.allocator_mut(), metadata_ptr)?;
-        let mut kv_list: KeyValueList<NodePtr> = vec![KeyValueListItem::<NodePtr> {
-            key: HintKeys::MetadataReveal.value(),
-            value: metadata_list.items,
-        }];
-        if info.delegated_puzzles.is_some() {
-            let hint_contents: Vec<HintContents> = info
-                .delegated_puzzles
-                .clone()
-                .unwrap()
-                .iter()
-                .map(
-                    |delegated_puzzle: &DelegatedPuzzle| -> Result<HintContents<NodePtr>, SpendError> {
-                        match delegated_puzzle.puzzle_info {
-                            DelegatedPuzzleInfo::Admin(inner_puzzle_hash) => {
-                                Ok(HintContents::<NodePtr> {
-                                    puzzle_type: HintType::AdminPuzzle,
-                                    puzzle_info: vec![ctx.alloc(&inner_puzzle_hash)?],
-                                })
-                            }
-                            DelegatedPuzzleInfo::Writer(inner_puzzle_hash) => {
-                                Ok(HintContents::<NodePtr> {
-                                    puzzle_type: HintType::WriterPuzzle,
-                                    puzzle_info: vec![ctx.alloc(&inner_puzzle_hash)?],
-                                })
-                            }
-                            DelegatedPuzzleInfo::Oracle(oracle_puzzle_hash, oracle_fee) => {
-                                Ok(HintContents::<NodePtr> {
-                                    puzzle_type: HintType::OraclePuzzle,
-                                    puzzle_info: vec![
-                                        ctx.alloc(&oracle_puzzle_hash)?,
-                                        ctx.alloc(&oracle_fee)?,
-                                    ],
-                                })
-                            }
-                        }
-                    },
-                )
-                .collect::<Result<_, _>>()?;
-
-            kv_list.push(KeyValueListItem {
+        let kv_list: KeyValueList<NodePtr> = vec![
+            KeyValueListItem::<NodePtr> {
+                key: HintKeys::MetadataReveal.value(),
+                value: metadata_list.items,
+            },
+            KeyValueListItem {
                 key: HintKeys::DelegationLayerInfo.value(),
-                value: hint_contents
-                    .iter()
-                    .map(|hint_content| hint_content.to_clvm(ctx.allocator_mut()))
-                    .collect::<Result<_, _>>()?,
-            });
-        }
+                value: get_memos(ctx, info.owner_puzzle_hash, info.delegated_puzzles.clone())?,
+            },
+        ];
 
         let launcher_coin = self.coin();
         let (chained_spend, eve_coin) = self.spend(ctx, state_layer_hash.into(), kv_list)?;

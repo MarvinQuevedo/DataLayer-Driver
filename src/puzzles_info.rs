@@ -409,6 +409,7 @@ impl DataStoreInfo {
                 LauncherSolution::<KeyValueList<NodePtr>>::from_clvm(allocator, solution_node_ptr)
                     .map_err(|_| ParseError::NonStandardLayer)?;
 
+            println!("parsing metadata info..."); // todo: debug
             let metadata_info: &KeyValueListItem = solution
                 .key_value_list
                 .iter()
@@ -421,10 +422,12 @@ impl DataStoreInfo {
                 })
                 .ok_or(ParseError::MissingHint)?;
 
+            println!("parsing delegation layer info..."); // todo: debug
             let delegation_layer_info: &KeyValueListItem = solution
                 .key_value_list
                 .iter()
                 .find(|item| {
+                    println!("key: {:?}", item.key); // todo: debug
                     if item.key.eq(&HintKeys::DelegationLayerInfo.value()) {
                         return true;
                     }
@@ -433,6 +436,7 @@ impl DataStoreInfo {
                 })
                 .ok_or(ParseError::MissingHint)?;
 
+            println!("converting metadata..."); // todo: debug
             let metadata = Metadata::<NodePtr>::from_clvm(
                 allocator,
                 *metadata_info.value.first().ok_or(ParseError::MissingHint)?,
@@ -453,6 +457,7 @@ impl DataStoreInfo {
                 amount: cs.coin.amount,
             });
 
+            println!("building datastore info..."); // todo: debug
             return DataStoreInfo::build_datastore_info(
                 allocator,
                 new_coin,
