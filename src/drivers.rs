@@ -370,8 +370,9 @@ mod tests {
         print_spend_bundle_to_file(spends.clone(), G2Element::default(), "sb.debug");
         for spend in spends {
             if spend.coin.coin_id() == datastore_info.launcher_id {
-                let new_datastore_info =
-                    DataStoreInfo::from_spend(ctx.allocator_mut(), &spend).unwrap();
+                let new_datastore_info = DataStoreInfo::from_spend(ctx.allocator_mut(), &spend)
+                    .unwrap()
+                    .unwrap();
 
                 assert_datastores_eq(ctx, &datastore_info, &new_datastore_info);
             }
@@ -472,8 +473,9 @@ mod tests {
         let spends = ctx.take_spends();
         for spend in spends {
             if spend.coin.coin_id() == datastore_info.launcher_id {
-                let new_datastore_info =
-                    DataStoreInfo::from_spend(ctx.allocator_mut(), &spend).unwrap();
+                let new_datastore_info = DataStoreInfo::from_spend(ctx.allocator_mut(), &spend)
+                    .unwrap()
+                    .unwrap();
 
                 assert_datastores_eq(ctx, &datastore_info, &new_datastore_info);
             }
@@ -490,8 +492,9 @@ mod tests {
         let new_spend = datastore_spend(ctx, &datastore_info, inner_datastore_spend)?;
         ctx.spend(new_spend.clone());
 
-        let new_datastore_info =
-            DataStoreInfo::from_spend(ctx.allocator_mut(), &new_spend).unwrap();
+        let new_datastore_info = DataStoreInfo::from_spend(ctx.allocator_mut(), &new_spend)
+            .unwrap()
+            .unwrap();
         assert!(new_datastore_info.delegated_puzzles.is_none());
         assert_eq!(new_datastore_info.owner_puzzle_hash, owner_puzzle_hash);
 
