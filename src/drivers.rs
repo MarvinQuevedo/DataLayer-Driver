@@ -318,10 +318,23 @@ mod tests {
             datastore_info.owner_puzzle_hash
         );
 
-        assert_eq!(
-            new_datastore_info.delegated_puzzles,
-            datastore_info.delegated_puzzles
-        );
+        match datastore_info.delegated_puzzles.clone() {
+            Some(delegated_puzzles) => {
+                // when comparing delegated puzzles, don't care about
+                // their full_puzzle attribute
+                let new_delegated_puzzles = new_datastore_info.delegated_puzzles.clone().unwrap();
+                for i in 0..delegated_puzzles.len() {
+                    let a = delegated_puzzles.get(i).unwrap();
+                    let b = new_delegated_puzzles.get(i).unwrap();
+
+                    assert_eq!(a.puzzle_hash, b.puzzle_hash);
+                    assert_eq!(a.puzzle_info, b.puzzle_info);
+                }
+            }
+            None => {
+                assert!(new_datastore_info.delegated_puzzles.is_none());
+            }
+        }
     }
 
     #[tokio::test]

@@ -184,8 +184,10 @@ impl DelegatedPuzzle {
                     return Err(ParseError::MissingHint);
                 }
 
-                let inner_puzzle_hash = Bytes32::from_clvm(allocator, hint.puzzle_info[0])
-                    .map_err(|_| ParseError::MissingHint)?;
+                let inner_puzzle_hash: TreeHash =
+                    Bytes32::from_clvm(allocator, hint.puzzle_info[0])
+                        .map_err(|_| ParseError::MissingHint)?
+                        .into();
 
                 let full_puzzle_hash = CurriedProgram {
                     program: ADMIN_FILTER_PUZZLE_HASH,
@@ -195,7 +197,7 @@ impl DelegatedPuzzle {
 
                 Ok(DelegatedPuzzle {
                     puzzle_hash: full_puzzle_hash.into(),
-                    puzzle_info: DelegatedPuzzleInfo::Admin(inner_puzzle_hash),
+                    puzzle_info: DelegatedPuzzleInfo::Admin(inner_puzzle_hash.into()),
                     full_puzzle: None,
                 })
             }
@@ -204,8 +206,10 @@ impl DelegatedPuzzle {
                     return Err(ParseError::MissingHint);
                 }
 
-                let inner_puzzle_hash = Bytes32::from_clvm(allocator, hint.puzzle_info[0])
-                    .map_err(|_| ParseError::MissingHint)?;
+                let inner_puzzle_hash: TreeHash =
+                    Bytes32::from_clvm(allocator, hint.puzzle_info[0])
+                        .map_err(|_| ParseError::MissingHint)?
+                        .into();
 
                 let full_puzzle_hash = CurriedProgram {
                     program: WRITER_FILTER_PUZZLE_HASH,
@@ -215,7 +219,7 @@ impl DelegatedPuzzle {
 
                 Ok(DelegatedPuzzle {
                     puzzle_hash: full_puzzle_hash.into(),
-                    puzzle_info: DelegatedPuzzleInfo::Writer(inner_puzzle_hash),
+                    puzzle_info: DelegatedPuzzleInfo::Writer(inner_puzzle_hash.into()),
                     full_puzzle: None,
                 })
             }
