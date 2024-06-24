@@ -1,23 +1,26 @@
-use chia::consensus::merkle_tree::MerkleSet;
+use chia::consensus::{
+    gen::opcodes::{CREATE_COIN, CREATE_PUZZLE_ANNOUNCEMENT},
+    merkle_tree::MerkleSet,
+};
 use chia_protocol::{Bytes, Bytes32, Coin, CoinSpend};
 use chia_puzzles::{
     singleton::{LauncherSolution, SINGLETON_LAUNCHER_PUZZLE_HASH},
     EveProof, Proof,
 };
-use chia_sdk_driver::SpendContext;
 use chia_sdk_parser::{CurriedPuzzle, ParseError, Puzzle};
 use clvm_traits::{FromClvm, ToClvm, ToClvmError, ToNodePtr};
-use clvm_utils::{tree_hash, CurriedProgram};
+use clvm_utils::{tree_hash, CurriedProgram, ToTreeHash, TreeHash};
 use clvmr::{reduction::EvalErr, Allocator, NodePtr};
 
 use crate::{
-    get_oracle_puzzle, AdminFilterArgs, WriterFilterArgs, ADMIN_FILTER_PUZZLE, WRITER_FILTER_PUZZLE,
+    AdminFilterArgs, WriterFilterArgs, ADMIN_FILTER_PUZZLE, ADMIN_FILTER_PUZZLE_HASH,
+    WRITER_FILTER_PUZZLE, WRITER_FILTER_PUZZLE_HASH,
 };
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[must_use]
 pub enum DelegatedPuzzleInfo {
-    Admin(NodePtr),
-    Writer(NodePtr),
+    Admin(Bytes32),
+    Writer(Bytes32),
     Oracle(Bytes32, u64),
 }
 
@@ -25,87 +28,272 @@ pub enum DelegatedPuzzleInfo {
 #[must_use]
 pub struct DelegatedPuzzle {
     pub puzzle_hash: Bytes32,
-    pub puzzle_info: Option<DelegatedPuzzleInfo>,
+    pub puzzle_info: DelegatedPuzzleInfo,
+    pub full_puzzle: Option<NodePtr>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ToClvm, FromClvm)]
+#[repr(u8)]
+#[clvm(atom)]
+pub enum HintType {
+    AdminPuzzle = 0,
+    WriterPuzzle = 1,
+    OraclePuzzle = 2,
+    // Add other variants as needed
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, ToClvm, FromClvm)]
+#[clvm(list)]
+pub struct HintContents<T = NodePtr> {
+    pub puzzle_type: HintType,
+    #[clvm(rest)]
+    pub puzzle_info: Vec<T>,
 }
 
 impl DelegatedPuzzle {
-    pub fn new_admin(inner_puzzle: NodePtr) -> Result<Self, ToClvmError> {
-        let mut allocator = Allocator::new();
-
+    pub fn admin_layer_full_puzzle(
+        allocator: &mut Allocator,
+        inner_puzzle: NodePtr,
+    ) -> Result<NodePtr, ToClvmError> {
         let curried_prog = CurriedProgram {
             program: ADMIN_FILTER_PUZZLE,
             args: AdminFilterArgs { inner_puzzle },
         };
 
-        let full_puzzle = curried_prog.to_clvm(&mut allocator)?;
+        let full_puzzle = curried_prog.to_clvm(allocator)?;
+        Ok(full_puzzle)
+    }
+
+    pub fn from_admin_inner_puzzle(
+        allocator: &mut Allocator,
+        inner_puzzle: NodePtr,
+    ) -> Result<Self, ToClvmError> {
+        let inner_puzzle_hash: TreeHash = tree_hash(&allocator, inner_puzzle);
+        let full_puzzle_hash = CurriedProgram {
+            program: ADMIN_FILTER_PUZZLE_HASH,
+            args: vec![inner_puzzle_hash],
+        }
+        .tree_hash();
+
+        let full_puzzle = DelegatedPuzzle::admin_layer_full_puzzle(allocator, inner_puzzle)?;
 
         Ok(Self {
-            puzzle_hash: tree_hash(&allocator, full_puzzle).into(),
-            puzzle_info: Some(DelegatedPuzzleInfo::Admin(inner_puzzle)),
+            puzzle_hash: full_puzzle_hash.into(),
+            puzzle_info: DelegatedPuzzleInfo::Admin(inner_puzzle_hash.into()),
+            full_puzzle: Some(full_puzzle),
         })
     }
 
-    pub fn new_writer(inner_puzzle: NodePtr) -> Result<Self, ToClvmError> {
-        let mut allocator = Allocator::new();
-
+    pub fn writer_layer_full_puzzle(
+        allocator: &mut Allocator,
+        inner_puzzle: NodePtr,
+    ) -> Result<NodePtr, ToClvmError> {
         let curried_prog = CurriedProgram {
             program: WRITER_FILTER_PUZZLE,
             args: WriterFilterArgs { inner_puzzle },
         };
 
-        let full_puzzle = curried_prog.to_clvm(&mut allocator)?;
+        let full_puzzle = curried_prog.to_clvm(allocator)?;
+        Ok(full_puzzle)
+    }
+
+    pub fn from_writer_inner_puzzle(
+        allocator: &mut Allocator,
+        inner_puzzle: NodePtr,
+    ) -> Result<Self, ToClvmError> {
+        let inner_puzzle_hash: TreeHash = tree_hash(&allocator, inner_puzzle);
+        let full_puzzle_hash = CurriedProgram {
+            program: WRITER_FILTER_PUZZLE_HASH,
+            args: vec![inner_puzzle_hash],
+        }
+        .tree_hash();
+
+        let full_puzzle = DelegatedPuzzle::writer_layer_full_puzzle(allocator, inner_puzzle)?;
 
         Ok(Self {
-            puzzle_hash: tree_hash(&allocator, full_puzzle).into(),
-            puzzle_info: Some(DelegatedPuzzleInfo::Writer(inner_puzzle)),
+            puzzle_hash: full_puzzle_hash.into(),
+            puzzle_info: DelegatedPuzzleInfo::Writer(inner_puzzle_hash.into()),
+            full_puzzle: Some(full_puzzle),
         })
+    }
+
+    pub fn oracle_layer_full_puzzle(
+        allocator: &mut Allocator,
+        oracle_puzzle_hash: Bytes32,
+        oracle_fee: u64,
+    ) -> Result<NodePtr, EvalErr> {
+        // first condition: (list CREATE_COIN oracle_puzzle_hash oracle_fee)
+        // second condition: (list CREATE_PUZZLE_ANNOUNCEMENT '$')
+
+        let first_condition = {
+            let create_coin = allocator.new_number(CREATE_COIN.into())?;
+            let ph = allocator.new_atom(&oracle_puzzle_hash)?;
+            let fee = allocator.new_number(oracle_fee.into())?;
+            let nil = allocator.nil();
+            let fee_nil = allocator.new_pair(fee, nil)?;
+            let ph_fee_nil = allocator.new_pair(ph, fee_nil)?;
+
+            allocator.new_pair(create_coin, ph_fee_nil)?
+        };
+
+        let second_condition = {
+            let create_puzzle_ann = allocator.new_number(CREATE_PUZZLE_ANNOUNCEMENT.into())?;
+            let ann = allocator.new_atom(&['$' as u8])?;
+            let nil = allocator.nil();
+            let ann_nil = allocator.new_pair(ann, nil)?;
+
+            allocator.new_pair(create_puzzle_ann, ann_nil)?
+        };
+
+        let program = {
+            let one = allocator.one();
+            let first_second = allocator.new_pair(first_condition, second_condition)?;
+            let nil = allocator.nil();
+
+            let conditions = allocator.new_pair(first_second, nil)?;
+            allocator.new_pair(one, conditions)?
+        };
+
+        Ok(program)
     }
 
     pub fn new_oracle(oracle_puzzle_hash: Bytes32, oracle_fee: u64) -> Result<Self, EvalErr> {
         let mut allocator = Allocator::new();
 
-        let full_puzzle = get_oracle_puzzle(&mut allocator, &oracle_puzzle_hash, oracle_fee)?;
+        let full_puzzle = DelegatedPuzzle::oracle_layer_full_puzzle(
+            &mut allocator,
+            oracle_puzzle_hash,
+            oracle_fee,
+        )?;
 
         Ok(Self {
             puzzle_hash: tree_hash(&allocator, full_puzzle).into(),
-            puzzle_info: Some(DelegatedPuzzleInfo::Oracle(oracle_puzzle_hash, oracle_fee)),
+            puzzle_info: DelegatedPuzzleInfo::Oracle(oracle_puzzle_hash, oracle_fee),
+            full_puzzle: Some(full_puzzle),
         })
     }
 
-    pub fn get_full_puzzle(&self, ctx: &mut SpendContext<'_>) -> Result<NodePtr, String> {
-        match self.puzzle_info {
-            Some(DelegatedPuzzleInfo::Admin(inner_puzzle)) => {
-                let curried_prog = CurriedProgram {
-                    program: ADMIN_FILTER_PUZZLE,
-                    args: AdminFilterArgs { inner_puzzle },
-                };
+    pub fn from_hint(allocator: &mut Allocator, hint: &NodePtr) -> Result<Self, ParseError> {
+        let hint = HintContents::<NodePtr>::from_clvm(allocator, *hint).map_err(|_| {
+            return ParseError::NonStandardLayer;
+        })?;
 
-                match curried_prog.to_clvm(ctx.allocator_mut()) {
-                    Ok(prog) => Ok(prog),
-                    Err(_) => Err(String::from("Failed to curry admin filter puzzle")),
+        match hint.puzzle_type {
+            HintType::AdminPuzzle => {
+                if hint.puzzle_info.len() != 1 {
+                    return Err(ParseError::MissingHint);
                 }
-            }
-            Some(DelegatedPuzzleInfo::Writer(inner_puzzle)) => {
-                let curried_prog = CurriedProgram {
-                    program: WRITER_FILTER_PUZZLE,
-                    args: WriterFilterArgs { inner_puzzle },
-                };
 
-                match curried_prog.to_clvm(ctx.allocator_mut()) {
-                    Ok(prog) => Ok(prog),
-                    Err(_) => Err(String::from("Failed to curry writer filter puzzle")),
-                }
-            }
-            Some(DelegatedPuzzleInfo::Oracle(oracle_puzzle_hash, oracle_fee)) => {
-                let oracle_puzzle_result =
-                    get_oracle_puzzle(ctx.allocator_mut(), &oracle_puzzle_hash, oracle_fee);
+                let inner_puzzle_hash = Bytes32::from_clvm(allocator, hint.puzzle_info[0])
+                    .map_err(|_| ParseError::MissingHint)?;
 
-                match oracle_puzzle_result {
-                    Ok(oracle_puzzle) => Ok(oracle_puzzle),
-                    Err(_) => Err(String::from("Failed to build oracle puzzle")),
+                let full_puzzle_hash = CurriedProgram {
+                    program: ADMIN_FILTER_PUZZLE_HASH,
+                    args: vec![inner_puzzle_hash],
                 }
+                .tree_hash();
+
+                Ok(DelegatedPuzzle {
+                    puzzle_hash: full_puzzle_hash.into(),
+                    puzzle_info: DelegatedPuzzleInfo::Admin(inner_puzzle_hash),
+                    full_puzzle: None,
+                })
             }
-            None => Err(String::from("Delegated puzzle info is missing")),
+            HintType::WriterPuzzle => {
+                if hint.puzzle_info.len() != 1 {
+                    return Err(ParseError::MissingHint);
+                }
+
+                let inner_puzzle_hash = Bytes32::from_clvm(allocator, hint.puzzle_info[0])
+                    .map_err(|_| ParseError::MissingHint)?;
+
+                let full_puzzle_hash = CurriedProgram {
+                    program: WRITER_FILTER_PUZZLE_HASH,
+                    args: vec![inner_puzzle_hash],
+                }
+                .tree_hash();
+
+                Ok(DelegatedPuzzle {
+                    puzzle_hash: full_puzzle_hash.into(),
+                    puzzle_info: DelegatedPuzzleInfo::Writer(inner_puzzle_hash),
+                    full_puzzle: None,
+                })
+            }
+            HintType::OraclePuzzle => {
+                if hint.puzzle_info.len() != 2 {
+                    return Err(ParseError::MissingHint);
+                }
+
+                // bech32m_decode(oracle_address), not puzzle hash of the whole oracle puzze!
+                let oracle_puzzle_hash = Bytes32::from_clvm(allocator, hint.puzzle_info[0])
+                    .map_err(|_| ParseError::MissingHint)?;
+                let oracle_fee = u64::from_clvm(allocator, hint.puzzle_info[1])
+                    .map_err(|_| ParseError::MissingHint)?;
+
+                let oracle_puzzle = DelegatedPuzzle::oracle_layer_full_puzzle(
+                    allocator,
+                    oracle_puzzle_hash,
+                    oracle_fee,
+                )
+                .map_err(|_| ParseError::MissingHint)?;
+                let full_puzzle_hash = tree_hash(allocator, oracle_puzzle);
+
+                Ok(DelegatedPuzzle {
+                    puzzle_hash: full_puzzle_hash.into(),
+                    puzzle_info: DelegatedPuzzleInfo::Oracle(oracle_puzzle_hash, oracle_fee),
+                    full_puzzle: Some(oracle_puzzle),
+                })
+            }
+        }
+    }
+
+    pub fn get_full_puzzle(
+        self: Self,
+        allocator: &mut Allocator,
+        inner_puzzle_reveal: Option<NodePtr>,
+    ) -> Result<NodePtr, ToClvmError> {
+        match self.full_puzzle {
+            Some(full_puzzle) => return Ok(full_puzzle),
+            None => {
+                let full_puzzle = match self.puzzle_info {
+                    DelegatedPuzzleInfo::Admin(_) => {
+                        if let Some(inner_puzzle) = inner_puzzle_reveal {
+                            Ok(DelegatedPuzzle::admin_layer_full_puzzle(
+                                allocator,
+                                inner_puzzle,
+                            )?)
+                        } else {
+                            Err(ToClvmError::Custom(
+                                "Missing inner puzzle reveal".to_string(),
+                            ))
+                        }
+                    }
+                    DelegatedPuzzleInfo::Writer(_) => {
+                        if let Some(inner_puzzle) = inner_puzzle_reveal {
+                            Ok(DelegatedPuzzle::writer_layer_full_puzzle(
+                                allocator,
+                                inner_puzzle,
+                            )?)
+                        } else {
+                            Err(ToClvmError::Custom(
+                                "Missing inner puzzle reveal".to_string(),
+                            ))
+                        }
+                    }
+                    DelegatedPuzzleInfo::Oracle(oracle_puzzle_hash, oracle_fee) => {
+                        Ok(DelegatedPuzzle::oracle_layer_full_puzzle(
+                            allocator,
+                            oracle_puzzle_hash,
+                            oracle_fee,
+                        )
+                        .map_err(|_| {
+                            ToClvmError::Custom("Could not build oracle puzzle".to_string())
+                        })?)
+                    }
+                }?;
+
+                return Ok(full_puzzle);
+            }
         }
     }
 }
@@ -167,21 +355,13 @@ impl DataStoreInfo {
             Bytes32::from_clvm(allocator, contents_hint[0]).map_err(|_| ParseError::MissingHint)?;
 
         let delegated_puzzles = if contents_hint.len() > 1 {
-            let mut delegated_puzzles = Vec::new();
+            let d_puzz = contents_hint
+                .iter()
+                .skip(1)
+                .map(|hint| DelegatedPuzzle::from_hint(allocator, hint))
+                .collect::<Result<_, _>>()?;
 
-            for hint in contents_hint.iter().skip(1) {
-                // let delegated_puzzle =
-                //     DelegatedPuzzle::from_clvm(allocator, *hint).map_err(|_| {
-                //         return ParseError::MissingHint;
-                //     })?;
-
-                // delegated_puzzles.push(delegated_puzzle);
-                // todo
-
-                return Err(ParseError::MissingHint);
-            }
-
-            Ok(Some(delegated_puzzles))
+            Ok(Some(d_puzz))
         } else {
             Ok(None)
         }
