@@ -1,9 +1,9 @@
 use crate::{
     merkle_root_for_delegated_puzzles, merkle_set_for_delegated_puzzles,
     puzzles_info::{DataStoreInfo, DelegatedPuzzle},
-    DelegationLayerArgs, DelegationLayerSolution, ADMIN_FILTER_PUZZLE, ADMIN_FILTER_PUZZLE_HASH,
-    DELEGATION_LAYER_PUZZLE, DELEGATION_LAYER_PUZZLE_HASH, WRITER_FILTER_PUZZLE,
-    WRITER_FILTER_PUZZLE_HASH,
+    DelegationLayerArgs, DelegationLayerSolution, Metadata, ADMIN_FILTER_PUZZLE,
+    ADMIN_FILTER_PUZZLE_HASH, DELEGATION_LAYER_PUZZLE, DELEGATION_LAYER_PUZZLE_HASH,
+    WRITER_FILTER_PUZZLE, WRITER_FILTER_PUZZLE_HASH,
 };
 use chia::consensus::gen::opcodes::{CREATE_COIN, CREATE_PUZZLE_ANNOUNCEMENT};
 use chia_protocol::{Bytes32, CoinSpend};
@@ -82,14 +82,11 @@ pub fn get_oracle_puzzle(
     Ok(program)
 }
 
-pub fn spend_delegation_layer<M>(
+pub fn spend_delegation_layer(
     ctx: &mut SpendContext<'_>,
-    datastore_info: &DataStoreInfo<M>,
+    datastore_info: &DataStoreInfo,
     inner_datastore_spend: DatastoreInnerSpend,
-) -> Result<InnerSpend, SpendError>
-where
-    M: ToClvm<NodePtr>,
-{
+) -> Result<InnerSpend, SpendError> {
     if datastore_info.delegated_puzzles.is_none() {
         return match inner_datastore_spend {
             DatastoreInnerSpend::OwnerPuzzleSpend(inner_spend) => Ok(inner_spend),
@@ -170,14 +167,11 @@ where
     ))
 }
 
-pub fn datastore_spend<M>(
+pub fn datastore_spend(
     ctx: &mut SpendContext<'_>,
-    datastore_info: &DataStoreInfo<M>,
+    datastore_info: &DataStoreInfo,
     inner_datastore_spend: DatastoreInnerSpend,
-) -> Result<CoinSpend, SpendError>
-where
-    M: ToClvm<NodePtr>,
-{
+) -> Result<CoinSpend, SpendError> {
     // 1. Handle delegation layer spend
     let inner_spend = spend_delegation_layer(ctx, datastore_info, inner_datastore_spend)?;
 
@@ -194,33 +188,31 @@ where
     )
 }
 
-pub struct DataStoreMintInfo<M> {
+pub struct DataStoreMintInfo {
     // NFT state layer
-    pub metadata: M,
+    pub metadata: Metadata,
     // inner puzzle (either p2 or delegation_layer + p2)
     pub owner_puzzle_hash: TreeHash,
     pub delegated_puzzles: Option<Vec<DelegatedPuzzle>>,
 }
 
 pub trait LauncherExt {
-    fn mint_datastore<M>(
+    fn mint_datastore(
         self,
         ctx: &mut SpendContext<'_>,
-        info: &DataStoreMintInfo<M>,
-    ) -> Result<(SpendConditions, DataStoreInfo<M>), SpendError>
+        info: &DataStoreMintInfo,
+    ) -> Result<(SpendConditions, DataStoreInfo), SpendError>
     where
-        M: ToClvm<NodePtr> + Clone,
         Self: Sized;
 }
 
 impl<'a> LauncherExt for SpendableLauncher {
-    fn mint_datastore<M>(
+    fn mint_datastore(
         self,
         ctx: &mut SpendContext<'_>,
-        info: &DataStoreMintInfo<M>,
-    ) -> Result<(SpendConditions, DataStoreInfo<M>), SpendError>
+        info: &DataStoreMintInfo,
+    ) -> Result<(SpendConditions, DataStoreInfo), SpendError>
     where
-        M: ToClvm<NodePtr> + Clone,
         Self: Sized,
     {
         let inner_puzzle_hash: TreeHash = match &info.delegated_puzzles {
@@ -246,7 +238,7 @@ impl<'a> LauncherExt for SpendableLauncher {
             amount: launcher_coin.amount,
         });
 
-        let data_store_info = DataStoreInfo {
+        let data_store_info: DataStoreInfo = DataStoreInfo {
             launcher_id: launcher_coin.coin_id(),
             coin: eve_coin,
             proof,
@@ -290,7 +282,7 @@ mod tests {
             .mint_datastore(
                 ctx,
                 &DataStoreMintInfo {
-                    metadata: (),
+                    metadata: Metadata { items: Vec::new() },
                     owner_puzzle_hash: puzzle_hash.into(),
                     delegated_puzzles: None,
                 },
@@ -372,7 +364,7 @@ mod tests {
             .mint_datastore(
                 ctx,
                 &DataStoreMintInfo {
-                    metadata: (),
+                    metadata: Metadata { items: vec![] },
                     owner_puzzle_hash: owner_puzzle_hash.into(),
                     delegated_puzzles: Some(vec![
                         DelegatedPuzzle::new_admin(admin_puzzle).unwrap(),
