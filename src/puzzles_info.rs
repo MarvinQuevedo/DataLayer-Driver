@@ -301,9 +301,9 @@ impl DelegatedPuzzle {
 #[derive(Debug, Clone, PartialEq, Eq, ToClvm, FromClvm)]
 #[clvm(list)]
 pub struct KeyValueListItem<T = NodePtr> {
-    key: Bytes,
+    pub key: Bytes,
     #[clvm(rest)]
-    value: Vec<T>,
+    pub value: Vec<T>,
 }
 
 pub type KeyValueList<T> = Vec<KeyValueListItem<T>>;
@@ -336,6 +336,19 @@ pub struct CreateCoinConditionWithMemos<T = NodePtr> {
     pub singleton_puzzle_hash: Bytes32,
     pub amount: u64,
     pub memos: T,
+}
+pub enum HintKeys {
+    MetadataReveal,
+    DelegationLayerInfo,
+}
+
+impl HintKeys {
+    pub fn value(&self) -> Bytes {
+        match self {
+            HintKeys::MetadataReveal => Bytes::new("m".into()), // stands for 'metadata'
+            HintKeys::DelegationLayerInfo => Bytes::new("h".into()), // stands for 'hint(s)'
+        }
+    }
 }
 
 impl DataStoreInfo {
@@ -404,12 +417,11 @@ impl DataStoreInfo {
                 LauncherSolution::<KeyValueList<NodePtr>>::from_clvm(allocator, solution_node_ptr)
                     .map_err(|_| ParseError::NonStandardLayer)?;
 
-            let metadata_key: &Bytes = &Bytes::new("m".into()); // stands for 'metadata'
             let metadata_info: &KeyValueListItem = solution
                 .key_value_list
                 .iter()
                 .find(|item| {
-                    if item.key.eq(metadata_key) {
+                    if item.key.eq(&HintKeys::MetadataReveal.value()) {
                         return true;
                     }
 
@@ -417,12 +429,11 @@ impl DataStoreInfo {
                 })
                 .ok_or(ParseError::MissingHint)?;
 
-            let delegation_hint_key: &Bytes = &Bytes::new("h".into()); // stands for 'hint(s)'
             let delegation_layer_info: &KeyValueListItem = solution
                 .key_value_list
                 .iter()
                 .find(|item| {
-                    if item.key.eq(delegation_hint_key) {
+                    if item.key.eq(&HintKeys::DelegationLayerInfo.value()) {
                         return true;
                     }
 

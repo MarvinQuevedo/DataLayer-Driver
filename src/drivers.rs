@@ -1,7 +1,8 @@
 use crate::{
     merkle_root_for_delegated_puzzles, merkle_set_for_delegated_puzzles,
     puzzles_info::{DataStoreInfo, DelegatedPuzzle},
-    DelegationLayerArgs, DelegationLayerSolution, Metadata, ADMIN_FILTER_PUZZLE,
+    DelegatedPuzzleInfo, DelegationLayerArgs, DelegationLayerSolution, HintContents, HintKeys,
+    HintType, KeyValueList, KeyValueListItem, Metadata, ADMIN_FILTER_PUZZLE,
     ADMIN_FILTER_PUZZLE_HASH, DELEGATION_LAYER_PUZZLE, DELEGATION_LAYER_PUZZLE_HASH,
     WRITER_FILTER_PUZZLE, WRITER_FILTER_PUZZLE_HASH,
 };
@@ -11,10 +12,9 @@ use chia_sdk_driver::{
     spend_nft_state_layer, spend_singleton, InnerSpend, SpendConditions, SpendContext, SpendError,
     SpendableLauncher,
 };
-use clvm_traits::{FromClvmError, ToClvm};
+use clvm_traits::{FromClvm, FromClvmError, ToClvm};
 use clvm_utils::{CurriedProgram, TreeHash};
 use clvmr::{reduction::EvalErr, NodePtr};
-use hex::encode;
 
 pub trait SpendContextExt {
     fn delegation_layer_puzzle(&mut self) -> Result<NodePtr, SpendError>;
@@ -163,7 +163,7 @@ pub trait LauncherExt {
     fn mint_datastore(
         self,
         ctx: &mut SpendContext<'_>,
-        info: &DataStoreMintInfo,
+        info: DataStoreMintInfo,
     ) -> Result<(SpendConditions, DataStoreInfo), SpendError>
     where
         Self: Sized;
@@ -173,7 +173,7 @@ impl<'a> LauncherExt for SpendableLauncher {
     fn mint_datastore(
         self,
         ctx: &mut SpendContext<'_>,
-        info: &DataStoreMintInfo,
+        info: DataStoreMintInfo,
     ) -> Result<(SpendConditions, DataStoreInfo), SpendError>
     where
         Self: Sized,
@@ -185,16 +185,63 @@ impl<'a> LauncherExt for SpendableLauncher {
                 merkle_root_for_delegated_puzzles(delegated_puzzles),
             ),
         };
-        println!("inner_puzzle_hash: {:?}", encode(inner_puzzle_hash));
 
         let metadata_ptr = ctx.alloc(&info.metadata)?;
         let metadata_hash = ctx.tree_hash(metadata_ptr);
         let state_layer_hash: TreeHash =
             NftStateLayerArgs::curry_tree_hash(metadata_hash, inner_puzzle_hash);
-        println!("state_layer_hash: {:?}", encode(state_layer_hash));
+
+        let metadata_list = Metadata::<NodePtr>::from_clvm(ctx.allocator_mut(), metadata_ptr)?;
+        let mut kv_list: KeyValueList<NodePtr> = vec![KeyValueListItem::<NodePtr> {
+            key: HintKeys::MetadataReveal.value(),
+            value: metadata_list.items,
+        }];
+        if info.delegated_puzzles.is_some() {
+            let hint_contents: Vec<HintContents> = info
+                .delegated_puzzles
+                .clone()
+                .unwrap()
+                .iter()
+                .map(
+                    |delegated_puzzle: &DelegatedPuzzle| -> Result<HintContents<NodePtr>, SpendError> {
+                        match delegated_puzzle.puzzle_info {
+                            DelegatedPuzzleInfo::Admin(inner_puzzle_hash) => {
+                                Ok(HintContents::<NodePtr> {
+                                    puzzle_type: HintType::AdminPuzzle,
+                                    puzzle_info: vec![ctx.alloc(&inner_puzzle_hash)?],
+                                })
+                            }
+                            DelegatedPuzzleInfo::Writer(inner_puzzle_hash) => {
+                                Ok(HintContents::<NodePtr> {
+                                    puzzle_type: HintType::WriterPuzzle,
+                                    puzzle_info: vec![ctx.alloc(&inner_puzzle_hash)?],
+                                })
+                            }
+                            DelegatedPuzzleInfo::Oracle(oracle_puzzle_hash, oracle_fee) => {
+                                Ok(HintContents::<NodePtr> {
+                                    puzzle_type: HintType::OraclePuzzle,
+                                    puzzle_info: vec![
+                                        ctx.alloc(&oracle_puzzle_hash)?,
+                                        ctx.alloc(&oracle_fee)?,
+                                    ],
+                                })
+                            }
+                        }
+                    },
+                )
+                .collect::<Result<_, _>>()?;
+
+            kv_list.push(KeyValueListItem {
+                key: HintKeys::DelegationLayerInfo.value(),
+                value: hint_contents
+                    .iter()
+                    .map(|hint_content| hint_content.to_clvm(ctx.allocator_mut()))
+                    .collect::<Result<_, _>>()?,
+            });
+        }
 
         let launcher_coin = self.coin();
-        let (chained_spend, eve_coin) = self.spend(ctx, state_layer_hash.into(), ())?;
+        let (chained_spend, eve_coin) = self.spend(ctx, state_layer_hash.into(), kv_list)?;
 
         let proof: Proof = Proof::Eve(EveProof {
             parent_coin_info: launcher_coin.parent_coin_info,
@@ -227,6 +274,33 @@ mod tests {
     use chia_sdk_test::{test_transaction, Simulator};
     use clvmr::Allocator;
 
+    fn assert_datastores_eq(
+        ctx: &mut SpendContext<'_>,
+        datastore_info: &DataStoreInfo,
+        new_datastore_info: &DataStoreInfo,
+    ) {
+        assert_eq!(
+            new_datastore_info.coin.coin_id(),
+            datastore_info.coin.coin_id()
+        );
+        assert_eq!(new_datastore_info.launcher_id, datastore_info.launcher_id);
+        assert_eq!(new_datastore_info.proof, datastore_info.proof);
+
+        let ptr1 = ctx.alloc(&new_datastore_info.metadata).unwrap();
+        let ptr2 = ctx.alloc(&datastore_info.metadata).unwrap();
+        assert_eq!(ctx.tree_hash(ptr1), ctx.tree_hash(ptr2));
+
+        assert_eq!(
+            new_datastore_info.owner_puzzle_hash,
+            datastore_info.owner_puzzle_hash
+        );
+
+        assert_eq!(
+            new_datastore_info.delegated_puzzles,
+            datastore_info.delegated_puzzles
+        );
+    }
+
     #[tokio::test]
     async fn test_simple_datastore() -> anyhow::Result<()> {
         let sim = Simulator::new().await?;
@@ -245,7 +319,7 @@ mod tests {
             .create(ctx)?
             .mint_datastore(
                 ctx,
-                &DataStoreMintInfo {
+                DataStoreMintInfo {
                     metadata: Metadata { items: Vec::new() },
                     owner_puzzle_hash: puzzle_hash.into(),
                     delegated_puzzles: None,
@@ -255,6 +329,18 @@ mod tests {
         StandardSpend::new()
             .chain(launch_singleton)
             .finish(ctx, coin, pk)?;
+
+        let spends = ctx.take_spends();
+        for spend in spends {
+            if spend.coin.coin_id() == datastore_info.launcher_id {
+                let new_datastore_info =
+                    DataStoreInfo::from_spend(ctx.allocator_mut(), &spend).unwrap();
+
+                assert_datastores_eq(ctx, &datastore_info, &new_datastore_info);
+            }
+
+            ctx.spend(spend);
+        }
 
         let datastore_inner_spend = StandardSpend::new()
             .chain(SpendConditions::new().create_coin(ctx, puzzle_hash, 1)?)
@@ -331,7 +417,7 @@ mod tests {
             .create(ctx)?
             .mint_datastore(
                 ctx,
-                &DataStoreMintInfo {
+                DataStoreMintInfo {
                     metadata: Metadata { items: vec![] },
                     owner_puzzle_hash: owner_puzzle_hash.into(),
                     delegated_puzzles: Some(vec![
@@ -345,6 +431,18 @@ mod tests {
         StandardSpend::new()
             .chain(launch_singleton)
             .finish(ctx, coin, owner_pk)?;
+
+        let spends = ctx.take_spends();
+        for spend in spends {
+            if spend.coin.coin_id() == datastore_info.launcher_id {
+                let new_datastore_info =
+                    DataStoreInfo::from_spend(ctx.allocator_mut(), &spend).unwrap();
+
+                assert_datastores_eq(ctx, &datastore_info, &new_datastore_info);
+            }
+
+            ctx.spend(spend);
+        }
 
         // finally, remove delegation layer altogether
         let datastore_remove_delegation_layer_inner_spend = StandardSpend::new()
