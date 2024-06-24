@@ -224,6 +224,7 @@ fn get_memos(
         }
     }
 
+    println!("memos: {:?}", memos);
     Ok(memos)
 }
 
@@ -250,10 +251,11 @@ impl<'a> LauncherExt for SpendableLauncher {
             NftStateLayerArgs::curry_tree_hash(metadata_hash, inner_puzzle_hash);
 
         let metadata_list = Metadata::<NodePtr>::from_clvm(ctx.allocator_mut(), metadata_ptr)?;
+        let metadata_list_ptr = ctx.alloc(&metadata_list)?;
         let kv_list: KeyValueList<NodePtr> = vec![
             KeyValueListItem::<NodePtr> {
                 key: HintKeys::MetadataReveal.value(),
-                value: metadata_list.items,
+                value: vec![metadata_list_ptr],
             },
             KeyValueListItem {
                 key: HintKeys::DelegationLayerInfo.value(),
@@ -352,6 +354,7 @@ mod tests {
             .finish(ctx, coin, pk)?;
 
         let spends = ctx.take_spends();
+        print_spend_bundle_to_file(spends.clone(), G2Element::default(), "sb.debug");
         for spend in spends {
             if spend.coin.coin_id() == datastore_info.launcher_id {
                 let new_datastore_info =

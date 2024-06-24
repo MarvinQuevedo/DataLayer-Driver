@@ -437,11 +437,13 @@ impl DataStoreInfo {
                 .ok_or(ParseError::MissingHint)?;
 
             println!("converting metadata..."); // todo: debug
+            println!("metadata_info: {:?}", metadata_info); // todo: debug
             let metadata = Metadata::<NodePtr>::from_clvm(
                 allocator,
-                *metadata_info.value.first().ok_or(ParseError::MissingHint)?,
+                *metadata_info.value.get(0).ok_or(ParseError::MissingHint)?,
             )
             .map_err(|_| {
+                println!("err 1023948"); // todo: debug
                 return ParseError::MissingHint;
             })?;
 
