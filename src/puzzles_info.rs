@@ -152,19 +152,48 @@ pub struct CreateCoinConditionWithMemos<T = NodePtr> {
 
 impl DataStoreInfo {
     pub fn build_datastore_info(
+        allocator: &mut Allocator,
         coin: Coin,
         launcher_id: Bytes32,
         proof: Proof,
         metadata: Metadata,
         contents_hint: &Vec<NodePtr>,
     ) -> Result<DataStoreInfo, ParseError> {
+        if contents_hint.len() < 1 {
+            return Err(ParseError::MissingHint);
+        }
+
+        let owner_puzzle_hash =
+            Bytes32::from_clvm(allocator, contents_hint[0]).map_err(|_| ParseError::MissingHint)?;
+
+        let delegated_puzzles = if contents_hint.len() > 1 {
+            let mut delegated_puzzles = Vec::new();
+
+            for hint in contents_hint.iter().skip(1) {
+                // let delegated_puzzle =
+                //     DelegatedPuzzle::from_clvm(allocator, *hint).map_err(|_| {
+                //         return ParseError::MissingHint;
+                //     })?;
+
+                // delegated_puzzles.push(delegated_puzzle);
+                // todo
+
+                return Err(ParseError::MissingHint);
+            }
+
+            Ok(Some(delegated_puzzles))
+        } else {
+            Ok(None)
+        }
+        .map_err(|_: ParseError| ParseError::MissingHint)?;
+
         Ok(DataStoreInfo {
             coin,
             launcher_id,
             proof,
             metadata,
-            owner_puzzle_hash: Bytes32::default(),
-            delegated_puzzles: None,
+            owner_puzzle_hash,
+            delegated_puzzles,
         })
     }
 
@@ -242,6 +271,7 @@ impl DataStoreInfo {
             });
 
             return DataStoreInfo::build_datastore_info(
+                allocator,
                 new_coin,
                 launcher_id,
                 proof,

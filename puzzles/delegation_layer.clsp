@@ -24,13 +24,13 @@
   (defconstant NEW_MERKLE_ROOT_CONDITION -13)
 
   ; only one odd CREATE_COIN enforced in upper layers
-  (defun morph_conditions (MOD_HASH INNER_PUZZLE_HASH conditions new_merkle_root odd_create_coin_found)
+  (defun morph_conditions (MOD_HASH INNER_PUZZLE_HASH conditions new_merkle_root_info odd_create_coin_found)
     (if conditions
       (if (all (= (f (f conditions)) NEW_MERKLE_ROOT_CONDITION) (= (strlen (f (r (f conditions)))) 32))
         (morph_conditions
           MOD_HASH INNER_PUZZLE_HASH
           (r conditions)
-          (f (r (f conditions)))
+          (r (f conditions))
           odd_create_coin_found
         )
         ; else
@@ -39,7 +39,7 @@
           (morph_conditions
             MOD_HASH INNER_PUZZLE_HASH
             (r conditions)
-            new_merkle_root
+            new_merkle_root_info
             (any
               odd_create_coin_found
               (all (= (f (f conditions)) CREATE_COIN) (= (logand (f (r (r (f conditions)))) 1) 1))
@@ -57,9 +57,10 @@
             (curry_hashes_inline MOD_HASH
               (sha256 1 MOD_HASH)
               (sha256 1 INNER_PUZZLE_HASH)
-              (sha256 1 new_merkle_root)
+              (sha256 1 (f new_merkle_root_info))
             )
             1
+            (r new_merkle_root_info)
           )
         )
       )
@@ -71,7 +72,7 @@
   )
     (if merkle_proof
       (if (= MERKLE_ROOT (simplify_merkle_proof (sha256tree puzzle_reveal) merkle_proof))
-        (morph_conditions MOD_HASH INNER_PUZZLE_HASH (a puzzle_reveal puzzle_solution) MERKLE_ROOT ())
+        (morph_conditions MOD_HASH INNER_PUZZLE_HASH (a puzzle_reveal puzzle_solution) (list MERKLE_ROOT) ())
         ; else
         (x "ph proof invalid")
       )
