@@ -4,10 +4,13 @@ use chia::consensus::{
 };
 use chia_protocol::{Bytes, Bytes32, Coin, CoinSpend};
 use chia_puzzles::{
+    nft::{NftStateLayerArgs, NFT_STATE_LAYER_PUZZLE_HASH},
     singleton::{LauncherSolution, SINGLETON_LAUNCHER_PUZZLE_HASH},
     EveProof, Proof,
 };
-use chia_sdk_parser::{CurriedPuzzle, ParseError, Puzzle};
+use chia_sdk_parser::{run_puzzle, ParseError, Puzzle, SingletonPuzzle};
+use chia_sdk_types::conditions::Condition;
+use clvm_traits::apply_constants;
 use clvm_traits::{FromClvm, ToClvm, ToClvmError, ToNodePtr};
 use clvm_utils::{tree_hash, CurriedProgram, ToTreeHash, TreeHash};
 use clvmr::{reduction::EvalErr, Allocator, NodePtr};
@@ -355,6 +358,22 @@ impl HintKeys {
     }
 }
 
+#[derive(ToClvm, FromClvm)]
+#[apply_constants]
+#[derive(Debug, Clone, PartialEq, Eq)]
+#[clvm(list)]
+pub struct CreateCoinWithMemos<T = NodePtr>
+where
+    T: Eq,
+{
+    #[clvm(constant = 51)]
+    pub opcode: u8,
+    pub puzzle_hash: Bytes32,
+    pub amount: u64,
+    #[clvm(default)]
+    pub memos: Vec<T>,
+}
+
 impl DataStoreInfo {
     pub fn build_datastore_info(
         allocator: &mut Allocator,
@@ -401,14 +420,14 @@ impl DataStoreInfo {
     where
         KeyValueList<NodePtr>: FromClvm<NodePtr>,
     {
+        let Ok(solution_node_ptr) = cs.solution.to_node_ptr(allocator) else {
+            println!("err 1"); // todo: debug
+            return Err(ParseError::NonStandardLayer);
+        };
+
         if cs.coin.puzzle_hash == SINGLETON_LAUNCHER_PUZZLE_HASH.into() {
             // we're just launching this singleton :)
             // solution is (singleton_full_puzzle_hash amount key_value_list)
-            let Ok(solution_node_ptr) = cs.solution.to_node_ptr(allocator) else {
-                println!("err 1"); // todo: debug
-                return Err(ParseError::NonStandardLayer);
-            };
-
             let solution =
                 LauncherSolution::<KeyValueList<NodePtr>>::from_clvm(allocator, solution_node_ptr)
                     .map_err(|_| ParseError::NonStandardLayer)?;
@@ -479,14 +498,66 @@ impl DataStoreInfo {
             return Err(ParseError::NonStandardLayer);
         };
 
-        let puzzle = Puzzle::parse(allocator, puzzle_node_ptr);
-        let Some(puzzle): Option<CurriedPuzzle> = puzzle.as_curried() else {
-            println!("err 3"); // todo: debug
-            return Err(ParseError::NonStandardLayer);
-        };
+        let full_puzzle = Puzzle::parse(allocator, puzzle_node_ptr);
 
-        println!("err 4"); // todo: debug
-        return Err(ParseError::NonStandardLayer);
+        let singleton_puzzle = SingletonPuzzle::parse(allocator, &full_puzzle)?
+            .ok_or_else(|| ParseError::NonStandardLayer)?;
+
+        // parser for NFT state layer is bakend into NFT parser :(
+        let state_layer_puzzle = singleton_puzzle
+            .inner_puzzle
+            .as_curried()
+            .ok_or_else(|| ParseError::NonStandardLayer)?;
+
+        if state_layer_puzzle.mod_hash != NFT_STATE_LAYER_PUZZLE_HASH {
+            return Err(ParseError::NonStandardLayer);
+        }
+
+        let state_args =
+            NftStateLayerArgs::<NodePtr, Metadata>::from_clvm(allocator, state_layer_puzzle.args)?;
+
+        // was the coin re-created with hints?
+        let output = run_puzzle(allocator, puzzle_node_ptr, solution_node_ptr)
+            .map_err(|_| ParseError::MismatchedOutput)?;
+        let odd_create_coin = Vec::<NodePtr>::from_clvm(allocator, output)?;
+        let odd_create_coin: Option<&NodePtr> =
+            odd_create_coin.iter().find(|cond| {
+                match Condition::<NodePtr>::from_clvm(allocator, **cond) {
+                    Ok(Condition::CreateCoin(create_coin)) => {
+                        return create_coin.amount % 2 == 1;
+                    }
+                    _ => false,
+                }
+            });
+
+        if odd_create_coin.is_some() {
+            let odd_create_coin =
+                CreateCoinWithMemos::<NodePtr>::from_clvm(allocator, *odd_create_coin.unwrap())
+                    .map_err(|err| ParseError::FromClvm(err))?;
+
+            return DataStoreInfo::build_datastore_info(
+                allocator,
+                cs.coin.clone(),
+                singleton_puzzle.launcher_id,
+                Proof::Lineage(singleton_puzzle.lineage_proof(cs.coin)),
+                state_args.metadata,
+                &odd_create_coin.memos,
+            );
+        }
+
+        // does the coin currently have a delegation layer? if the inner puzzle did not return any odd CREATE_COINs, the layer will be re-created with the same options
+        // todo
+
+        // all methods exhausted; this coin doesn't seem to have a delegation layer
+        let inner_puzzle_hash = tree_hash(allocator, state_args.inner_puzzle);
+        Ok(DataStoreInfo {
+            coin: cs.coin.clone(),
+            launcher_id: singleton_puzzle.launcher_id,
+            proof: Proof::Lineage(singleton_puzzle.lineage_proof(cs.coin)),
+            metadata: state_args.metadata,
+            owner_puzzle_hash: inner_puzzle_hash.into(),
+            delegated_puzzles: None,
+        })
     }
 }
 

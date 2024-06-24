@@ -19,6 +19,7 @@ clvmr = "0.7.0"
 chia-sdk-driver = "0.10.3"
 chia-sdk-test = "0.10.3"
 chia-sdk-parser = "0.10.3"
+chia-sdk-types = "0.10.3"
 tokio = "1.38.0"
 anyhow = "1.0.86"
 serde = { version = "1.0.203", features = ["derive"] }
