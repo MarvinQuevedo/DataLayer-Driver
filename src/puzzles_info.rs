@@ -397,19 +397,11 @@ impl DataStoreInfo {
     where
         KeyValueList<NodePtr>: FromClvm<NodePtr>,
     {
-        let Ok(puzzle_node_ptr) = cs.puzzle_reveal.to_node_ptr(allocator) else {
-            return Err(ParseError::NonStandardLayer);
-        };
-
-        let puzzle = Puzzle::parse(allocator, puzzle_node_ptr);
-        let Some(puzzle): Option<CurriedPuzzle> = puzzle.as_curried() else {
-            return Err(ParseError::NonStandardLayer);
-        };
-
-        if puzzle.mod_hash == SINGLETON_LAUNCHER_PUZZLE_HASH {
+        if cs.coin.puzzle_hash == SINGLETON_LAUNCHER_PUZZLE_HASH.into() {
             // we're just launching this singleton :)
             // solution is (singleton_full_puzzle_hash amount key_value_list)
             let Ok(solution_node_ptr) = cs.solution.to_node_ptr(allocator) else {
+                println!("err 1"); // todo: debug
                 return Err(ParseError::NonStandardLayer);
             };
 
@@ -471,6 +463,18 @@ impl DataStoreInfo {
             );
         }
 
+        let Ok(puzzle_node_ptr) = cs.puzzle_reveal.to_node_ptr(allocator) else {
+            println!("err 2"); // todo: debug
+            return Err(ParseError::NonStandardLayer);
+        };
+
+        let puzzle = Puzzle::parse(allocator, puzzle_node_ptr);
+        let Some(puzzle): Option<CurriedPuzzle> = puzzle.as_curried() else {
+            println!("err 3"); // todo: debug
+            return Err(ParseError::NonStandardLayer);
+        };
+
+        println!("err 4"); // todo: debug
         return Err(ParseError::NonStandardLayer);
     }
 }
