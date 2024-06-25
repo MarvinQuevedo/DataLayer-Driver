@@ -23,12 +23,11 @@
       (if (any
         (= (f (f conditions)) CREATE_COIN)
         (= (f (f conditions)) -113) ; don't allow melting
-        (all
-          (= (f (f conditions)) -24)
-          ; condition is (list -24 [metadata updater puzzle reveal] [solution])
-          ; for this puzzle, solution is (list (list [new metadata] [new updater ph]) [new conditions])
-          (not (= (f (f (f (r (r (f conditions)))))) ()))
-        ) ; don't allow metadata updater to create extra conditions
+        ; don't allow metadata updater to create extra conditions
+        ; update metadata condition is (list -24 [metadata updater puzzle reveal] [solution])
+        ; for the standard DL, solution is (list (list [new metadata] [new updater ph]) [conditions])
+        ; return true if cond = -24 and [conditions] != () since true means we (x)
+        (if (= (f (f conditions)) -24) (not (= (f (r (f (r (r (f conditions)))))) ())) ()) 
       )
         (x)
         ; else

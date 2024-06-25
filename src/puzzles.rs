@@ -89,18 +89,19 @@ pub struct AdminFilterSolution<I> {
     pub inner_solution: I,
 }
 
-pub const ADMIN_FILTER_PUZZLE: [u8; 153] = hex!(
+pub const ADMIN_FILTER_PUZZLE: [u8; 163] = hex!(
     "
     ff02ffff01ff02ff06ffff04ff02ffff04ffff02ff05ff0b80ff80808080ffff04ffff01ff33ff02
-    ffff03ff05ffff01ff02ffff03ffff21ffff09ff11ff0480ffff09ff11ffff01818f80ffff22ffff
-    09ff11ffff0181e880ffff20ffff09ff820119ff8080808080ffff01ff0880ffff01ff04ff09ffff
-    02ff06ffff04ff02ffff04ff0dff808080808080ff0180ff8080ff0180ff018080
+    ffff03ff05ffff01ff02ffff03ffff21ffff09ff11ff0480ffff09ff11ffff01818f80ffff02ffff
+    03ffff09ff11ffff0181e880ffff01ff20ffff09ff820159ff808080ff8080ff018080ffff01ff08
+    80ffff01ff04ff09ffff02ff06ffff04ff02ffff04ff0dff808080808080ff0180ff8080ff0180ff
+    018080
     "
 );
 
 pub const ADMIN_FILTER_PUZZLE_HASH: TreeHash = TreeHash::new(hex!(
     "
-    24caae81bf7b3d3daff71342afbd4cf4c0bb8807c9025ff6f598ab8c171c53b0
+    ae2d0ca2e3a95223f9e79937a903e3411d3024136fbc716d14e74f0c4661817b
     "
 ));
 
@@ -126,19 +127,19 @@ pub struct WriterFilterSolution<I> {
     pub inner_solution: I,
 }
 
-pub const WRITER_FILTER_PUZZLE: [u8; 164] = hex!(
+pub const WRITER_FILTER_PUZZLE: [u8; 174] = hex!(
     "
     ff02ffff01ff02ff06ffff04ff02ffff04ffff02ff05ff0b80ff80808080ffff04ffff01ff33ff02
     ffff03ff05ffff01ff02ffff03ffff21ffff09ff11ff0480ffff09ff11ffff01818f80ffff09ff11
-    ffff0181f380ffff22ffff09ff11ffff0181e880ffff20ffff09ff820119ff8080808080ffff01ff
-    0880ffff01ff04ff09ffff02ff06ffff04ff02ffff04ff0dff808080808080ff0180ff8080ff0180
-    ff018080
+    ffff0181f380ffff02ffff03ffff09ff11ffff0181e880ffff01ff20ffff09ff820159ff808080ff
+    8080ff018080ffff01ff0880ffff01ff04ff09ffff02ff06ffff04ff02ffff04ff0dff8080808080
+    80ff0180ff8080ff0180ff018080
     "
 );
 
 pub const WRITER_FILTER_PUZZLE_HASH: TreeHash = TreeHash::new(hex!(
     "
-    fd27b8315b799fb22e6010b696e5bac4c0695be259f236d1aad5b578da9d02c9
+    a523826bfccfc93e88b69fcdda09431633c4605c4eacabb9d6dabc08d2eb02f0
     "
 ));
 
