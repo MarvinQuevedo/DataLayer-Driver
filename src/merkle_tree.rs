@@ -11,6 +11,14 @@ pub struct MerkleTree {
     proofs: HashMap<Bytes32, (u32, Vec<Bytes32>)>,
 }
 
+use std::fmt::Debug;
+
+#[derive(Debug, Clone)]
+pub enum BinaryTree<T> {
+    Leaf(T),
+    Node(Box<BinaryTree<T>>, Box<BinaryTree<T>>),
+}
+
 impl MerkleTree {
     pub fn new(leaves: &[Bytes32]) -> Self {
         let (root, proofs) = MerkleTree::build_merkle_tree(leaves);
@@ -18,7 +26,7 @@ impl MerkleTree {
     }
 
     fn build_merkle_tree(leaves: &[Bytes32]) -> (Bytes32, HashMap<Bytes32, (u32, Vec<Bytes32>)>) {
-        let binary_tree = MerkleTree::list_to_binary_tree(leaves);
+        let binary_tree = MerkleTree::list_to_binary_tree(leaves).unwrap();
         println!("{:?}", binary_tree);
         MerkleTree::build_merkle_tree_from_binary_tree(&binary_tree)
     }
@@ -32,92 +40,62 @@ impl MerkleTree {
         Bytes32::from(result)
     }
 
-    fn list_to_binary_tree(leaves: &[Bytes32]) -> Vec<Vec<Bytes32>> {
-        let mut tree = vec![leaves
-            .to_vec()
-            .iter()
-            .map(|leaf| MerkleTree::sha256(vec![HASH_LEAF_PREFIX, leaf]))
-            .collect::<Vec<Bytes32>>()];
-        while tree.last().unwrap().len() > 1 {
-            let current_level = tree.last().unwrap();
-            let mut next_level = vec![];
-            for pair in current_level.chunks(2) {
-                if pair.len() == 2 {
-                    next_level.push(MerkleTree::sha256(vec![
-                        HASH_TREE_PREFIX,
-                        &pair[0],
-                        &pair[1],
-                    ]));
-                } else {
-                    next_level.push(pair[0]);
-                }
-            }
-            tree.push(next_level);
+    fn list_to_binary_tree<T: Clone + Debug>(objects: &[T]) -> Result<BinaryTree<T>, &'static str> {
+        let size = objects.len();
+        if size == 0 {
+            return Err("Cannot build a tree out of 0 objects");
         }
-        tree
+        if size == 1 {
+            return Ok(BinaryTree::Leaf(objects[0].clone()));
+        }
+        let midpoint = (size + 1) >> 1;
+        let first_half = &objects[..midpoint];
+        let last_half = &objects[midpoint..];
+        let left_tree = MerkleTree::list_to_binary_tree(first_half)?;
+        let right_tree = MerkleTree::list_to_binary_tree(last_half)?;
+        Ok(BinaryTree::Node(Box::new(left_tree), Box::new(right_tree)))
     }
 
     fn build_merkle_tree_from_binary_tree(
-        tree: &[Vec<Bytes32>],
+        tuples: &BinaryTree<Bytes32>,
     ) -> (Bytes32, HashMap<Bytes32, (u32, Vec<Bytes32>)>) {
-        let mut proofs = HashMap::new();
-        for level in (1..tree.len()).rev() {
-            let current_level = &tree[level];
-            for (i, chunk) in current_level.chunks(2).enumerate() {
-                let (left, right) = if chunk.len() == 2 {
-                    (&chunk[0], &chunk[1])
-                } else {
-                    (&chunk[0], &chunk[0])
-                };
-                let parent = &tree[level - 1][i];
-                proofs
-                    .entry(*left)
-                    .or_insert_with(|| (0, vec![]))
-                    .1
-                    .push(*right);
-                proofs
-                    .entry(*right)
-                    .or_insert_with(|| (0, vec![]))
-                    .1
-                    .push(*left);
-                proofs.entry(*left).and_modify(|e| e.0 = i as u32);
-                proofs
-                    .entry(*right)
-                    .and_modify(|e| e.0 = (i as u32) | (1 << e.1.len()));
+        match tuples {
+            BinaryTree::Leaf(t) => {
+                let hash = MerkleTree::sha256(vec![HASH_LEAF_PREFIX, t]);
+                let mut proof = HashMap::new();
+                proof.insert(*t, (0, vec![]));
+                (hash, proof)
+            }
+            BinaryTree::Node(left, right) => {
+                let (left_root, left_proofs) = MerkleTree::build_merkle_tree_from_binary_tree(left);
+                let (right_root, right_proofs) =
+                    MerkleTree::build_merkle_tree_from_binary_tree(right);
+
+                let new_root = MerkleTree::sha256(vec![HASH_TREE_PREFIX, &left_root, &right_root]);
+                let mut new_proofs = HashMap::new();
+
+                for (name, (path, mut proof)) in left_proofs {
+                    proof.push(right_root);
+                    new_proofs.insert(name, (path, proof));
+                }
+
+                for (name, (path, mut proof)) in right_proofs {
+                    let path = path | (1 << proof.len());
+                    proof.push(left_root);
+                    new_proofs.insert(name, (path, proof));
+                }
+
+                (new_root, new_proofs)
             }
         }
-        (tree.last().unwrap()[0], proofs)
-    }
-
-    pub fn generate_proof_for_leaf(&self, leaf: Bytes32) -> Option<(u32, Vec<Bytes32>)> {
-        self.proofs.get(&leaf).cloned()
-    }
-
-    pub fn generate_proof(&self, leaf_hash: Bytes32) -> Option<(u32, Vec<Bytes32>)> {
-        let key = MerkleTree::sha256(vec![HASH_LEAF_PREFIX, &leaf_hash]);
-        println!("key for generate proof: {:?}", key); // todo: debug
-        println!("proofs: {:?}", self.proofs); // todo: debug
-        self.generate_proof_for_leaf(key)
-    }
-
-    pub fn verify_proof(root: Bytes32, leaf: Bytes32, proof: (u32, Vec<Bytes32>)) -> bool {
-        let (mut path, nodes) = proof;
-        let mut current_hash = MerkleTree::sha256(vec![HASH_LEAF_PREFIX, &leaf]);
-
-        for node in nodes {
-            if path & 1 == 1 {
-                current_hash = MerkleTree::sha256(vec![HASH_TREE_PREFIX, &node, &current_hash]);
-            } else {
-                current_hash = MerkleTree::sha256(vec![HASH_TREE_PREFIX, &current_hash, &node]);
-            }
-            path >>= 1;
-        }
-
-        root == current_hash
     }
 
     pub fn get_root(&self) -> Bytes32 {
         self.root
+    }
+
+    pub fn generate_proof(&self, leaf: Bytes32) -> Option<(u32, Vec<Bytes32>)> {
+        self.proofs.get(&leaf).cloned()
     }
 }
 
@@ -153,6 +131,16 @@ mod tests {
                 0,
                 vec![Bytes32::from(hex!(
                     "f1386fff8b06ac98d347997ff5d0abad3b977514b1b7cfe0689f45f3f1393497"
+                ))]
+            ))
+        );
+
+        assert_eq!(
+            merkle_tree.generate_proof(leaf2),
+            Some((
+                1,
+                vec![Bytes32::from(hex!(
+                    "ce041765675ad4d93378e20bd3a7d0d97ddcf3385fb6341581b21d4bc9e3e69e"
                 ))]
             ))
         );
