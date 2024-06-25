@@ -156,15 +156,16 @@ pub const WRITER_FILTER_PUZZLE_HASH: TreeHash = TreeHash::new(hex!(
     "
 ));
 
+// bytes(ACS_MU).hex()
 pub const DL_METADATA_UPDATER_PUZZLE: [u8; 1] = hex!(
     "
-    11
+    0b
     "
 );
 
 pub const DL_METADATA_UPDATER_PUZZLE_HASH: TreeHash = TreeHash::new(hex!(
     "
-    26e7f98cfafee5b213726e22632923bf31bf3e988233235f8f5ca5466b3ac0ed
+    57bfd1cb0adda3d94315053fda723f2028320faa8338225d99f629e3d46d43a9
     "
 ));
 

@@ -6,7 +6,8 @@ use crate::{
     ADMIN_FILTER_PUZZLE_HASH, DELEGATION_LAYER_PUZZLE, DELEGATION_LAYER_PUZZLE_HASH,
     DL_METADATA_UPDATER_PUZZLE_HASH, WRITER_FILTER_PUZZLE, WRITER_FILTER_PUZZLE_HASH,
 };
-use chia_protocol::{Bytes32, CoinSpend};
+use chia::traits::Streamable;
+use chia_protocol::{Bytes32, CoinSpend, Program};
 use chia_puzzles::{
     nft::{NftStateLayerArgs, NftStateLayerSolution, NFT_STATE_LAYER_PUZZLE_HASH},
     EveProof, Proof,
@@ -14,7 +15,7 @@ use chia_puzzles::{
 use chia_sdk_driver::{
     spend_singleton, InnerSpend, SpendConditions, SpendContext, SpendError, SpendableLauncher,
 };
-use clvm_traits::{FromClvm, FromClvmError, ToClvm};
+use clvm_traits::{FromClvm, FromClvmError, FromNodePtr, ToClvm};
 use clvm_utils::{CurriedProgram, ToTreeHash, TreeHash};
 use clvmr::{reduction::EvalErr, NodePtr};
 
@@ -152,6 +153,8 @@ where
     Ok(InnerSpend::new(puzzle, solution))
 }
 
+use hex::encode;
+
 pub fn datastore_spend(
     ctx: &mut SpendContext<'_>,
     datastore_info: &DataStoreInfo,
@@ -159,6 +162,27 @@ pub fn datastore_spend(
 ) -> Result<CoinSpend, SpendError> {
     // 1. Handle delegation layer spend
     let inner_spend = spend_delegation_layer(ctx, datastore_info, inner_datastore_spend)?;
+    println!("inner_spend!"); // todo: debug
+    println!(
+        "puzzle: {:}",
+        encode(
+            Program::from_node_ptr(ctx.allocator_mut(), inner_spend.puzzle())
+                .unwrap()
+                .clone()
+                .to_bytes()
+                .unwrap()
+        )
+    ); // todo: debug
+    println!(
+        "solution: {:}",
+        encode(
+            Program::from_node_ptr(ctx.allocator_mut(), inner_spend.solution())
+                .unwrap()
+                .clone()
+                .to_bytes()
+                .unwrap()
+        )
+    ); // todo: debug
 
     // 2. Handle state layer spend
     // allows custom metadata updater hash
@@ -322,7 +346,7 @@ impl<'a> LauncherExt for SpendableLauncher {
 
 #[cfg(test)]
 mod tests {
-    use crate::print_spend_bundle_to_file;
+    use crate::{print_spend_bundle_to_file, DL_METADATA_UPDATER_PUZZLE};
 
     use super::*;
 
@@ -332,7 +356,6 @@ mod tests {
     use chia_sdk_driver::{Launcher, P2Spend, StandardSpend};
     use chia_sdk_test::{test_transaction, Simulator};
     use clvmr::Allocator;
-    use hex_literal::hex;
 
     fn assert_datastores_eq(
         ctx: &mut SpendContext<'_>,
@@ -375,12 +398,25 @@ mod tests {
     }
 
     #[derive(Debug, Clone, PartialEq, Eq, ToClvm, FromClvm)]
-    #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
     #[clvm(list)]
     pub struct NewMetadataCondition<P = NodePtr, S = NodePtr> {
         pub condition: i32,
         pub metadata_updater_reveal: P,
         pub metadata_updater_solution: S,
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, ToClvm, FromClvm)]
+    #[clvm(list)]
+    pub struct DLMetadataSolutionMetadataPart<T = NodePtr> {
+        pub new_metadata: T,
+        pub new_metadata_updater_ph: u8, // 0
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, ToClvm, FromClvm)]
+    #[clvm(list)]
+    pub struct DLMetadataSolution<T = NodePtr> {
+        pub metadata_part: DLMetadataSolutionMetadataPart<T>,
+        pub metadata_updater_solution: u8, // 0
     }
 
     #[tokio::test]
@@ -533,14 +569,21 @@ mod tests {
         let new_metadata = Metadata::<NodePtr> {
             items: vec![ctx.alloc(&Bytes32::new([0; 32]))?],
         };
-        let metadata_updater_puzzle_ptr = ctx.alloc(&hex!("11"))?;
-        let new_metadata_condition = NewMetadataCondition::<NodePtr, Metadata<NodePtr>> {
-            condition: -24,
-            metadata_updater_reveal: metadata_updater_puzzle_ptr,
-            metadata_updater_solution: new_metadata,
-        }
-        .to_clvm(ctx.allocator_mut())
-        .unwrap();
+        let metadata_updater_puzzle_ptr = ctx.alloc(&DL_METADATA_UPDATER_PUZZLE)?;
+        let new_metadata_condition =
+            NewMetadataCondition::<NodePtr, DLMetadataSolution<Metadata<NodePtr>>> {
+                condition: -24,
+                metadata_updater_reveal: metadata_updater_puzzle_ptr,
+                metadata_updater_solution: DLMetadataSolution {
+                    metadata_part: DLMetadataSolutionMetadataPart {
+                        new_metadata: new_metadata,
+                        new_metadata_updater_ph: 0,
+                    },
+                    metadata_updater_solution: 0,
+                },
+            }
+            .to_clvm(ctx.allocator_mut())
+            .unwrap();
 
         let new_metadata_inner_spend = StandardSpend::new()
             .chain(SpendConditions::new().raw_condition(new_metadata_condition))
