@@ -110,10 +110,11 @@ pub fn spend_delegation_layer(
 
             println!("merkle_proof: {:?}", merkle_proof); // todo: debug
 
+            let solution: Vec<NodePtr> = vec![delegated_puzzle_solution];
             let new_inner_solution = DelegationLayerSolution::<NodePtr, NodePtr> {
                 merkle_proof: Some(merkle_proof),
                 puzzle_reveal: full_puzzle,
-                puzzle_solution: delegated_puzzle_solution,
+                puzzle_solution: ctx.alloc(&solution)?,
             };
 
             // todo: debug

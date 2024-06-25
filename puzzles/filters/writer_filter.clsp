@@ -38,5 +38,6 @@
     )
   )
 
-  (morph_conditions (a INNER_PUZZLE inner_solution))
+  ; (morph_conditions (a INNER_PUZZLE inner_solution))
+  (list (list REMARK "yak"))
 )
