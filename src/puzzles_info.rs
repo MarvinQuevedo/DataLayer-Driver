@@ -73,7 +73,9 @@ impl DelegatedPuzzle {
         let inner_puzzle_hash: TreeHash = tree_hash(&allocator, inner_puzzle);
         let full_puzzle_hash = CurriedProgram {
             program: ADMIN_FILTER_PUZZLE_HASH,
-            args: vec![inner_puzzle_hash],
+            args: AdminFilterArgs {
+                inner_puzzle: inner_puzzle_hash,
+            },
         }
         .tree_hash();
 
@@ -107,7 +109,9 @@ impl DelegatedPuzzle {
         let inner_puzzle_hash: TreeHash = tree_hash(&allocator, inner_puzzle);
         let full_puzzle_hash = CurriedProgram {
             program: WRITER_FILTER_PUZZLE_HASH,
-            args: vec![inner_puzzle_hash],
+            args: WriterFilterArgs {
+                inner_puzzle: inner_puzzle_hash,
+            },
         }
         .tree_hash();
 
@@ -194,7 +198,9 @@ impl DelegatedPuzzle {
 
                 let full_puzzle_hash = CurriedProgram {
                     program: ADMIN_FILTER_PUZZLE_HASH,
-                    args: vec![inner_puzzle_hash],
+                    args: AdminFilterArgs {
+                        inner_puzzle: inner_puzzle_hash,
+                    },
                 }
                 .tree_hash();
 
@@ -216,7 +222,9 @@ impl DelegatedPuzzle {
 
                 let full_puzzle_hash = CurriedProgram {
                     program: WRITER_FILTER_PUZZLE_HASH,
-                    args: vec![inner_puzzle_hash],
+                    args: WriterFilterArgs {
+                        inner_puzzle: inner_puzzle_hash,
+                    },
                 }
                 .tree_hash();
 

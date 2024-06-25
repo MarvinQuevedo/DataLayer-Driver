@@ -91,8 +91,6 @@ pub fn spend_delegation_layer(
             delegated_inner_puzzle_reveal,
             delegated_puzzle_solution,
         ) => {
-            let delegated_puzzle: DelegatedPuzzle = delegated_puzzle;
-
             let full_puzzle = delegated_puzzle
                 .get_full_puzzle(ctx.allocator_mut(), delegated_inner_puzzle_reveal)
                 .map_err(|_| {
@@ -117,6 +115,33 @@ pub fn spend_delegation_layer(
                 puzzle_reveal: full_puzzle,
                 puzzle_solution: delegated_puzzle_solution,
             };
+
+            // todo: debug
+            println!(
+                "writer + filter puzzle hash: {:}",
+                encode(ctx.tree_hash(full_puzzle))
+            );
+            // println!(
+            //     "writer puzzle reveal: {:}",
+            //     encode(
+            //         Program::from_node_ptr(ctx.allocator_mut(), full_puzzle)
+            //             .unwrap()
+            //             .clone()
+            //             .to_bytes()
+            //             .unwrap()
+            //     )
+            // ); // todo: debug
+            // println!(
+            //     "writer puzzle solution: {:}",
+            //     encode(
+            //         Program::from_node_ptr(ctx.allocator_mut(), delegated_puzzle_solution)
+            //             .unwrap()
+            //             .clone()
+            //             .to_bytes()
+            //             .unwrap()
+            //     )
+            // ); // todo: debug
+            // todo: debug
 
             Ok(InnerSpend::new(
                 new_inner_puzzle.to_clvm(ctx.allocator_mut())?,
@@ -533,6 +558,10 @@ mod tests {
             DelegatedPuzzle::from_admin_inner_puzzle(ctx.allocator_mut(), admin_puzzle).unwrap();
         let writer_delegated_puzzle =
             DelegatedPuzzle::from_writer_inner_puzzle(ctx.allocator_mut(), writer_puzzle).unwrap();
+        println!(
+            "writer puzzle hash: {:}",
+            encode(writer_delegated_puzzle.puzzle_hash)
+        ); // todo: debug
         let (launch_singleton, datastore_info) = Launcher::new(coin.coin_id(), 1)
             .create(ctx)?
             .mint_datastore(
