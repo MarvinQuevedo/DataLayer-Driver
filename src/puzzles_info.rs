@@ -16,8 +16,9 @@ use clvm_utils::{tree_hash, CurriedProgram, ToTreeHash, TreeHash};
 use clvmr::{reduction::EvalErr, Allocator, NodePtr};
 
 use crate::{
-    AdminFilterArgs, WriterFilterArgs, ADMIN_FILTER_PUZZLE, ADMIN_FILTER_PUZZLE_HASH,
-    DELEGATION_LAYER_PUZZLE_HASH, WRITER_FILTER_PUZZLE, WRITER_FILTER_PUZZLE_HASH,
+    AdminFilterArgs, DelegationLayerSolution, WriterFilterArgs, ADMIN_FILTER_PUZZLE,
+    ADMIN_FILTER_PUZZLE_HASH, DELEGATION_LAYER_PUZZLE_HASH, WRITER_FILTER_PUZZLE,
+    WRITER_FILTER_PUZZLE_HASH,
 };
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[must_use]
@@ -421,6 +422,7 @@ impl DataStoreInfo {
     where
         KeyValueList<NodePtr>: FromClvm<NodePtr>,
     {
+        println!("func start"); // todo: debug
         let Ok(solution_node_ptr) = cs.solution.to_node_ptr(allocator) else {
             println!("err 1"); // todo: debug
             return Err(ParseError::NonStandardLayer);
@@ -501,6 +503,7 @@ impl DataStoreInfo {
             println!("err 2"); // todo: debug
             return Err(ParseError::NonStandardLayer);
         };
+        println!("got puzzle_node_ptr"); // todo: debug
 
         let full_puzzle = Puzzle::parse(allocator, puzzle_node_ptr);
 
@@ -533,64 +536,90 @@ impl DataStoreInfo {
                     _ => false,
                 }
             });
+        println!("odd_create_coin: {:?}", odd_create_coin); // todo: debug
 
         if odd_create_coin.is_some() {
             let odd_create_coin =
                 CreateCoinWithMemos::<NodePtr>::from_clvm(allocator, *odd_create_coin.unwrap())
                     .map_err(|err| ParseError::FromClvm(err))?;
 
-            return match DataStoreInfo::build_datastore_info(
-                allocator,
-                cs.coin.clone(),
-                singleton_puzzle.launcher_id,
-                Proof::Lineage(singleton_puzzle.lineage_proof(cs.coin)),
-                state_args.metadata,
-                &odd_create_coin.memos,
-            ) {
-                Ok(info) => Ok(Some(info)),
-                Err(err) => Err(err),
-            };
+            println!("odd_create_coin build info"); // todo: debug
+            if odd_create_coin.memos.len() >= 1 {
+                return match DataStoreInfo::build_datastore_info(
+                    allocator,
+                    cs.coin.clone(),
+                    singleton_puzzle.launcher_id,
+                    Proof::Lineage(singleton_puzzle.lineage_proof(cs.coin)),
+                    state_args.metadata,
+                    &odd_create_coin.memos,
+                ) {
+                    Ok(info) => Ok(Some(info)),
+                    Err(err) => Err(err),
+                };
+            }
         }
 
+        let mut owner_puzzle_hash: Bytes32 = tree_hash(allocator, state_args.inner_puzzle).into();
         // does the coin currently have a delegation layer? if the inner puzzle did not return any odd CREATE_COINs, the layer will be re-created with the same options
         let delegation_layer_ptr = state_args.inner_puzzle;
         let delegation_layer_puzzle = Puzzle::parse(&allocator, delegation_layer_ptr);
         if delegation_layer_puzzle.is_curried()
             && delegation_layer_puzzle.mod_hash() == DELEGATION_LAYER_PUZZLE_HASH
         {
+            println!("has deleg layer"); // todo: debug
             let solution = SingletonSolution::<NftStateLayerSolution<NodePtr>>::from_clvm(
                 allocator,
                 solution_node_ptr,
-            );
+            )
+            .map_err(|err| ParseError::FromClvm(err))?;
 
-            if let Ok(solution) = solution {
-                let delegation_layer_solution = solution.inner_solution.inner_solution;
+            let delegation_layer_solution = solution.inner_solution.inner_solution;
+            let delegation_layer_solution = DelegationLayerSolution::<NodePtr, NodePtr>::from_clvm(
+                allocator,
+                delegation_layer_solution,
+            )
+            .map_err(|err| ParseError::FromClvm(err))?;
 
-                let output = run_puzzle(allocator, delegation_layer_ptr, delegation_layer_solution)
-                    .map_err(|_| ParseError::MismatchedOutput)?;
+            let output = run_puzzle(
+                allocator,
+                delegation_layer_solution.puzzle_reveal,
+                delegation_layer_solution.puzzle_solution,
+            )
+            .map_err(|_| ParseError::MismatchedOutput)?;
 
-                let odd_create_coin = Vec::<NodePtr>::from_clvm(allocator, output)?
-                    .iter()
-                    .map(|cond| Condition::<NodePtr>::from_clvm(allocator, *cond))
-                    .find(|cond| match cond {
-                        Ok(Condition::CreateCoin(create_coin)) => create_coin.amount % 2 == 1,
-                        _ => false,
-                    });
+            let odd_create_coin = Vec::<NodePtr>::from_clvm(allocator, output)?
+                .iter()
+                .map(|cond| Condition::<NodePtr>::from_clvm(allocator, *cond))
+                .find(|cond| match cond {
+                    Ok(Condition::CreateCoin(create_coin)) => create_coin.amount % 2 == 1,
+                    _ => false,
+                });
 
-                if odd_create_coin.is_none() {
-                    return Ok(None); // get info from parent spend :)
-                }
+            println!("odd_create_coin: {:?}", odd_create_coin); // todo: debug
+            if odd_create_coin.is_none() {
+                println!("no odd create coin from deleg layer inner puzzle"); // todo: debug
+                return Ok(None); // get info from parent spend :)
+            }
+
+            let odd_create_coin = odd_create_coin
+                .unwrap()
+                .map_err(|err| ParseError::FromClvm(err))?;
+
+            // if there were any memos, the if above would have caught it since it processes
+            // output conditions
+            // therefore, this spend is 'exiting' the delegation layer
+            if let Condition::CreateCoin(create_coin) = odd_create_coin {
+                owner_puzzle_hash = create_coin.puzzle_hash;
             }
         }
 
         // all methods exhausted; this coin doesn't seem to have a delegation layer
-        let inner_puzzle_hash = tree_hash(allocator, state_args.inner_puzzle);
         Ok(Some(DataStoreInfo {
             coin: cs.coin.clone(),
             launcher_id: singleton_puzzle.launcher_id,
             proof: Proof::Lineage(singleton_puzzle.lineage_proof(cs.coin)),
             metadata: state_args.metadata,
-            owner_puzzle_hash: inner_puzzle_hash.into(),
+            owner_puzzle_hash: owner_puzzle_hash,
             delegated_puzzles: None,
         }))
     }
