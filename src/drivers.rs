@@ -372,7 +372,7 @@ impl<'a> LauncherExt for SpendableLauncher {
 
 #[cfg(test)]
 mod tests {
-    use crate::{print_spend_bundle_to_file, DL_METADATA_UPDATER_PUZZLE};
+    use crate::print_spend_bundle_to_file;
 
     use super::*;
 
@@ -425,9 +425,9 @@ mod tests {
 
     #[derive(Debug, Clone, PartialEq, Eq, ToClvm, FromClvm)]
     #[clvm(list)]
-    pub struct NewMetadataCondition<P = NodePtr, S = NodePtr> {
+    pub struct NewMetadataCondition<S = NodePtr> {
         pub condition: i32,
-        pub metadata_updater_reveal: P,
+        pub metadata_updater_reveal: i32, // 11 - ssh
         pub metadata_updater_solution: S,
     }
 
@@ -599,11 +599,10 @@ mod tests {
         let new_metadata = Metadata::<NodePtr> {
             items: vec![ctx.alloc(&Bytes32::new([0; 32]))?],
         };
-        let metadata_updater_puzzle_ptr = ctx.alloc(&DL_METADATA_UPDATER_PUZZLE)?;
         let new_metadata_condition =
-            NewMetadataCondition::<NodePtr, DLMetadataSolution<Metadata<NodePtr>>> {
+            NewMetadataCondition::<DLMetadataSolution<Metadata<NodePtr>>> {
                 condition: -24,
-                metadata_updater_reveal: metadata_updater_puzzle_ptr,
+                metadata_updater_reveal: 11,
                 metadata_updater_solution: DLMetadataSolution {
                     metadata_part: DLMetadataSolutionMetadataPart {
                         new_metadata: new_metadata,
