@@ -1,7 +1,4 @@
-use chia::consensus::{
-    gen::opcodes::{CREATE_COIN, CREATE_PUZZLE_ANNOUNCEMENT},
-    merkle_tree::MerkleSet,
-};
+use chia::consensus::gen::opcodes::{CREATE_COIN, CREATE_PUZZLE_ANNOUNCEMENT};
 use chia_protocol::{Bytes, Bytes32, Coin, CoinSpend};
 use chia_puzzles::{
     nft::{NftStateLayerArgs, NftStateLayerSolution, NFT_STATE_LAYER_PUZZLE_HASH},
@@ -16,7 +13,7 @@ use clvm_utils::{tree_hash, CurriedProgram, ToTreeHash, TreeHash};
 use clvmr::{reduction::EvalErr, serde::node_from_bytes, Allocator, NodePtr};
 
 use crate::{
-    AdminFilterArgs, DelegationLayerSolution, WriterFilterArgs, ADMIN_FILTER_PUZZLE,
+    AdminFilterArgs, DelegationLayerSolution, MerkleTree, WriterFilterArgs, ADMIN_FILTER_PUZZLE,
     ADMIN_FILTER_PUZZLE_HASH, DELEGATION_LAYER_PUZZLE_HASH, WRITER_FILTER_PUZZLE,
     WRITER_FILTER_PUZZLE_HASH,
 };
@@ -629,17 +626,17 @@ impl DataStoreInfo {
     }
 }
 
-pub fn merkle_set_for_delegated_puzzles(delegated_puzzles: &Vec<DelegatedPuzzle>) -> MerkleSet {
-    let mut leafs: Vec<[u8; 32]> = delegated_puzzles
+pub fn merkle_tree_for_delegated_puzzles(delegated_puzzles: &Vec<DelegatedPuzzle>) -> MerkleTree {
+    let leafs: Vec<Bytes32> = delegated_puzzles
         .iter()
-        .map(|delegated_puzzle| -> [u8; 32] { delegated_puzzle.puzzle_hash.into() })
+        .map(|delegated_puzzle| -> Bytes32 { delegated_puzzle.puzzle_hash.into() })
         .collect();
 
-    MerkleSet::from_leafs(&mut leafs)
+    MerkleTree::new(&leafs)
 }
 
 pub fn merkle_root_for_delegated_puzzles(delegated_puzzles: &Vec<DelegatedPuzzle>) -> Bytes32 {
-    merkle_set_for_delegated_puzzles(&delegated_puzzles)
+    merkle_tree_for_delegated_puzzles(&delegated_puzzles)
         .get_root()
         .into()
 }

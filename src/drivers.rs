@@ -1,5 +1,5 @@
 use crate::{
-    merkle_root_for_delegated_puzzles, merkle_set_for_delegated_puzzles,
+    merkle_root_for_delegated_puzzles, merkle_tree_for_delegated_puzzles,
     puzzles_info::{DataStoreInfo, DelegatedPuzzle},
     DelegatedPuzzleInfo, DelegationLayerArgs, DelegationLayerSolution, HintContents, HintKeys,
     HintType, KeyValueList, KeyValueListItem, Metadata, ADMIN_FILTER_PUZZLE,
@@ -100,23 +100,16 @@ pub fn spend_delegation_layer(
                     ))
                 })?;
 
-            let merkle_proof_result = merkle_set_for_delegated_puzzles(
-                &datastore_info.delegated_puzzles.as_ref().unwrap(),
-            )
-            .generate_proof(&delegated_puzzle.puzzle_hash.into())
-            .map_err(|_| {
-                SpendError::FromClvm(FromClvmError::Custom(String::from(
+            let merkle_proof: (u32, Vec<chia_protocol::BytesImpl<32>>) =
+                merkle_tree_for_delegated_puzzles(
+                    &datastore_info.delegated_puzzles.as_ref().unwrap(),
+                )
+                .generate_proof(delegated_puzzle.puzzle_hash)
+                .ok_or(SpendError::FromClvm(FromClvmError::Custom(String::from(
                     "could not generate merkle proof for spent puzzle",
-                )))
-            })?;
+                ))))?;
 
-            let merkle_proof = if merkle_proof_result.0 {
-                merkle_proof_result.1
-            } else {
-                return Err(SpendError::FromClvm(FromClvmError::Custom(String::from(
-                    "delegated puzzle not found in merkle tree",
-                ))));
-            };
+            println!("merkle_proof: {:?}", merkle_proof); // todo: debug
 
             let new_inner_solution = DelegationLayerSolution::<NodePtr, NodePtr> {
                 merkle_proof: Some(merkle_proof),

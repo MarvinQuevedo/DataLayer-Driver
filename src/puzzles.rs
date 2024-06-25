@@ -41,7 +41,7 @@ impl DelegationLayerArgs {
 #[derive(Debug, Clone, PartialEq, Eq)]
 #[clvm(list)]
 pub struct DelegationLayerSolution<P, S> {
-    pub merkle_proof: Option<Vec<u8>>,
+    pub merkle_proof: Option<(u32, Vec<chia_protocol::Bytes32>)>,
     pub puzzle_reveal: P,
     pub puzzle_solution: S,
 }
