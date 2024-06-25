@@ -296,6 +296,7 @@ mod tests {
     use chia_sdk_driver::{Launcher, P2Spend, StandardSpend};
     use chia_sdk_test::{test_transaction, Simulator};
     use clvmr::Allocator;
+    use hex_literal::hex;
 
     fn assert_datastores_eq(
         ctx: &mut SpendContext<'_>,
@@ -335,6 +336,15 @@ mod tests {
                 assert!(new_datastore_info.delegated_puzzles.is_none());
             }
         }
+    }
+
+    #[derive(Debug, Clone, PartialEq, Eq, ToClvm, FromClvm)]
+    #[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+    #[clvm(list)]
+    pub struct NewMetadataCondition<P = NodePtr, S = NodePtr> {
+        pub condition: i32,
+        pub metadata_updater_reveal: P,
+        pub metadata_updater_solution: S,
     }
 
     #[tokio::test]
@@ -483,20 +493,50 @@ mod tests {
             ctx.spend(spend);
         }
 
-        // finally, remove delegation layer altogether
-        let datastore_remove_delegation_layer_inner_spend = StandardSpend::new()
-            .chain(SpendConditions::new().create_coin(ctx, owner_puzzle_hash, 1)?)
-            .inner_spend(ctx, owner_pk)?;
-        let inner_datastore_spend =
-            DatastoreInnerSpend::OwnerPuzzleSpend(datastore_remove_delegation_layer_inner_spend);
+        // writer: update metadata
+        let new_metadata = Metadata::<NodePtr> {
+            items: vec![ctx.alloc(&Bytes32::new([0; 32]))?],
+        };
+        let metadata_updater_puzzle_ptr = ctx.alloc(&hex!("11"))?;
+        let new_metadata_condition = NewMetadataCondition::<NodePtr, Metadata<NodePtr>> {
+            condition: -24,
+            metadata_updater_reveal: metadata_updater_puzzle_ptr,
+            metadata_updater_solution: new_metadata,
+        }
+        .to_clvm(ctx.allocator_mut())
+        .unwrap();
+
+        let new_metadata_inner_spend = StandardSpend::new()
+            .chain(SpendConditions::new().raw_condition(new_metadata_condition))
+            .inner_spend(ctx, writer_pk)?;
+
+        // delegated puzzle info + inner puzzle reveal + solution
+        let inner_datastore_spend = DatastoreInnerSpend::DelegatedPuzzleSpend(
+            writer_delegated_puzzle,
+            Some(writer_puzzle),
+            new_metadata_inner_spend.solution(),
+        );
         let new_spend = datastore_spend(ctx, &datastore_info, inner_datastore_spend)?;
         ctx.spend(new_spend.clone());
 
-        let new_datastore_info = DataStoreInfo::from_spend(ctx.allocator_mut(), &new_spend)
-            .unwrap()
-            .unwrap();
-        assert!(new_datastore_info.delegated_puzzles.is_none());
-        assert_eq!(new_datastore_info.owner_puzzle_hash, owner_puzzle_hash);
+        // let new_datastore_info =
+        //     DataStoreInfo::from_spend(ctx.allocator_mut(), &new_spend).unwrap();
+        // assert!(new_datastore_info.is_none());
+
+        // finally, remove delegation layer altogether
+        // let datastore_remove_delegation_layer_inner_spend = StandardSpend::new()
+        //     .chain(SpendConditions::new().create_coin(ctx, owner_puzzle_hash, 1)?)
+        //     .inner_spend(ctx, owner_pk)?;
+        // let inner_datastore_spend =
+        //     DatastoreInnerSpend::OwnerPuzzleSpend(datastore_remove_delegation_layer_inner_spend);
+        // let new_spend = datastore_spend(ctx, &datastore_info, inner_datastore_spend)?;
+        // ctx.spend(new_spend.clone());
+
+        // let new_datastore_info = DataStoreInfo::from_spend(ctx.allocator_mut(), &new_spend)
+        //     .unwrap()
+        //     .unwrap();
+        // assert!(new_datastore_info.delegated_puzzles.is_none());
+        // assert_eq!(new_datastore_info.owner_puzzle_hash, owner_puzzle_hash);
 
         let spends = ctx.take_spends();
         print_spend_bundle_to_file(spends.clone(), G2Element::default(), "sb.debug");

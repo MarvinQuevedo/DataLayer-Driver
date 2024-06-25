@@ -156,6 +156,18 @@ pub const WRITER_FILTER_PUZZLE_HASH: TreeHash = TreeHash::new(hex!(
     "
 ));
 
+pub const DL_METADATA_UPDATER_PUZZLE: [u8; 1] = hex!(
+    "
+    11
+    "
+);
+
+pub const DL_METADATA_UPDATER_PUZZLE_HASH: TreeHash = TreeHash::new(hex!(
+    "
+    26e7f98cfafee5b213726e22632923bf31bf3e988233235f8f5ca5466b3ac0ed
+    "
+));
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -177,5 +189,6 @@ mod tests {
         assert_puzzle_hash!(DELEGATION_LAYER_PUZZLE => DELEGATION_LAYER_PUZZLE_HASH);
         assert_puzzle_hash!(ADMIN_FILTER_PUZZLE => ADMIN_FILTER_PUZZLE_HASH);
         assert_puzzle_hash!(WRITER_FILTER_PUZZLE => WRITER_FILTER_PUZZLE_HASH);
+        assert_puzzle_hash!(DL_METADATA_UPDATER_PUZZLE => DL_METADATA_UPDATER_PUZZLE_HASH);
     }
 }

@@ -523,9 +523,11 @@ impl DataStoreInfo {
         let state_args =
             NftStateLayerArgs::<NodePtr, Metadata>::from_clvm(allocator, state_layer_puzzle.args)?;
 
+        println!("running full puzzle...");
         // was the coin re-created with hints?
         let output = run_puzzle(allocator, puzzle_node_ptr, solution_node_ptr)
             .map_err(|_| ParseError::MismatchedOutput)?;
+        println!("ran full puzzle");
         let odd_create_coin = Vec::<NodePtr>::from_clvm(allocator, output)?;
         let odd_create_coin: Option<&NodePtr> =
             odd_create_coin.iter().find(|cond| {
