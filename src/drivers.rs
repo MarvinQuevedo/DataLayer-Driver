@@ -4,16 +4,18 @@ use crate::{
     DelegatedPuzzleInfo, DelegationLayerArgs, DelegationLayerSolution, HintContents, HintKeys,
     HintType, KeyValueList, KeyValueListItem, Metadata, ADMIN_FILTER_PUZZLE,
     ADMIN_FILTER_PUZZLE_HASH, DELEGATION_LAYER_PUZZLE, DELEGATION_LAYER_PUZZLE_HASH,
-    WRITER_FILTER_PUZZLE, WRITER_FILTER_PUZZLE_HASH,
+    DL_METADATA_UPDATER_PUZZLE_HASH, WRITER_FILTER_PUZZLE, WRITER_FILTER_PUZZLE_HASH,
 };
 use chia_protocol::{Bytes32, CoinSpend};
-use chia_puzzles::{nft::NftStateLayerArgs, EveProof, Proof};
+use chia_puzzles::{
+    nft::{NftStateLayerArgs, NftStateLayerSolution, NFT_STATE_LAYER_PUZZLE_HASH},
+    EveProof, Proof,
+};
 use chia_sdk_driver::{
-    spend_nft_state_layer, spend_singleton, InnerSpend, SpendConditions, SpendContext, SpendError,
-    SpendableLauncher,
+    spend_singleton, InnerSpend, SpendConditions, SpendContext, SpendError, SpendableLauncher,
 };
 use clvm_traits::{FromClvm, FromClvmError, ToClvm};
-use clvm_utils::{CurriedProgram, TreeHash};
+use clvm_utils::{CurriedProgram, ToTreeHash, TreeHash};
 use clvmr::{reduction::EvalErr, NodePtr};
 
 pub trait SpendContextExt {
@@ -130,6 +132,33 @@ pub fn spend_delegation_layer(
     }
 }
 
+pub fn spend_nft_state_layer_custom_metadata_updated<M>(
+    ctx: &mut SpendContext<'_>,
+    metadata: M,
+    inner_spend: InnerSpend,
+) -> Result<InnerSpend, SpendError>
+where
+    M: ToClvm<NodePtr>,
+{
+    let nft_state_layer = ctx.nft_state_layer()?;
+
+    let puzzle = ctx.alloc(&CurriedProgram {
+        program: nft_state_layer,
+        args: NftStateLayerArgs {
+            mod_hash: NFT_STATE_LAYER_PUZZLE_HASH.into(),
+            metadata: metadata,
+            metadata_updater_puzzle_hash: DL_METADATA_UPDATER_PUZZLE_HASH.into(),
+            inner_puzzle: inner_spend.puzzle(),
+        },
+    })?;
+
+    let solution = ctx.alloc(&NftStateLayerSolution {
+        inner_solution: inner_spend.solution(),
+    })?;
+
+    Ok(InnerSpend::new(puzzle, solution))
+}
+
 pub fn datastore_spend(
     ctx: &mut SpendContext<'_>,
     datastore_info: &DataStoreInfo,
@@ -139,7 +168,9 @@ pub fn datastore_spend(
     let inner_spend = spend_delegation_layer(ctx, datastore_info, inner_datastore_spend)?;
 
     // 2. Handle state layer spend
-    let state_layer_spend = spend_nft_state_layer(ctx, &datastore_info.metadata, inner_spend)?;
+    // allows custom metadata updater hash
+    let state_layer_spend =
+        spend_nft_state_layer_custom_metadata_updated(ctx, &datastore_info.metadata, inner_spend)?;
 
     // 3. Spend singleton
     spend_singleton(
@@ -236,6 +267,10 @@ impl<'a> LauncherExt for SpendableLauncher {
     ) -> Result<(SpendConditions, DataStoreInfo), SpendError>
     where
         Self: Sized,
+        TreeHash: ToTreeHash + ToClvm<TreeHash>,
+        NodePtr: ToClvm<NodePtr>,
+        Metadata<NodePtr>: ToClvm<NodePtr>,
+        NftStateLayerArgs<TreeHash, TreeHash>: ToClvm<TreeHash> + ToTreeHash,
     {
         let inner_puzzle_hash: TreeHash = match &info.delegated_puzzles {
             None => info.owner_puzzle_hash,
@@ -247,8 +282,16 @@ impl<'a> LauncherExt for SpendableLauncher {
 
         let metadata_ptr = ctx.alloc(&info.metadata)?;
         let metadata_hash = ctx.tree_hash(metadata_ptr);
-        let state_layer_hash: TreeHash =
-            NftStateLayerArgs::curry_tree_hash(metadata_hash, inner_puzzle_hash);
+        let state_layer_hash = CurriedProgram {
+            program: NFT_STATE_LAYER_PUZZLE_HASH,
+            args: NftStateLayerArgs::<TreeHash, TreeHash> {
+                mod_hash: NFT_STATE_LAYER_PUZZLE_HASH.into(),
+                metadata: metadata_hash,
+                metadata_updater_puzzle_hash: DL_METADATA_UPDATER_PUZZLE_HASH.into(),
+                inner_puzzle: inner_puzzle_hash,
+            },
+        }
+        .tree_hash();
 
         let metadata_list = Metadata::<NodePtr>::from_clvm(ctx.allocator_mut(), metadata_ptr)?;
         let metadata_list_ptr = ctx.alloc(&metadata_list)?;

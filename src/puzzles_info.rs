@@ -13,7 +13,7 @@ use chia_sdk_types::conditions::Condition;
 use clvm_traits::apply_constants;
 use clvm_traits::{FromClvm, ToClvm, ToClvmError, ToNodePtr};
 use clvm_utils::{tree_hash, CurriedProgram, ToTreeHash, TreeHash};
-use clvmr::{reduction::EvalErr, Allocator, NodePtr};
+use clvmr::{reduction::EvalErr, serde::node_from_bytes, Allocator, NodePtr};
 
 use crate::{
     AdminFilterArgs, DelegationLayerSolution, WriterFilterArgs, ADMIN_FILTER_PUZZLE,
@@ -60,7 +60,8 @@ impl DelegatedPuzzle {
         inner_puzzle: NodePtr,
     ) -> Result<NodePtr, ToClvmError> {
         let curried_prog = CurriedProgram {
-            program: ADMIN_FILTER_PUZZLE,
+            program: node_from_bytes(allocator, &ADMIN_FILTER_PUZZLE)
+                .map_err(|_| ToClvmError::Custom(String::from("could not load puzzle")))?,
             args: AdminFilterArgs { inner_puzzle },
         };
 
@@ -93,7 +94,8 @@ impl DelegatedPuzzle {
         inner_puzzle: NodePtr,
     ) -> Result<NodePtr, ToClvmError> {
         let curried_prog = CurriedProgram {
-            program: WRITER_FILTER_PUZZLE,
+            program: node_from_bytes(allocator, &WRITER_FILTER_PUZZLE)
+                .map_err(|_| ToClvmError::Custom(String::from("could not load puzzle")))?,
             args: WriterFilterArgs { inner_puzzle },
         };
 
