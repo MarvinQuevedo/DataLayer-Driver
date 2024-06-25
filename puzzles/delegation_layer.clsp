@@ -26,7 +26,7 @@
   ; only one odd CREATE_COIN enforced in upper layers
   (defun morph_conditions (MOD_HASH INNER_PUZZLE_HASH conditions new_merkle_root_info odd_create_coin_found)
     (if conditions
-      (if (all (= (f (f conditions)) NEW_MERKLE_ROOT_CONDITION) (= (strlen (f (r (f conditions)))) 32))
+      (if (if (= (f (f conditions)) NEW_MERKLE_ROOT_CONDITION) (= (strlen (f (r (f conditions)))) 32) ())
         (morph_conditions
           MOD_HASH INNER_PUZZLE_HASH
           (r conditions)
@@ -42,7 +42,7 @@
             new_merkle_root_info
             (any
               odd_create_coin_found
-              (all (= (f (f conditions)) CREATE_COIN) (= (logand (f (r (r (f conditions)))) 1) 1))
+              (if (= (f (f conditions)) CREATE_COIN) (= (logand (f (r (r (f conditions)))) 1) 1) ())
             )
           )
         )
