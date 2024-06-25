@@ -6,8 +6,7 @@ use crate::{
     ADMIN_FILTER_PUZZLE_HASH, DELEGATION_LAYER_PUZZLE, DELEGATION_LAYER_PUZZLE_HASH,
     DL_METADATA_UPDATER_PUZZLE_HASH, WRITER_FILTER_PUZZLE, WRITER_FILTER_PUZZLE_HASH,
 };
-use chia::traits::Streamable;
-use chia_protocol::{Bytes32, CoinSpend, Program};
+use chia_protocol::{Bytes32, CoinSpend};
 use chia_puzzles::{
     nft::{NftStateLayerArgs, NftStateLayerSolution, NFT_STATE_LAYER_PUZZLE_HASH},
     EveProof, Proof,
@@ -15,7 +14,7 @@ use chia_puzzles::{
 use chia_sdk_driver::{
     spend_singleton, InnerSpend, SpendConditions, SpendContext, SpendError, SpendableLauncher,
 };
-use clvm_traits::{FromClvm, FromClvmError, FromNodePtr, ToClvm};
+use clvm_traits::{FromClvm, FromClvmError, ToClvm};
 use clvm_utils::{CurriedProgram, ToTreeHash, TreeHash};
 use clvmr::{reduction::EvalErr, NodePtr};
 
@@ -188,27 +187,27 @@ pub fn datastore_spend(
 ) -> Result<CoinSpend, SpendError> {
     // 1. Handle delegation layer spend
     let inner_spend = spend_delegation_layer(ctx, datastore_info, inner_datastore_spend)?;
-    println!("inner_spend!"); // todo: debug
-    println!(
-        "puzzle: {:}",
-        encode(
-            Program::from_node_ptr(ctx.allocator_mut(), inner_spend.puzzle())
-                .unwrap()
-                .clone()
-                .to_bytes()
-                .unwrap()
-        )
-    ); // todo: debug
-    println!(
-        "solution: {:}",
-        encode(
-            Program::from_node_ptr(ctx.allocator_mut(), inner_spend.solution())
-                .unwrap()
-                .clone()
-                .to_bytes()
-                .unwrap()
-        )
-    ); // todo: debug
+    // println!("inner_spend!"); // todo: debug
+    // println!(
+    //     "puzzle: {:}",
+    //     encode(
+    //         Program::from_node_ptr(ctx.allocator_mut(), inner_spend.puzzle())
+    //             .unwrap()
+    //             .clone()
+    //             .to_bytes()
+    //             .unwrap()
+    //     )
+    // ); // todo: debug
+    // println!(
+    //     "solution: {:}",
+    //     encode(
+    //         Program::from_node_ptr(ctx.allocator_mut(), inner_spend.solution())
+    //             .unwrap()
+    //             .clone()
+    //             .to_bytes()
+    //             .unwrap()
+    //     )
+    // ); // todo: debug
 
     // 2. Handle state layer spend
     // allows custom metadata updater hash
@@ -372,7 +371,10 @@ impl<'a> LauncherExt for SpendableLauncher {
 
 #[cfg(test)]
 mod tests {
-    use crate::print_spend_bundle_to_file;
+    use crate::{
+        print_spend_bundle_to_file, DefaultMetadataSolution, DefaultMetadataSolutionMetadataList,
+        NewMetadataCondition,
+    };
 
     use super::*;
 
@@ -423,28 +425,6 @@ mod tests {
         }
     }
 
-    #[derive(Debug, Clone, PartialEq, Eq, ToClvm, FromClvm)]
-    #[clvm(list)]
-    pub struct NewMetadataCondition<S = NodePtr> {
-        pub condition: i32,
-        pub metadata_updater_reveal: i32, // 11 - ssh
-        pub metadata_updater_solution: S,
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, ToClvm, FromClvm)]
-    #[clvm(list)]
-    pub struct DLMetadataSolutionMetadataPart<T = NodePtr> {
-        pub new_metadata: T,
-        pub new_metadata_updater_ph: u8, // 0
-    }
-
-    #[derive(Debug, Clone, PartialEq, Eq, ToClvm, FromClvm)]
-    #[clvm(list)]
-    pub struct DLMetadataSolution<T = NodePtr> {
-        pub metadata_part: DLMetadataSolutionMetadataPart<T>,
-        pub metadata_updater_solution: u8, // 0
-    }
-
     #[tokio::test]
     async fn test_simple_datastore() -> anyhow::Result<()> {
         let sim = Simulator::new().await?;
@@ -478,9 +458,8 @@ mod tests {
         print_spend_bundle_to_file(spends.clone(), G2Element::default(), "sb.debug");
         for spend in spends {
             if spend.coin.coin_id() == datastore_info.launcher_id {
-                let new_datastore_info = DataStoreInfo::from_spend(ctx.allocator_mut(), &spend)
-                    .unwrap()
-                    .unwrap();
+                let new_datastore_info =
+                    DataStoreInfo::from_spend(ctx.allocator_mut(), &spend, None).unwrap();
 
                 assert_datastores_eq(ctx, &datastore_info, &new_datastore_info);
             }
@@ -585,9 +564,8 @@ mod tests {
         let spends = ctx.take_spends();
         for spend in spends {
             if spend.coin.coin_id() == datastore_info.launcher_id {
-                let new_datastore_info = DataStoreInfo::from_spend(ctx.allocator_mut(), &spend)
-                    .unwrap()
-                    .unwrap();
+                let new_datastore_info =
+                    DataStoreInfo::from_spend(ctx.allocator_mut(), &spend, None).unwrap();
 
                 assert_datastores_eq(ctx, &datastore_info, &new_datastore_info);
             }
@@ -599,20 +577,18 @@ mod tests {
         let new_metadata = Metadata::<NodePtr> {
             items: vec![ctx.alloc(&Bytes32::new([0; 32]))?],
         };
-        let new_metadata_condition =
-            NewMetadataCondition::<DLMetadataSolution<Metadata<NodePtr>>> {
-                condition: -24,
-                metadata_updater_reveal: 11,
-                metadata_updater_solution: DLMetadataSolution {
-                    metadata_part: DLMetadataSolutionMetadataPart {
-                        new_metadata: new_metadata,
-                        new_metadata_updater_ph: 0,
-                    },
-                    metadata_updater_solution: 0,
+        let new_metadata_condition = NewMetadataCondition::<i32, Metadata<NodePtr>, i32, i32> {
+            metadata_updater_reveal: 11,
+            metadata_updater_solution: DefaultMetadataSolution {
+                metadata_part: DefaultMetadataSolutionMetadataList {
+                    new_metadata: new_metadata,
+                    new_metadata_updater_ph: Some(0),
                 },
-            }
-            .to_clvm(ctx.allocator_mut())
-            .unwrap();
+                conditions: 0,
+            },
+        }
+        .to_clvm(ctx.allocator_mut())
+        .unwrap();
 
         let new_metadata_inner_spend = StandardSpend::new()
             .chain(SpendConditions::new().raw_condition(new_metadata_condition))
@@ -627,9 +603,13 @@ mod tests {
         let new_spend = datastore_spend(ctx, &datastore_info, inner_datastore_spend)?;
         ctx.spend(new_spend.clone());
 
-        // let new_datastore_info =
-        //     DataStoreInfo::from_spend(ctx.allocator_mut(), &new_spend).unwrap();
-        // assert!(new_datastore_info.is_none());
+        let new_datastore_info = DataStoreInfo::from_spend(
+            ctx.allocator_mut(),
+            &new_spend,
+            datastore_info.delegated_puzzles,
+        )
+        .unwrap();
+        assert!(new_datastore_info.metadata.items.len() == 1);
 
         // finally, remove delegation layer altogether
         // let datastore_remove_delegation_layer_inner_spend = StandardSpend::new()
