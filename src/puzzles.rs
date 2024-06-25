@@ -46,38 +46,24 @@ pub struct DelegationLayerSolution<P, S> {
     pub puzzle_solution: S,
 }
 
-pub const DELEGATION_LAYER_PUZZLE: [u8; 956] = hex!(
+pub const DELEGATION_LAYER_PUZZLE: [u8; 384] = hex!(
     "
-    ff02ffff01ff02ffff03ff2fffff01ff02ffff03ffff09ff17ffff02ff1effff04ff02ffff04ffff
-    0bffff0101ffff02ff16ffff04ff02ffff04ff5fff8080808080ffff04ff2fff808080808080ffff
-    01ff02ff1affff04ff02ffff04ff05ffff04ff0bffff04ffff02ff5fff81bf80ffff04ffff04ff17
-    ff8080ffff01ff8080808080808080ffff01ff08ffff019070682070726f6f6620696e76616c6964
-    8080ff0180ffff01ff02ffff03ffff09ffff02ff16ffff04ff02ffff04ff5fff80808080ff0b80ff
-    ff01ff02ff5fff81bf80ffff01ff08ffff018a706820696e76616c69648080ff018080ff0180ffff
-    04ffff01ffff33ff81f302ffffffffa04bf5122f344554c53bde2ebb8cd2b7e3d1600ad631c385a5
-    d7cce23c7785459aa09dcf97a184f32623d11a73124ceb99a5709b083721e878a16d78f596718ba7
-    b2ffa102a12871fee210fb8619291eaea194581cbd2531e4b23759d225f6806923f63222a102a8d5
-    dd63fba471ebcb1f3e8f7c1e1879b7152a6e7298a91ce119a63400ade7c5ff02ffff03ff17ffff01
-    ff02ffff03ffff22ffff09ff47ff1480ffff09ffff0dff81a780ffff01208080ffff01ff02ff1aff
-    ff04ff02ffff04ff05ffff04ff0bffff04ff37ffff04ff67ffff04ff5fff8080808080808080ffff
-    01ff04ff27ffff02ff1affff04ff02ffff04ff05ffff04ff0bffff04ff37ffff04ff2fffff04ffff
-    21ff5fffff22ffff09ff47ff0880ffff09ffff18ff820167ffff010180ffff0101808080ff808080
-    80808080808080ff0180ffff01ff02ffff03ff5fff80ffff01ff04ffff04ff08ffff04ffff0bff52
-    ffff0bff1cffff0bff1cff62ff0580ffff0bff1cffff0bff72ffff0bff1cffff0bff1cff62ffff0b
-    ffff0101ff058080ffff0bff1cffff0bff72ffff0bff1cffff0bff1cff62ffff0bffff0101ff0b80
-    80ffff0bff1cffff0bff72ffff0bff1cffff0bff1cff62ffff0bffff0101ff4f8080ffff0bff1cff
-    62ff42808080ff42808080ff42808080ff42808080ffff04ffff0101ffff04ff6fff8080808080ff
-    808080ff018080ff0180ffff02ffff03ffff07ff0580ffff01ff0bffff0102ffff02ff16ffff04ff
-    02ffff04ff09ff80808080ffff02ff16ffff04ff02ffff04ff0dff8080808080ffff01ff0bffff01
-    01ff058080ff0180ff02ffff03ff1bffff01ff02ff1effff04ff02ffff04ffff02ffff03ffff18ff
-    ff0101ff1380ffff01ff0bffff0102ff2bff0580ffff01ff0bffff0102ff05ff2b8080ff0180ffff
-    04ffff04ffff17ff13ffff0181ff80ff3b80ff8080808080ffff010580ff0180ff018080
+    ff02ffff01ff02ffff03ff2fffff01ff02ffff03ffff09ff17ffff02ff06ffff04ff02ffff04ffff
+0bffff0101ffff02ff04ffff04ff02ffff04ff5fff8080808080ffff04ff2fff808080808080ffff
+01ff02ff5fff81bf80ffff01ff08ffff019070682070726f6f6620696e76616c69648080ff0180ff
+ff01ff02ffff03ffff09ffff02ff04ffff04ff02ffff04ff5fff80808080ff0b80ffff01ff02ff5f
+ff81bf80ffff01ff08ffff018a706820696e76616c69648080ff018080ff0180ffff04ffff01ffff
+02ffff03ffff07ff0580ffff01ff0bffff0102ffff02ff04ffff04ff02ffff04ff09ff80808080ff
+ff02ff04ffff04ff02ffff04ff0dff8080808080ffff01ff0bffff0101ff058080ff0180ff02ffff
+03ff1bffff01ff02ff06ffff04ff02ffff04ffff02ffff03ffff18ffff0101ff1380ffff01ff0bff
+ff0102ff2bff0580ffff01ff0bffff0102ff05ff2b8080ff0180ffff04ffff04ffff17ff13ffff01
+81ff80ff3b80ff8080808080ffff010580ff0180ff018080
     "
 );
 
 pub const DELEGATION_LAYER_PUZZLE_HASH: TreeHash = TreeHash::new(hex!(
     "
-    acedec639683bb8d7ec77917ae5b2f07a8fc714a5f045b23de0b529d86baa5b6
+    fc6f7278d7dd11a0d82202a1223092aa8db89c1ecd177e973e721a8f22351c1e
     "
 ));
 
@@ -107,14 +93,14 @@ pub const ADMIN_FILTER_PUZZLE: [u8; 153] = hex!(
     "
     ff02ffff01ff02ff06ffff04ff02ffff04ffff02ff05ff0b80ff80808080ffff04ffff01ff33ff02
     ffff03ff05ffff01ff02ffff03ffff21ffff09ff11ff0480ffff09ff11ffff01818f80ffff22ffff
-    09ff11ffff0181e880ffff20ffff09ff820159ff8080808080ffff01ff0880ffff01ff04ff09ffff
+    09ff11ffff0181e880ffff20ffff09ff820119ff8080808080ffff01ff0880ffff01ff04ff09ffff
     02ff06ffff04ff02ffff04ff0dff808080808080ff0180ff8080ff0180ff018080
     "
 );
 
 pub const ADMIN_FILTER_PUZZLE_HASH: TreeHash = TreeHash::new(hex!(
     "
-    6332f1941eb746501c02026c711d9cacf20e8372d33cf558b360055b602aa471
+    24caae81bf7b3d3daff71342afbd4cf4c0bb8807c9025ff6f598ab8c171c53b0
     "
 ));
 
@@ -140,15 +126,19 @@ pub struct WriterFilterSolution<I> {
     pub inner_solution: I,
 }
 
-pub const WRITER_FILTER_PUZZLE: [u8; 36] = hex!(
+pub const WRITER_FILTER_PUZZLE: [u8; 164] = hex!(
     "
-    ff02ffff01ff04ffff04ff02ffff01ff8379616b8080ff8080ffff04ffff0101ff018080
+    ff02ffff01ff02ff06ffff04ff02ffff04ffff02ff05ff0b80ff80808080ffff04ffff01ff33ff02
+    ffff03ff05ffff01ff02ffff03ffff21ffff09ff11ff0480ffff09ff11ffff01818f80ffff09ff11
+    ffff0181f380ffff22ffff09ff11ffff0181e880ffff20ffff09ff820119ff8080808080ffff01ff
+    0880ffff01ff04ff09ffff02ff06ffff04ff02ffff04ff0dff808080808080ff0180ff8080ff0180
+    ff018080
     "
 );
 
 pub const WRITER_FILTER_PUZZLE_HASH: TreeHash = TreeHash::new(hex!(
     "
-    db508bfd0dba412fe607269466e6743453b9410c92a4fa3a1f1d6f2c582c53ca
+    fd27b8315b799fb22e6010b696e5bac4c0695be259f236d1aad5b578da9d02c9
     "
 ));
 
