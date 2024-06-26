@@ -188,27 +188,27 @@ pub fn datastore_spend(
 ) -> Result<CoinSpend, SpendError> {
     // 1. Handle delegation layer spend
     let inner_spend = spend_delegation_layer(ctx, datastore_info, inner_datastore_spend)?;
-    // println!("inner_spend!"); // todo: debug
-    // println!(
-    //     "puzzle: {:}",
-    //     encode(
-    //         Program::from_node_ptr(ctx.allocator_mut(), inner_spend.puzzle())
-    //             .unwrap()
-    //             .clone()
-    //             .to_bytes()
-    //             .unwrap()
-    //     )
-    // ); // todo: debug
-    // println!(
-    //     "solution: {:}",
-    //     encode(
-    //         Program::from_node_ptr(ctx.allocator_mut(), inner_spend.solution())
-    //             .unwrap()
-    //             .clone()
-    //             .to_bytes()
-    //             .unwrap()
-    //     )
-    // ); // todo: debug
+    println!("inner_spend!"); // todo: debug
+                              // println!(
+                              //     "puzzle: {:}",
+                              //     encode(
+                              //         Program::from_node_ptr(ctx.allocator_mut(), inner_spend.puzzle())
+                              //             .unwrap()
+                              //             .clone()
+                              //             .to_bytes()
+                              //             .unwrap()
+                              //     )
+                              // ); // todo: debug
+                              // println!(
+                              //     "solution: {:}",
+                              //     encode(
+                              //         Program::from_node_ptr(ctx.allocator_mut(), inner_spend.solution())
+                              //             .unwrap()
+                              //             .clone()
+                              //             .to_bytes()
+                              //             .unwrap()
+                              //     )
+                              // ); // todo: debug
 
     // 2. Handle state layer spend
     // allows custom metadata updater hash
@@ -525,7 +525,8 @@ mod tests {
         ); // todo: debug
 
         let oracle_delegated_puzzle =
-            DelegatedPuzzle::new_oracle(oracle_puzzle_hash, oracle_fee).unwrap();
+            DelegatedPuzzle::new_oracle(ctx.allocator_mut(), oracle_puzzle_hash, oracle_fee)
+                .unwrap();
         let (launch_singleton, datastore_info) = Launcher::new(coin.coin_id(), 1)
             .create(ctx)?
             .mint_datastore(
@@ -651,6 +652,40 @@ mod tests {
             dep_puzzs[1].puzzle_hash,
             oracle_delegated_puzzle.puzzle_hash
         );
+
+        // oracle: just spend :)
+        // delegated puzzle info + inner puzzle reveal + solution
+
+        println!(
+            "oracle full puzzle: {:}",
+            encode(
+                Program::from_node_ptr(
+                    ctx.allocator_mut(),
+                    oracle_delegated_puzzle.full_puzzle.unwrap()
+                )
+                .unwrap()
+                .clone()
+                .to_bytes()
+                .unwrap()
+            )
+        ); // todo: debug
+
+        let inner_datastore_spend = DatastoreInnerSpend::DelegatedPuzzleSpend(
+            oracle_delegated_puzzle,
+            Some(oracle_delegated_puzzle.full_puzzle.unwrap()), // oracle puzzle always available
+            ctx.allocator().nil(),
+        );
+        let new_spend = datastore_spend(ctx, &datastore_info, inner_datastore_spend)?;
+        ctx.spend(new_spend.clone());
+
+        let new_datastore_info = DataStoreInfo::from_spend(
+            ctx.allocator_mut(),
+            &new_spend,
+            datastore_info.clone().delegated_puzzles,
+        )
+        .unwrap();
+        assert_datastores_eq(ctx, &datastore_info, &new_datastore_info);
+        let datastore_info = new_datastore_info;
 
         // finally, remove delegation layer altogether
         let datastore_remove_delegation_layer_inner_spend = StandardSpend::new()

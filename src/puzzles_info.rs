@@ -1,7 +1,4 @@
-use chia::{
-    consensus::gen::opcodes::{CREATE_COIN, CREATE_PUZZLE_ANNOUNCEMENT},
-    traits::Streamable,
-};
+use chia::traits::Streamable;
 use chia_protocol::{Bytes, Bytes32, Coin, CoinSpend};
 use chia_puzzles::{
     nft::{NftStateLayerArgs, NftStateLayerSolution, NFT_STATE_LAYER_PUZZLE_HASH},
@@ -11,11 +8,11 @@ use chia_puzzles::{
     EveProof, Proof,
 };
 use chia_sdk_parser::{run_puzzle, ParseError, Puzzle, SingletonPuzzle};
-use chia_sdk_types::conditions::Condition;
-use clvm_traits::apply_constants;
+use chia_sdk_types::conditions::{Condition, CreateCoin, CreatePuzzleAnnouncement};
+use clvm_traits::{apply_constants, clvm_quote};
 use clvm_traits::{FromClvm, ToClvm, ToClvmError, ToNodePtr};
 use clvm_utils::{tree_hash, CurriedProgram, ToTreeHash, TreeHash};
-use clvmr::{reduction::EvalErr, serde::node_from_bytes, Allocator, NodePtr};
+use clvmr::{serde::node_from_bytes, Allocator, NodePtr};
 use num_bigint::BigInt;
 
 use crate::{
@@ -157,50 +154,32 @@ impl DelegatedPuzzle {
         allocator: &mut Allocator,
         oracle_puzzle_hash: Bytes32,
         oracle_fee: u64,
-    ) -> Result<NodePtr, EvalErr> {
+    ) -> Result<NodePtr, ToClvmError> {
         // first condition: (list CREATE_COIN oracle_puzzle_hash oracle_fee)
         // second condition: (list CREATE_PUZZLE_ANNOUNCEMENT '$')
 
-        let first_condition = {
-            let create_coin = allocator.new_number(CREATE_COIN.into())?;
-            let ph = allocator.new_atom(&oracle_puzzle_hash)?;
-            let fee = allocator.new_number(oracle_fee.into())?;
-            let nil = allocator.nil();
-            let fee_nil = allocator.new_pair(fee, nil)?;
-            let ph_fee_nil = allocator.new_pair(ph, fee_nil)?;
-
-            allocator.new_pair(create_coin, ph_fee_nil)?
-        };
-
-        let second_condition = {
-            let create_puzzle_ann = allocator.new_number(CREATE_PUZZLE_ANNOUNCEMENT.into())?;
-            let ann = allocator.new_atom(&['$' as u8])?;
-            let nil = allocator.nil();
-            let ann_nil = allocator.new_pair(ann, nil)?;
-
-            allocator.new_pair(create_puzzle_ann, ann_nil)?
-        };
-
-        let program = {
-            let one = allocator.one();
-            let first_second = allocator.new_pair(first_condition, second_condition)?;
-            let nil = allocator.nil();
-
-            let conditions = allocator.new_pair(first_second, nil)?;
-            allocator.new_pair(one, conditions)?
-        };
-
-        Ok(program)
+        clvm_quote!(vec![
+            CreateCoin {
+                puzzle_hash: oracle_puzzle_hash,
+                amount: oracle_fee,
+                memos: vec![],
+            }
+            .to_clvm(allocator)?,
+            CreatePuzzleAnnouncement {
+                message: Bytes::new("$".into()),
+            }
+            .to_clvm(allocator)?,
+        ])
+        .to_clvm(allocator)
     }
 
-    pub fn new_oracle(oracle_puzzle_hash: Bytes32, oracle_fee: u64) -> Result<Self, EvalErr> {
-        let mut allocator = Allocator::new();
-
-        let full_puzzle = DelegatedPuzzle::oracle_layer_full_puzzle(
-            &mut allocator,
-            oracle_puzzle_hash,
-            oracle_fee,
-        )?;
+    pub fn new_oracle(
+        allocator: &mut Allocator,
+        oracle_puzzle_hash: Bytes32,
+        oracle_fee: u64,
+    ) -> Result<Self, ToClvmError> {
+        let full_puzzle =
+            DelegatedPuzzle::oracle_layer_full_puzzle(allocator, oracle_puzzle_hash, oracle_fee)?;
 
         Ok(Self {
             puzzle_hash: tree_hash(&allocator, full_puzzle).into(),
