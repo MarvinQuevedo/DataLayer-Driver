@@ -1,4 +1,7 @@
-use chia::consensus::gen::opcodes::{CREATE_COIN, CREATE_PUZZLE_ANNOUNCEMENT};
+use chia::{
+    consensus::gen::opcodes::{CREATE_COIN, CREATE_PUZZLE_ANNOUNCEMENT},
+    traits::Streamable,
+};
 use chia_protocol::{Bytes, Bytes32, Coin, CoinSpend};
 use chia_puzzles::{
     nft::{NftStateLayerArgs, NftStateLayerSolution, NFT_STATE_LAYER_PUZZLE_HASH},
@@ -13,6 +16,7 @@ use clvm_traits::apply_constants;
 use clvm_traits::{FromClvm, ToClvm, ToClvmError, ToNodePtr};
 use clvm_utils::{tree_hash, CurriedProgram, ToTreeHash, TreeHash};
 use clvmr::{reduction::EvalErr, serde::node_from_bytes, Allocator, NodePtr};
+use num_bigint::BigInt;
 
 use crate::{
     AdminFilterArgs, DelegationLayerArgs, DelegationLayerSolution, MerkleTree, WriterFilterArgs,
@@ -213,19 +217,15 @@ impl DelegatedPuzzle {
             return Err(ParseError::MissingHint);
         }
 
-        let puzzle_type_ptr =
-            node_from_bytes(allocator, &remaining_hints.drain(0..1).next().unwrap())
-                .map_err(|_| ParseError::MissingHint)?;
-        let puzzle_type =
-            u8::from_clvm(allocator, puzzle_type_ptr).map_err(|err| ParseError::FromClvm(err))?;
+        let puzzle_type: u8 =
+            BigInt::from_signed_bytes_be(&remaining_hints.drain(0..1).next().unwrap())
+                .to_u32_digits()
+                .1[0] as u8;
 
         // under current specs, first value will always be a puzzle hash
-        let puzzle_hash_ptr =
-            node_from_bytes(allocator, &remaining_hints.drain(0..1).next().unwrap())
+        let puzzle_hash: Bytes32 =
+            Bytes32::from_bytes(&remaining_hints.drain(0..1).next().unwrap())
                 .map_err(|_| ParseError::MissingHint)?;
-        let puzzle_hash: TreeHash = Bytes32::from_clvm(allocator, puzzle_hash_ptr)
-            .map_err(|_| ParseError::MissingHint)?
-            .into();
 
         if puzzle_type == HintType::AdminPuzzle.value() {
             let full_puzzle_hash = CurriedProgram {
@@ -261,11 +261,10 @@ impl DelegatedPuzzle {
             }
 
             // puzzle hash bech32m_decode(oracle_address), not puzzle hash of the whole oracle puzze!
-            let oracle_fee_ptr =
-                node_from_bytes(allocator, &remaining_hints.drain(0..1).next().unwrap())
-                    .map_err(|_| ParseError::MissingHint)?;
-            let oracle_fee = u64::from_clvm(allocator, oracle_fee_ptr)
-                .map_err(|err| ParseError::FromClvm(err))?;
+            let oracle_fee: u64 =
+                BigInt::from_signed_bytes_be(&remaining_hints.drain(0..1).next().unwrap())
+                    .to_u64_digits()
+                    .1[0];
 
             let oracle_puzzle = DelegatedPuzzle::oracle_layer_full_puzzle(
                 allocator,
@@ -403,17 +402,18 @@ impl DataStoreInfo {
         hints: &Vec<Bytes>,
     ) -> Result<DataStoreInfo, ParseError> {
         let mut hints = hints.clone();
+        println!("hints clone: {:?}", hints); // todo: debug
 
         if hints.len() < 1 {
+            println!("missing hint :("); // todo: debug
             return Err(ParseError::MissingHint);
         }
 
-        let owner_puzzle_hash_ptr = node_from_bytes(allocator, &hints.drain(0..1).next().unwrap())
-            .map_err(|_| ParseError::MissingHint)?;
-        let owner_puzzle_hash = Bytes32::from_clvm(allocator, owner_puzzle_hash_ptr)
+        let owner_puzzle_hash: Bytes32 = Bytes32::from_bytes(&hints.drain(0..1).next().unwrap())
             .map_err(|_| ParseError::MissingHint)?;
 
         let delegated_puzzles = if hints.len() > 1 {
+            println!("moar hints: {:?}", hints); // todo: debug
             let mut d_puzz: Vec<DelegatedPuzzle> = vec![];
 
             while hints.len() > 1 {
@@ -426,6 +426,7 @@ impl DataStoreInfo {
         }
         .map_err(|_: ParseError| ParseError::MissingHint)?;
 
+        println!("returning datastore info :)"); //todo: debug
         Ok(DataStoreInfo {
             coin,
             launcher_id,
@@ -514,11 +515,13 @@ impl DataStoreInfo {
             });
 
             println!("building datastore info..."); // todo: debug
+            println!("hints: {:?}", delegation_layer_info.value); // todo: debug
             let hints = &delegation_layer_info
                 .value
                 .iter()
                 .map(|hint| Bytes::from_clvm(allocator, *hint))
                 .collect::<Result<_, _>>()?;
+            println!("calling build_datastore_info..."); // todo: debug
             return match DataStoreInfo::build_datastore_info(
                 allocator,
                 new_coin,

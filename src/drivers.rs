@@ -396,6 +396,7 @@ mod tests {
                     let a = delegated_puzzles.get(i).unwrap();
                     let b = new_delegated_puzzles.get(i).unwrap();
 
+                    println!("compating phes - a: {:?}, b: {:?}", a, b); // todo: debug
                     assert_eq!(a.puzzle_hash, b.puzzle_hash);
                     assert_eq!(a.puzzle_info, b.puzzle_info);
                 }
