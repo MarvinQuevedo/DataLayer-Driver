@@ -378,11 +378,12 @@ mod tests {
 
     use super::*;
 
-    use chia::bls::G2Element;
-    use chia_protocol::Bytes32;
+    use chia::{bls::G2Element, traits::Streamable};
+    use chia_protocol::{Bytes32, Program};
     use chia_puzzles::standard::StandardArgs;
     use chia_sdk_driver::{Launcher, P2Spend, StandardSpend};
     use chia_sdk_test::{test_transaction, Simulator};
+    use clvm_traits::FromNodePtr;
     use clvmr::Allocator;
 
     fn assert_datastores_eq(
@@ -577,12 +578,12 @@ mod tests {
         let new_metadata = Metadata::<NodePtr> {
             items: vec![ctx.alloc(&Bytes32::new([0; 32]))?],
         };
-        let new_metadata_condition = NewMetadataCondition::<i32, Metadata<NodePtr>, i32, i32> {
+        let new_metadata_condition = NewMetadataCondition::<i32, Metadata<NodePtr>, Bytes32, i32> {
             metadata_updater_reveal: 11,
             metadata_updater_solution: DefaultMetadataSolution {
                 metadata_part: DefaultMetadataSolutionMetadataList {
                     new_metadata: new_metadata,
-                    new_metadata_updater_ph: Some(0),
+                    new_metadata_updater_ph: DL_METADATA_UPDATER_PUZZLE_HASH.into(),
                 },
                 conditions: 0,
             },
@@ -603,28 +604,37 @@ mod tests {
         let new_spend = datastore_spend(ctx, &datastore_info, inner_datastore_spend)?;
         ctx.spend(new_spend.clone());
 
-        let new_datastore_info = DataStoreInfo::from_spend(
+        let datastore_info = DataStoreInfo::from_spend(
             ctx.allocator_mut(),
             &new_spend,
             datastore_info.delegated_puzzles,
         )
         .unwrap();
-        assert!(new_datastore_info.metadata.items.len() == 1);
+        assert!(datastore_info.metadata.items.len() == 1);
+        assert_eq!(
+            encode(
+                Program::from_node_ptr(ctx.allocator_mut(), datastore_info.metadata.items[0])
+                    .unwrap()
+                    .clone()
+                    .to_bytes()
+                    .unwrap()
+            ),
+            "a00000000000000000000000000000000000000000000000000000000000000000" // serializing to bytes prepends a0 = len
+        );
 
         // finally, remove delegation layer altogether
-        // let datastore_remove_delegation_layer_inner_spend = StandardSpend::new()
-        //     .chain(SpendConditions::new().create_coin(ctx, owner_puzzle_hash, 1)?)
-        //     .inner_spend(ctx, owner_pk)?;
-        // let inner_datastore_spend =
-        //     DatastoreInnerSpend::OwnerPuzzleSpend(datastore_remove_delegation_layer_inner_spend);
-        // let new_spend = datastore_spend(ctx, &datastore_info, inner_datastore_spend)?;
-        // ctx.spend(new_spend.clone());
+        let datastore_remove_delegation_layer_inner_spend = StandardSpend::new()
+            .chain(SpendConditions::new().create_coin(ctx, owner_puzzle_hash, 1)?)
+            .inner_spend(ctx, owner_pk)?;
+        let inner_datastore_spend =
+            DatastoreInnerSpend::OwnerPuzzleSpend(datastore_remove_delegation_layer_inner_spend);
+        let new_spend = datastore_spend(ctx, &datastore_info, inner_datastore_spend)?;
+        ctx.spend(new_spend.clone());
 
-        // let new_datastore_info = DataStoreInfo::from_spend(ctx.allocator_mut(), &new_spend)
-        //     .unwrap()
-        //     .unwrap();
-        // assert!(new_datastore_info.delegated_puzzles.is_none());
-        // assert_eq!(new_datastore_info.owner_puzzle_hash, owner_puzzle_hash);
+        let new_datastore_info =
+            DataStoreInfo::from_spend(ctx.allocator_mut(), &new_spend, None).unwrap();
+        assert!(new_datastore_info.delegated_puzzles.is_none());
+        assert_eq!(new_datastore_info.owner_puzzle_hash, owner_puzzle_hash);
 
         let spends = ctx.take_spends();
         print_spend_bundle_to_file(spends.clone(), G2Element::default(), "sb.debug");

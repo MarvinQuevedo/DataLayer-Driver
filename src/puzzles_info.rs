@@ -2,7 +2,9 @@ use chia::consensus::gen::opcodes::{CREATE_COIN, CREATE_PUZZLE_ANNOUNCEMENT};
 use chia_protocol::{Bytes, Bytes32, Coin, CoinSpend};
 use chia_puzzles::{
     nft::{NftStateLayerArgs, NftStateLayerSolution, NFT_STATE_LAYER_PUZZLE_HASH},
-    singleton::{LauncherSolution, SingletonSolution, SINGLETON_LAUNCHER_PUZZLE_HASH},
+    singleton::{
+        LauncherSolution, SingletonArgs, SingletonSolution, SINGLETON_LAUNCHER_PUZZLE_HASH,
+    },
     EveProof, Proof,
 };
 use chia_sdk_parser::{run_puzzle, ParseError, Puzzle, SingletonPuzzle};
@@ -15,7 +17,7 @@ use clvmr::{reduction::EvalErr, serde::node_from_bytes, Allocator, NodePtr};
 use crate::{
     AdminFilterArgs, DelegationLayerArgs, DelegationLayerSolution, MerkleTree, WriterFilterArgs,
     ADMIN_FILTER_PUZZLE, ADMIN_FILTER_PUZZLE_HASH, DELEGATION_LAYER_PUZZLE_HASH,
-    WRITER_FILTER_PUZZLE, WRITER_FILTER_PUZZLE_HASH,
+    DL_METADATA_UPDATER_PUZZLE_HASH, WRITER_FILTER_PUZZLE, WRITER_FILTER_PUZZLE_HASH,
 };
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[must_use]
@@ -55,7 +57,7 @@ pub struct HintContents<T = NodePtr> {
 #[clvm(list)]
 pub struct DefaultMetadataSolutionMetadataList<M = Metadata<NodePtr>, T = NodePtr> {
     pub new_metadata: M,
-    pub new_metadata_updater_ph: Option<T>, // 0
+    pub new_metadata_updater_ph: T,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ToClvm, FromClvm)]
@@ -456,6 +458,9 @@ impl DataStoreInfo {
     ) -> Result<DataStoreInfo, ParseError>
     where
         KeyValueList<NodePtr>: FromClvm<NodePtr>,
+        NodePtr: ToClvm<NodePtr>,
+        Metadata<NodePtr>: ToClvm<NodePtr>,
+        NftStateLayerArgs<TreeHash, TreeHash>: ToClvm<TreeHash> + ToTreeHash,
     {
         println!("func start"); // todo: debug
         let Ok(solution_node_ptr) = cs.solution.to_node_ptr(allocator) else {
@@ -567,7 +572,6 @@ impl DataStoreInfo {
         let mut new_metadata = state_args.metadata;
 
         println!("running inner (state layer) puzzle...");
-        // was the coin re-created with hints?
         // run inner state layer so we also catch -24 conditions
         let inner_inner_output = run_puzzle(
             allocator,
@@ -591,36 +595,59 @@ impl DataStoreInfo {
             }
         });
 
-        let odd_create_coin: Option<&NodePtr> =
-            inner_inner_output_conditions.iter().find(
+        // coin re-creation
+        let odd_create_coin: &NodePtr = inner_inner_output_conditions
+            .iter()
+            .find(
                 |cond| match Condition::<NodePtr>::from_clvm(allocator, **cond) {
                     Ok(Condition::CreateCoin(create_coin)) => {
                         return create_coin.amount % 2 == 1;
                     }
                     _ => false,
                 },
-            );
+            )
+            .ok_or(ParseError::MissingChild)?;
         println!("odd_create_coin: {:?}", odd_create_coin); // todo: debug
 
-        if odd_create_coin.is_some() {
-            let odd_create_coin =
-                CreateCoinWithMemos::<NodePtr>::from_clvm(allocator, *odd_create_coin.unwrap())
-                    .map_err(|err| ParseError::FromClvm(err))?;
+        let odd_create_coin =
+            CreateCoinWithMemos::<NodePtr>::from_clvm(allocator, *odd_create_coin)
+                .map_err(|_| ParseError::MissingChild)?;
 
-            println!("odd_create_coin build info"); // todo: debug
-            if odd_create_coin.memos.len() >= 1 {
-                return match DataStoreInfo::build_datastore_info(
-                    allocator,
-                    cs.coin.clone(),
-                    singleton_puzzle.launcher_id,
-                    Proof::Lineage(singleton_puzzle.lineage_proof(cs.coin)),
-                    new_metadata,
-                    &odd_create_coin.memos,
-                ) {
-                    Ok(info) => Ok(info),
-                    Err(err) => Err(err),
-                };
-            }
+        let new_metadata_ptr = new_metadata
+            .to_node_ptr(allocator)
+            .map_err(|_| ParseError::NonStandardLayer)?;
+        let new_metadata_hash = tree_hash(&allocator, new_metadata_ptr);
+        let new_coin = Coin {
+            parent_coin_info: cs.coin.coin_id(),
+            puzzle_hash: SingletonArgs::curry_tree_hash(
+                singleton_puzzle.launcher_id,
+                CurriedProgram {
+                    program: NFT_STATE_LAYER_PUZZLE_HASH,
+                    args: NftStateLayerArgs::<TreeHash, TreeHash> {
+                        mod_hash: NFT_STATE_LAYER_PUZZLE_HASH.into(),
+                        metadata: new_metadata_hash,
+                        metadata_updater_puzzle_hash: DL_METADATA_UPDATER_PUZZLE_HASH.into(),
+                        inner_puzzle: tree_hash(&allocator, state_args.inner_puzzle),
+                    },
+                }
+                .tree_hash(),
+            )
+            .into(),
+            amount: odd_create_coin.amount,
+        };
+        // was the coin re-created with hints?
+        if odd_create_coin.memos.len() >= 1 {
+            return match DataStoreInfo::build_datastore_info(
+                allocator,
+                new_coin,
+                singleton_puzzle.launcher_id,
+                Proof::Lineage(singleton_puzzle.lineage_proof(cs.coin)),
+                new_metadata,
+                &odd_create_coin.memos,
+            ) {
+                Ok(info) => Ok(info),
+                Err(err) => Err(err),
+            };
         }
 
         let mut owner_puzzle_hash: Bytes32 = tree_hash(allocator, state_args.inner_puzzle).into();
@@ -663,7 +690,7 @@ impl DataStoreInfo {
                 .unwrap();
 
                 return Ok(DataStoreInfo {
-                    coin: cs.coin.clone(),
+                    coin: new_coin,
                     launcher_id: singleton_puzzle.launcher_id,
                     proof: Proof::Lineage(singleton_puzzle.lineage_proof(cs.coin)),
                     metadata: new_metadata,
@@ -685,8 +712,9 @@ impl DataStoreInfo {
         }
 
         // all methods exhausted; this coin doesn't seem to have a delegation layer
+        // cs.coin is parent; should compute new coin ph and build Coin below // todo: debug
         Ok(DataStoreInfo {
-            coin: cs.coin.clone(),
+            coin: new_coin,
             launcher_id: singleton_puzzle.launcher_id,
             proof: Proof::Lineage(singleton_puzzle.lineage_proof(cs.coin)),
             metadata: new_metadata,

@@ -26,8 +26,14 @@
         ; don't allow metadata updater to create extra conditions
         ; update metadata condition is (list -24 [metadata updater puzzle reveal] [solution])
         ; for the standard DL, solution is (list (list [new metadata] [new updater ph]) [conditions])
-        ; return true if cond = -24 and [conditions] != () since true means we (x)
-        (if (= (f (f conditions)) -24) (not (= (f (r (f (r (r (f conditions)))))) ())) ()) 
+        ; return true if cond = -24 and [conditions] != () or new updater ph != current updater ph since true means we (x)
+        (if (= (f (f conditions)) -24)
+          (not (all
+            (= (f (r (f (r (r (f conditions)))))) ())
+            (= (f (r (f (f (r (r (f conditions))))))) (sha256 1 11))
+          ))
+          ()
+        ) 
       )
         (x)
         ; else
