@@ -1,12 +1,12 @@
 use crate::{
     merkle_root_for_delegated_puzzles, merkle_tree_for_delegated_puzzles,
     puzzles_info::{DataStoreInfo, DelegatedPuzzle},
-    DelegatedPuzzleInfo, DelegationLayerArgs, DelegationLayerSolution, HintContents, HintKeys,
-    HintType, KeyValueList, KeyValueListItem, Metadata, ADMIN_FILTER_PUZZLE,
-    ADMIN_FILTER_PUZZLE_HASH, DELEGATION_LAYER_PUZZLE, DELEGATION_LAYER_PUZZLE_HASH,
-    DL_METADATA_UPDATER_PUZZLE_HASH, WRITER_FILTER_PUZZLE, WRITER_FILTER_PUZZLE_HASH,
+    DelegatedPuzzleInfo, DelegationLayerArgs, DelegationLayerSolution, HintKeys, HintType,
+    KeyValueList, KeyValueListItem, Metadata, ADMIN_FILTER_PUZZLE, ADMIN_FILTER_PUZZLE_HASH,
+    DELEGATION_LAYER_PUZZLE, DELEGATION_LAYER_PUZZLE_HASH, DL_METADATA_UPDATER_PUZZLE_HASH,
+    WRITER_FILTER_PUZZLE, WRITER_FILTER_PUZZLE_HASH,
 };
-use chia_protocol::{Bytes32, CoinSpend};
+use chia_protocol::{Bytes, Bytes32, CoinSpend};
 use chia_puzzles::{
     nft::{NftStateLayerArgs, NftStateLayerSolution, NFT_STATE_LAYER_PUZZLE_HASH},
     EveProof, Proof,
@@ -14,7 +14,7 @@ use chia_puzzles::{
 use chia_sdk_driver::{
     spend_singleton, InnerSpend, SpendConditions, SpendContext, SpendError, SpendableLauncher,
 };
-use clvm_traits::{FromClvm, FromClvmError, ToClvm};
+use clvm_traits::{simplify_int_bytes, FromClvm, FromClvmError, ToClvm};
 use clvm_utils::{CurriedProgram, ToTreeHash, TreeHash};
 use clvmr::{reduction::EvalErr, NodePtr};
 
@@ -179,6 +179,7 @@ where
 }
 
 use hex::encode;
+use num_bigint::BigInt;
 
 pub fn datastore_spend(
     ctx: &mut SpendContext<'_>,
@@ -243,62 +244,36 @@ pub trait LauncherExt {
 }
 
 fn get_memos(
-    ctx: &mut SpendContext<'_>,
     owner_puzzle_hash: TreeHash,
     delegated_puzzles: Option<Vec<DelegatedPuzzle>>,
-) -> Result<Vec<NodePtr>, SpendError> {
-    let mut memos = vec![ctx.alloc::<Bytes32>(&owner_puzzle_hash.into()).unwrap()];
+) -> Vec<Bytes> {
+    let hint: Bytes32 = owner_puzzle_hash.into();
+    let mut memos: Vec<Bytes> = vec![hint.into()];
 
     if let Some(delegated_puzzles) = delegated_puzzles {
-        let hint_contents: Vec<HintContents> = delegated_puzzles
-            .clone()
-            .iter()
-            .map(
-                |delegated_puzzle: &DelegatedPuzzle| -> Result<HintContents<NodePtr>, SpendError> {
-                    match delegated_puzzle.puzzle_info {
-                        DelegatedPuzzleInfo::Admin(inner_puzzle_hash) => {
-                            Ok(HintContents::<NodePtr> {
-                                puzzle_type: HintType::AdminPuzzle,
-                                puzzle_info: vec![ctx.alloc(&inner_puzzle_hash)?],
-                            })
-                        }
-                        DelegatedPuzzleInfo::Writer(inner_puzzle_hash) => {
-                            Ok(HintContents::<NodePtr> {
-                                puzzle_type: HintType::WriterPuzzle,
-                                puzzle_info: vec![ctx.alloc(&inner_puzzle_hash)?],
-                            })
-                        }
-                        DelegatedPuzzleInfo::Oracle(oracle_puzzle_hash, oracle_fee) => {
-                            Ok(HintContents::<NodePtr> {
-                                puzzle_type: HintType::OraclePuzzle,
-                                puzzle_info: vec![
-                                    ctx.alloc(&oracle_puzzle_hash)?,
-                                    ctx.alloc(&oracle_fee)?,
-                                ],
-                            })
-                        }
-                    }
-                },
-            )
-            .collect::<Result<_, _>>()?;
-
-        let results: Result<Vec<NodePtr>, SpendError> = hint_contents
-            .iter()
-            .map(|hint_content| {
-                hint_content
-                    .to_clvm(ctx.allocator_mut())
-                    .map_err(SpendError::ToClvm)
-            })
-            .collect();
-
-        match results {
-            Ok(memos_vec) => memos.extend(memos_vec),
-            Err(e) => return Err(e),
+        for delegated_puzzle in delegated_puzzles {
+            match delegated_puzzle.puzzle_info {
+                DelegatedPuzzleInfo::Admin(inner_puzzle_hash) => {
+                    memos.push(Bytes::new([HintType::AdminPuzzle.value()].into()));
+                    memos.push(inner_puzzle_hash.into());
+                }
+                DelegatedPuzzleInfo::Writer(inner_puzzle_hash) => {
+                    memos.push(Bytes::new([HintType::WriterPuzzle.value()].into()));
+                    memos.push(inner_puzzle_hash.into());
+                }
+                DelegatedPuzzleInfo::Oracle(oracle_puzzle_hash, oracle_fee) => {
+                    memos.push(Bytes::new([HintType::OraclePuzzle.value()].into()));
+                    memos.push(oracle_puzzle_hash.into());
+                    memos.push(Bytes::new(
+                        simplify_int_bytes(&BigInt::from(oracle_fee).to_signed_bytes_be()).into(),
+                    ));
+                }
+            }
         }
     }
 
     println!("memos: {:?}", memos);
-    Ok(memos)
+    memos
 }
 
 impl<'a> LauncherExt for SpendableLauncher {
@@ -337,6 +312,11 @@ impl<'a> LauncherExt for SpendableLauncher {
 
         let metadata_list = Metadata::<NodePtr>::from_clvm(ctx.allocator_mut(), metadata_ptr)?;
         let metadata_list_ptr = ctx.alloc(&metadata_list)?;
+
+        let memos_list = get_memos(info.owner_puzzle_hash, info.delegated_puzzles.clone())
+            .iter()
+            .map(|b| ctx.alloc(b))
+            .collect::<Result<_, _>>()?;
         let kv_list: KeyValueList<NodePtr> = vec![
             KeyValueListItem::<NodePtr> {
                 key: HintKeys::MetadataReveal.value(),
@@ -344,7 +324,7 @@ impl<'a> LauncherExt for SpendableLauncher {
             },
             KeyValueListItem {
                 key: HintKeys::DelegationLayerInfo.value(),
-                value: get_memos(ctx, info.owner_puzzle_hash, info.delegated_puzzles.clone())?,
+                value: memos_list,
             },
         ];
 
@@ -373,7 +353,7 @@ impl<'a> LauncherExt for SpendableLauncher {
 mod tests {
     use crate::{
         print_spend_bundle_to_file, DefaultMetadataSolution, DefaultMetadataSolutionMetadataList,
-        NewMetadataCondition,
+        MerkleTree, NewMerkleRootCondition, NewMetadataCondition,
     };
 
     use super::*;
@@ -456,7 +436,6 @@ mod tests {
             .finish(ctx, coin, pk)?;
 
         let spends = ctx.take_spends();
-        print_spend_bundle_to_file(spends.clone(), G2Element::default(), "sb.debug");
         for spend in spends {
             if spend.coin.coin_id() == datastore_info.launcher_id {
                 let new_datastore_info =
@@ -543,6 +522,9 @@ mod tests {
             "writer puzzle hash: {:}",
             encode(writer_delegated_puzzle.puzzle_hash)
         ); // todo: debug
+
+        let oracle_delegated_puzzle =
+            DelegatedPuzzle::new_oracle(oracle_puzzle_hash, oracle_fee).unwrap();
         let (launch_singleton, datastore_info) = Launcher::new(coin.coin_id(), 1)
             .create(ctx)?
             .mint_datastore(
@@ -553,7 +535,7 @@ mod tests {
                     delegated_puzzles: Some(vec![
                         admin_delegated_puzzle,
                         writer_delegated_puzzle,
-                        DelegatedPuzzle::new_oracle(oracle_puzzle_hash, oracle_fee).unwrap(),
+                        oracle_delegated_puzzle,
                     ]),
                 },
             )?;
@@ -620,6 +602,53 @@ mod tests {
                     .unwrap()
             ),
             "a00000000000000000000000000000000000000000000000000000000000000000" // serializing to bytes prepends a0 = len
+        );
+
+        // admin: remove writer from delegated puzzles
+        let delegated_puzzles = vec![admin_delegated_puzzle, oracle_delegated_puzzle];
+
+        let leaves: Vec<Bytes32> = delegated_puzzles
+            .clone()
+            .iter()
+            .map(|dp| dp.puzzle_hash)
+            .collect();
+        let merkle_tree = MerkleTree::new(&leaves);
+        let new_merkle_root = merkle_tree.get_root();
+
+        let new_merkle_root_condition = NewMerkleRootCondition {
+            new_merkle_root,
+            memos: get_memos(owner_puzzle_hash.into(), Some(delegated_puzzles)),
+        }
+        .to_clvm(ctx.allocator_mut())
+        .unwrap();
+
+        let inner_spend = StandardSpend::new()
+            .chain(SpendConditions::new().raw_condition(new_merkle_root_condition))
+            .inner_spend(ctx, writer_pk)?;
+
+        // delegated puzzle info + inner puzzle reveal + solution
+        let inner_datastore_spend = DatastoreInnerSpend::DelegatedPuzzleSpend(
+            admin_delegated_puzzle,
+            Some(admin_puzzle),
+            inner_spend.solution(),
+        );
+        let new_spend = datastore_spend(ctx, &datastore_info, inner_datastore_spend)?;
+        ctx.spend(new_spend.clone());
+
+        let datastore_info = DataStoreInfo::from_spend(
+            ctx.allocator_mut(),
+            &new_spend,
+            datastore_info.delegated_puzzles,
+        )
+        .unwrap();
+        assert!(datastore_info.delegated_puzzles.is_some());
+
+        let dep_puzzs = datastore_info.clone().delegated_puzzles.unwrap();
+        assert!(dep_puzzs.len() == 2);
+        assert_eq!(dep_puzzs[0].puzzle_hash, admin_delegated_puzzle.puzzle_hash);
+        assert_eq!(
+            dep_puzzs[1].puzzle_hash,
+            oracle_delegated_puzzle.puzzle_hash
         );
 
         // finally, remove delegation layer altogether

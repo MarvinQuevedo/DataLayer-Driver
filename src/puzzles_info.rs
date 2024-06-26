@@ -39,18 +39,16 @@ pub struct DelegatedPuzzle {
 #[repr(u8)]
 #[clvm(atom)]
 pub enum HintType {
-    AdminPuzzle = 0,
-    WriterPuzzle = 1,
-    OraclePuzzle = 2,
-    // Add other variants as needed
+    // 0 skipped to prevent confusion with () which is also none (end of list)
+    AdminPuzzle = 1,
+    WriterPuzzle = 2,
+    OraclePuzzle = 3,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, ToClvm, FromClvm)]
-#[clvm(list)]
-pub struct HintContents<T = NodePtr> {
-    pub puzzle_type: HintType,
-    #[clvm(rest)]
-    pub puzzle_info: Vec<T>,
+impl HintType {
+    pub fn value(&self) -> u8 {
+        *self as u8
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ToClvm, FromClvm)]
@@ -207,86 +205,84 @@ impl DelegatedPuzzle {
         })
     }
 
-    pub fn from_hint(allocator: &mut Allocator, hint: &NodePtr) -> Result<Self, ParseError> {
-        let hint = HintContents::<NodePtr>::from_clvm(allocator, *hint).map_err(|_| {
-            return ParseError::NonStandardLayer;
-        })?;
-
-        match hint.puzzle_type {
-            HintType::AdminPuzzle => {
-                if hint.puzzle_info.len() != 1 {
-                    return Err(ParseError::MissingHint);
-                }
-
-                let inner_puzzle_hash: TreeHash =
-                    Bytes32::from_clvm(allocator, hint.puzzle_info[0])
-                        .map_err(|_| ParseError::MissingHint)?
-                        .into();
-
-                let full_puzzle_hash = CurriedProgram {
-                    program: ADMIN_FILTER_PUZZLE_HASH,
-                    args: AdminFilterArgs {
-                        inner_puzzle: inner_puzzle_hash,
-                    },
-                }
-                .tree_hash();
-
-                Ok(DelegatedPuzzle {
-                    puzzle_hash: full_puzzle_hash.into(),
-                    puzzle_info: DelegatedPuzzleInfo::Admin(inner_puzzle_hash.into()),
-                    full_puzzle: None,
-                })
-            }
-            HintType::WriterPuzzle => {
-                if hint.puzzle_info.len() != 1 {
-                    return Err(ParseError::MissingHint);
-                }
-
-                let inner_puzzle_hash: TreeHash =
-                    Bytes32::from_clvm(allocator, hint.puzzle_info[0])
-                        .map_err(|_| ParseError::MissingHint)?
-                        .into();
-
-                let full_puzzle_hash = CurriedProgram {
-                    program: WRITER_FILTER_PUZZLE_HASH,
-                    args: WriterFilterArgs {
-                        inner_puzzle: inner_puzzle_hash,
-                    },
-                }
-                .tree_hash();
-
-                Ok(DelegatedPuzzle {
-                    puzzle_hash: full_puzzle_hash.into(),
-                    puzzle_info: DelegatedPuzzleInfo::Writer(inner_puzzle_hash.into()),
-                    full_puzzle: None,
-                })
-            }
-            HintType::OraclePuzzle => {
-                if hint.puzzle_info.len() != 2 {
-                    return Err(ParseError::MissingHint);
-                }
-
-                // bech32m_decode(oracle_address), not puzzle hash of the whole oracle puzze!
-                let oracle_puzzle_hash = Bytes32::from_clvm(allocator, hint.puzzle_info[0])
-                    .map_err(|_| ParseError::MissingHint)?;
-                let oracle_fee = u64::from_clvm(allocator, hint.puzzle_info[1])
-                    .map_err(|_| ParseError::MissingHint)?;
-
-                let oracle_puzzle = DelegatedPuzzle::oracle_layer_full_puzzle(
-                    allocator,
-                    oracle_puzzle_hash,
-                    oracle_fee,
-                )
-                .map_err(|_| ParseError::MissingHint)?;
-                let full_puzzle_hash = tree_hash(allocator, oracle_puzzle);
-
-                Ok(DelegatedPuzzle {
-                    puzzle_hash: full_puzzle_hash.into(),
-                    puzzle_info: DelegatedPuzzleInfo::Oracle(oracle_puzzle_hash, oracle_fee),
-                    full_puzzle: Some(oracle_puzzle),
-                })
-            }
+    pub fn from_hint(
+        allocator: &mut Allocator,
+        remaining_hints: &mut Vec<Bytes>,
+    ) -> Result<Self, ParseError> {
+        if remaining_hints.len() < 2 {
+            return Err(ParseError::MissingHint);
         }
+
+        let puzzle_type_ptr =
+            node_from_bytes(allocator, &remaining_hints.drain(0..1).next().unwrap())
+                .map_err(|_| ParseError::MissingHint)?;
+        let puzzle_type =
+            u8::from_clvm(allocator, puzzle_type_ptr).map_err(|err| ParseError::FromClvm(err))?;
+
+        // under current specs, first value will always be a puzzle hash
+        let puzzle_hash_ptr =
+            node_from_bytes(allocator, &remaining_hints.drain(0..1).next().unwrap())
+                .map_err(|_| ParseError::MissingHint)?;
+        let puzzle_hash: TreeHash = Bytes32::from_clvm(allocator, puzzle_hash_ptr)
+            .map_err(|_| ParseError::MissingHint)?
+            .into();
+
+        if puzzle_type == HintType::AdminPuzzle.value() {
+            let full_puzzle_hash = CurriedProgram {
+                program: ADMIN_FILTER_PUZZLE_HASH,
+                args: AdminFilterArgs {
+                    inner_puzzle: puzzle_hash,
+                },
+            }
+            .tree_hash();
+
+            return Ok(DelegatedPuzzle {
+                puzzle_hash: full_puzzle_hash.into(),
+                puzzle_info: DelegatedPuzzleInfo::Admin(puzzle_hash.into()),
+                full_puzzle: None,
+            });
+        } else if puzzle_type == HintType::WriterPuzzle.value() {
+            let full_puzzle_hash = CurriedProgram {
+                program: WRITER_FILTER_PUZZLE_HASH,
+                args: WriterFilterArgs {
+                    inner_puzzle: puzzle_hash,
+                },
+            }
+            .tree_hash();
+
+            return Ok(DelegatedPuzzle {
+                puzzle_hash: full_puzzle_hash.into(),
+                puzzle_info: DelegatedPuzzleInfo::Writer(puzzle_hash.into()),
+                full_puzzle: None,
+            });
+        } else if puzzle_type == HintType::OraclePuzzle.value() {
+            if remaining_hints.len() < 1 {
+                return Err(ParseError::MissingHint);
+            }
+
+            // puzzle hash bech32m_decode(oracle_address), not puzzle hash of the whole oracle puzze!
+            let oracle_fee_ptr =
+                node_from_bytes(allocator, &remaining_hints.drain(0..1).next().unwrap())
+                    .map_err(|_| ParseError::MissingHint)?;
+            let oracle_fee = u64::from_clvm(allocator, oracle_fee_ptr)
+                .map_err(|err| ParseError::FromClvm(err))?;
+
+            let oracle_puzzle = DelegatedPuzzle::oracle_layer_full_puzzle(
+                allocator,
+                puzzle_hash.into(),
+                oracle_fee,
+            )
+            .map_err(|_| ParseError::MissingHint)?;
+            let full_puzzle_hash = tree_hash(allocator, oracle_puzzle);
+
+            return Ok(DelegatedPuzzle {
+                puzzle_hash: full_puzzle_hash.into(),
+                puzzle_info: DelegatedPuzzleInfo::Oracle(puzzle_hash.into(), oracle_fee),
+                full_puzzle: Some(oracle_puzzle),
+            });
+        }
+
+        Err(ParseError::MissingHint)
     }
 
     pub fn get_full_puzzle(
@@ -371,14 +367,18 @@ pub struct DataStoreInfo {
     pub delegated_puzzles: Option<Vec<DelegatedPuzzle>>,
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, ToClvm, FromClvm)]
-#[cfg_attr(feature = "arbitrary", derive(arbitrary::Arbitrary))]
+#[derive(ToClvm, FromClvm)]
+#[apply_constants]
+#[derive(Debug, Clone, PartialEq, Eq)]
 #[clvm(list)]
-pub struct CreateCoinConditionWithMemos<T = NodePtr> {
-    pub singleton_puzzle_hash: Bytes32,
-    pub amount: u64,
-    pub memos: T,
+pub struct NewMerkleRootCondition<M = NodePtr> {
+    #[clvm(constant = -13)]
+    pub opcode: i32,
+    pub new_merkle_root: Bytes32,
+    #[clvm(rest)]
+    pub memos: Vec<M>,
 }
+
 pub enum HintKeys {
     MetadataReveal,
     DelegationLayerInfo,
@@ -393,22 +393,6 @@ impl HintKeys {
     }
 }
 
-#[derive(ToClvm, FromClvm)]
-#[apply_constants]
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[clvm(list)]
-pub struct CreateCoinWithMemos<T = NodePtr>
-where
-    T: Eq,
-{
-    #[clvm(constant = 51)]
-    pub opcode: u8,
-    pub puzzle_hash: Bytes32,
-    pub amount: u64,
-    #[clvm(default)]
-    pub memos: Vec<T>,
-}
-
 impl DataStoreInfo {
     pub fn build_datastore_info(
         allocator: &mut Allocator,
@@ -416,21 +400,25 @@ impl DataStoreInfo {
         launcher_id: Bytes32,
         proof: Proof,
         metadata: Metadata,
-        contents_hint: &Vec<NodePtr>,
+        hints: &Vec<Bytes>,
     ) -> Result<DataStoreInfo, ParseError> {
-        if contents_hint.len() < 1 {
+        let mut hints = hints.clone();
+
+        if hints.len() < 1 {
             return Err(ParseError::MissingHint);
         }
 
-        let owner_puzzle_hash =
-            Bytes32::from_clvm(allocator, contents_hint[0]).map_err(|_| ParseError::MissingHint)?;
+        let owner_puzzle_hash_ptr = node_from_bytes(allocator, &hints.drain(0..1).next().unwrap())
+            .map_err(|_| ParseError::MissingHint)?;
+        let owner_puzzle_hash = Bytes32::from_clvm(allocator, owner_puzzle_hash_ptr)
+            .map_err(|_| ParseError::MissingHint)?;
 
-        let delegated_puzzles = if contents_hint.len() > 1 {
-            let d_puzz = contents_hint
-                .iter()
-                .skip(1)
-                .map(|hint| DelegatedPuzzle::from_hint(allocator, hint))
-                .collect::<Result<_, _>>()?;
+        let delegated_puzzles = if hints.len() > 1 {
+            let mut d_puzz: Vec<DelegatedPuzzle> = vec![];
+
+            while hints.len() > 1 {
+                d_puzz.push(DelegatedPuzzle::from_hint(allocator, &mut hints)?);
+            }
 
             Ok(Some(d_puzz))
         } else {
@@ -526,13 +514,18 @@ impl DataStoreInfo {
             });
 
             println!("building datastore info..."); // todo: debug
+            let hints = &delegation_layer_info
+                .value
+                .iter()
+                .map(|hint| Bytes::from_clvm(allocator, *hint))
+                .collect::<Result<_, _>>()?;
             return match DataStoreInfo::build_datastore_info(
                 allocator,
                 new_coin,
                 launcher_id,
                 proof,
                 metadata,
-                &delegation_layer_info.value,
+                hints,
             ) {
                 Ok(info) => Ok(info),
                 Err(err) => Err(err),
@@ -595,23 +588,29 @@ impl DataStoreInfo {
             }
         });
 
+        // println!(
+        //     "inner_inner_output: {:?}",
+        //     encode(
+        //         Program::from_node_ptr(&allocator, inner_inner_output)
+        //             .unwrap()
+        //             .to_bytes()
+        //             .unwrap()
+        //     )
+        // ); // todo: debug
         // coin re-creation
-        let odd_create_coin: &NodePtr = inner_inner_output_conditions
+        let odd_create_coin: Condition<NodePtr> = inner_inner_output_conditions
             .iter()
-            .find(
-                |cond| match Condition::<NodePtr>::from_clvm(allocator, **cond) {
-                    Ok(Condition::CreateCoin(create_coin)) => {
-                        return create_coin.amount % 2 == 1;
-                    }
-                    _ => false,
-                },
-            )
-            .ok_or(ParseError::MissingChild)?;
-        println!("odd_create_coin: {:?}", odd_create_coin); // todo: debug
+            .map(|cond| Condition::<NodePtr>::from_clvm(allocator, *cond))
+            .find(|cond| match cond {
+                Ok(Condition::CreateCoin(create_coin)) => create_coin.amount % 2 == 1,
+                _ => false,
+            })
+            .ok_or(ParseError::MissingChild)??;
 
-        let odd_create_coin =
-            CreateCoinWithMemos::<NodePtr>::from_clvm(allocator, *odd_create_coin)
-                .map_err(|_| ParseError::MissingChild)?;
+        let Condition::CreateCoin(odd_create_coin) = odd_create_coin else {
+            return Err(ParseError::MismatchedOutput);
+        };
+        println!("odd_create_coin: {:?}", odd_create_coin); // todo: debug
 
         let new_metadata_ptr = new_metadata
             .to_node_ptr(allocator)
