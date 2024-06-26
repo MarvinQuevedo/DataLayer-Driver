@@ -366,17 +366,20 @@ mod tests {
     use clvm_traits::FromNodePtr;
     use clvmr::Allocator;
 
-    fn assert_datastores_eq(
+    fn assert_datastore_info_eq(
         ctx: &mut SpendContext<'_>,
         datastore_info: &DataStoreInfo,
         new_datastore_info: &DataStoreInfo,
+        for_same_coin: bool,
     ) {
-        assert_eq!(
-            new_datastore_info.coin.coin_id(),
-            datastore_info.coin.coin_id()
-        );
+        if for_same_coin {
+            assert_eq!(
+                new_datastore_info.coin.coin_id(),
+                datastore_info.coin.coin_id()
+            );
+            assert_eq!(new_datastore_info.proof, datastore_info.proof);
+        }
         assert_eq!(new_datastore_info.launcher_id, datastore_info.launcher_id);
-        assert_eq!(new_datastore_info.proof, datastore_info.proof);
 
         let ptr1 = ctx.alloc(&new_datastore_info.metadata).unwrap();
         let ptr2 = ctx.alloc(&datastore_info.metadata).unwrap();
@@ -442,7 +445,7 @@ mod tests {
                 let new_datastore_info =
                     DataStoreInfo::from_spend(ctx.allocator_mut(), &spend, None).unwrap();
 
-                assert_datastores_eq(ctx, &datastore_info, &new_datastore_info);
+                assert_datastore_info_eq(ctx, &datastore_info, &new_datastore_info, true);
             }
 
             ctx.spend(spend);
@@ -552,7 +555,7 @@ mod tests {
                 let new_datastore_info =
                     DataStoreInfo::from_spend(ctx.allocator_mut(), &spend, None).unwrap();
 
-                assert_datastores_eq(ctx, &datastore_info, &new_datastore_info);
+                assert_datastore_info_eq(ctx, &datastore_info, &new_datastore_info, true);
             }
 
             ctx.spend(spend);
@@ -684,8 +687,18 @@ mod tests {
             datastore_info.clone().delegated_puzzles,
         )
         .unwrap();
-        assert_datastores_eq(ctx, &datastore_info, &new_datastore_info);
+        assert_datastore_info_eq(ctx, &datastore_info, &new_datastore_info, false);
         let datastore_info = new_datastore_info;
+
+        // mint a coin that asserts the announcement and has enough value
+        let new_coin = sim.mint_coin(owner_puzzle_hash, oracle_fee).await;
+        StandardSpend::new()
+            .assert_puzzle_announcement(
+                ctx,
+                datastore_info.coin.puzzle_hash,
+                &Bytes::new("$".into()),
+            )?
+            .finish(ctx, new_coin, owner_pk)?;
 
         // finally, remove delegation layer altogether
         let datastore_remove_delegation_layer_inner_spend = StandardSpend::new()
