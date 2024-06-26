@@ -223,9 +223,10 @@ impl DelegatedPuzzle {
                 .1[0] as u8;
 
         // under current specs, first value will always be a puzzle hash
-        let puzzle_hash: Bytes32 =
+        let puzzle_hash: TreeHash =
             Bytes32::from_bytes(&remaining_hints.drain(0..1).next().unwrap())
-                .map_err(|_| ParseError::MissingHint)?;
+                .map_err(|_| ParseError::MissingHint)?
+                .into();
 
         if puzzle_type == HintType::AdminPuzzle.value() {
             let full_puzzle_hash = CurriedProgram {
@@ -629,7 +630,7 @@ impl DataStoreInfo {
                         mod_hash: NFT_STATE_LAYER_PUZZLE_HASH.into(),
                         metadata: new_metadata_hash,
                         metadata_updater_puzzle_hash: DL_METADATA_UPDATER_PUZZLE_HASH.into(),
-                        inner_puzzle: tree_hash(&allocator, state_args.inner_puzzle),
+                        inner_puzzle: odd_create_coin.puzzle_hash.into(),
                     },
                 }
                 .tree_hash(),
@@ -714,7 +715,6 @@ impl DataStoreInfo {
         }
 
         // all methods exhausted; this coin doesn't seem to have a delegation layer
-        // cs.coin is parent; should compute new coin ph and build Coin below // todo: debug
         Ok(DataStoreInfo {
             coin: new_coin,
             launcher_id: singleton_puzzle.launcher_id,
