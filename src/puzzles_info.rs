@@ -9,7 +9,7 @@ use chia_puzzles::{
 };
 use chia_sdk_parser::{run_puzzle, ParseError, Puzzle, SingletonPuzzle};
 use chia_sdk_types::conditions::{Condition, CreateCoin, CreatePuzzleAnnouncement};
-use clvm_traits::{apply_constants, clvm_quote};
+use clvm_traits::{apply_constants, clvm_quote, ClvmDecoder, ClvmEncoder, FromClvmError};
 use clvm_traits::{FromClvm, ToClvm, ToClvmError, ToNodePtr};
 use clvm_utils::{tree_hash, CurriedProgram, ToTreeHash, TreeHash};
 use clvmr::{serde::node_from_bytes, Allocator, NodePtr};
@@ -54,14 +54,14 @@ impl HintType {
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ToClvm, FromClvm)]
 #[clvm(list)]
-pub struct DefaultMetadataSolutionMetadataList<M = Metadata<NodePtr>, T = NodePtr> {
+pub struct DefaultMetadataSolutionMetadataList<M = DataStoreMetadata, T = NodePtr> {
     pub new_metadata: M,
     pub new_metadata_updater_ph: T,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ToClvm, FromClvm)]
 #[clvm(list)]
-pub struct DefaultMetadataSolution<M = Metadata<NodePtr>, T = NodePtr, C = NodePtr> {
+pub struct DefaultMetadataSolution<M = DataStoreMetadata, T = NodePtr, C = NodePtr> {
     pub metadata_part: DefaultMetadataSolutionMetadataList<M, T>,
     pub conditions: C, // usually ()
 }
@@ -70,7 +70,7 @@ pub struct DefaultMetadataSolution<M = Metadata<NodePtr>, T = NodePtr, C = NodeP
 #[apply_constants]
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[clvm(list)]
-pub struct NewMetadataCondition<P = NodePtr, M = Metadata<NodePtr>, T = NodePtr, C = NodePtr> {
+pub struct NewMetadataCondition<P = NodePtr, M = DataStoreMetadata, T = NodePtr, C = NodePtr> {
     #[clvm(constant = -24)]
     pub opcode: i32,
     pub metadata_updater_reveal: P,
@@ -327,9 +327,74 @@ pub type KeyValueList<T> = Vec<KeyValueListItem<T>>;
 
 #[derive(Debug, Clone, PartialEq, Eq, ToClvm, FromClvm)]
 #[clvm(list)]
-pub struct Metadata<T = NodePtr> {
+pub struct RawMetadata<T = NodePtr> {
     #[clvm(rest)]
     pub items: Vec<T>,
+}
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, ToClvm, FromClvm)]
+#[clvm(list)]
+pub struct DataStoreMetadataRootHashOnly {
+    pub root_hash: Bytes32,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq, ToClvm, FromClvm)]
+#[clvm(list)]
+pub struct DataStoreMetadataWithLabelAndDescription {
+    pub root_hash: Bytes32,
+    pub label: String,
+    pub description: String,
+}
+
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct DataStoreMetadata {
+    pub root_hash: Bytes32,
+    pub label: Option<String>,
+    pub description: Option<String>,
+}
+
+impl<N> ToClvm<N> for DataStoreMetadata {
+    fn to_clvm(&self, encoder: &mut impl ClvmEncoder<Node = N>) -> Result<N, ToClvmError> {
+        match (&self.label, &self.description) {
+            (Some(label), Some(description)) => DataStoreMetadataWithLabelAndDescription {
+                root_hash: self.root_hash,
+                label: label.clone(),
+                description: description.clone(),
+            }
+            .to_clvm(encoder),
+            _ => DataStoreMetadataRootHashOnly {
+                root_hash: self.root_hash,
+            }
+            .to_clvm(encoder),
+        }
+    }
+}
+
+impl<N> FromClvm<N> for DataStoreMetadata
+where
+    N: Clone,
+{
+    fn from_clvm(decoder: &impl ClvmDecoder<Node = N>, node: N) -> Result<Self, FromClvmError>
+    where
+        N: Clone,
+    {
+        if let Ok(metadata) =
+            DataStoreMetadataWithLabelAndDescription::from_clvm(decoder, node.clone())
+        {
+            return Ok(DataStoreMetadata {
+                root_hash: metadata.root_hash,
+                label: Some(metadata.label),
+                description: Some(metadata.description),
+            });
+        }
+
+        let metadata = DataStoreMetadataRootHashOnly::from_clvm(decoder, node)?;
+        Ok(DataStoreMetadata {
+            root_hash: metadata.root_hash,
+            label: None,
+            description: None,
+        })
+    }
 }
 
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -340,7 +405,7 @@ pub struct DataStoreInfo {
     pub launcher_id: Bytes32,
     pub proof: Proof,
     // NFT state layer
-    pub metadata: Metadata,
+    pub metadata: DataStoreMetadata,
     // inner puzzle (either p2 or delegation_layer + p2)
     pub owner_puzzle_hash: Bytes32,
     pub delegated_puzzles: Option<Vec<DelegatedPuzzle>>,
@@ -378,7 +443,7 @@ impl DataStoreInfo {
         coin: Coin,
         launcher_id: Bytes32,
         proof: Proof,
-        metadata: Metadata,
+        metadata: DataStoreMetadata,
         hints: &Vec<Bytes>,
     ) -> Result<DataStoreInfo, ParseError> {
         let mut hints = hints.clone();
@@ -428,7 +493,6 @@ impl DataStoreInfo {
     where
         KeyValueList<NodePtr>: FromClvm<NodePtr>,
         NodePtr: ToClvm<NodePtr>,
-        Metadata<NodePtr>: ToClvm<NodePtr>,
         NftStateLayerArgs<TreeHash, TreeHash>: ToClvm<TreeHash> + ToTreeHash,
     {
         println!("func start"); // todo: debug
@@ -473,7 +537,7 @@ impl DataStoreInfo {
 
             println!("converting metadata..."); // todo: debug
             println!("metadata_info: {:?}", metadata_info); // todo: debug
-            let metadata = Metadata::<NodePtr>::from_clvm(
+            let metadata = DataStoreMetadata::from_clvm(
                 allocator,
                 *metadata_info.value.get(0).ok_or(ParseError::MissingHint)?,
             )
@@ -536,8 +600,10 @@ impl DataStoreInfo {
             return Err(ParseError::NonStandardLayer);
         }
 
-        let state_args =
-            NftStateLayerArgs::<NodePtr, Metadata>::from_clvm(allocator, state_layer_puzzle.args)?;
+        let state_args = NftStateLayerArgs::<NodePtr, DataStoreMetadata>::from_clvm(
+            allocator,
+            state_layer_puzzle.args,
+        )?;
 
         let solution = SingletonSolution::<NftStateLayerSolution<NodePtr>>::from_clvm(
             allocator,
@@ -560,7 +626,7 @@ impl DataStoreInfo {
             Vec::<NodePtr>::from_clvm(allocator, inner_inner_output)?;
 
         inner_inner_output_conditions.iter().for_each(|cond| {
-            match NewMetadataCondition::<NodePtr, Metadata<NodePtr>, NodePtr, NodePtr>::from_clvm(
+            match NewMetadataCondition::<NodePtr, DataStoreMetadata, NodePtr, NodePtr>::from_clvm(
                 allocator, *cond,
             ) {
                 Ok(cond) => {

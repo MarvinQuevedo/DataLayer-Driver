@@ -1,8 +1,8 @@
 use crate::{
     merkle_root_for_delegated_puzzles, merkle_tree_for_delegated_puzzles,
     puzzles_info::{DataStoreInfo, DelegatedPuzzle},
-    DelegatedPuzzleInfo, DelegationLayerArgs, DelegationLayerSolution, HintKeys, HintType,
-    KeyValueList, KeyValueListItem, Metadata, ADMIN_FILTER_PUZZLE, ADMIN_FILTER_PUZZLE_HASH,
+    DataStoreMetadata, DelegatedPuzzleInfo, DelegationLayerArgs, DelegationLayerSolution, HintKeys,
+    HintType, KeyValueList, KeyValueListItem, ADMIN_FILTER_PUZZLE, ADMIN_FILTER_PUZZLE_HASH,
     DELEGATION_LAYER_PUZZLE, DELEGATION_LAYER_PUZZLE_HASH, DL_METADATA_UPDATER_PUZZLE_HASH,
     WRITER_FILTER_PUZZLE, WRITER_FILTER_PUZZLE_HASH,
 };
@@ -227,7 +227,7 @@ pub fn datastore_spend(
 
 pub struct DataStoreMintInfo {
     // NFT state layer
-    pub metadata: Metadata,
+    pub metadata: DataStoreMetadata,
     // inner puzzle (either p2 or delegation_layer + p2)
     pub owner_puzzle_hash: TreeHash,
     pub delegated_puzzles: Option<Vec<DelegatedPuzzle>>,
@@ -286,7 +286,6 @@ impl<'a> LauncherExt for SpendableLauncher {
         Self: Sized,
         TreeHash: ToTreeHash + ToClvm<TreeHash>,
         NodePtr: ToClvm<NodePtr>,
-        Metadata<NodePtr>: ToClvm<NodePtr>,
         NftStateLayerArgs<TreeHash, TreeHash>: ToClvm<TreeHash> + ToTreeHash,
     {
         let inner_puzzle_hash: TreeHash = match &info.delegated_puzzles {
@@ -310,7 +309,7 @@ impl<'a> LauncherExt for SpendableLauncher {
         }
         .tree_hash();
 
-        let metadata_list = Metadata::<NodePtr>::from_clvm(ctx.allocator_mut(), metadata_ptr)?;
+        let metadata_list = DataStoreMetadata::from_clvm(ctx.allocator_mut(), metadata_ptr)?;
         let metadata_list_ptr = ctx.alloc(&metadata_list)?;
 
         let memos_list = get_memos(info.owner_puzzle_hash, info.delegated_puzzles.clone())
@@ -429,7 +428,11 @@ mod tests {
             .mint_datastore(
                 ctx,
                 DataStoreMintInfo {
-                    metadata: Metadata { items: Vec::new() },
+                    metadata: DataStoreMetadata {
+                        root_hash: Bytes32::new([0; 32]),
+                        label: None,
+                        description: None,
+                    },
                     owner_puzzle_hash: puzzle_hash.into(),
                     delegated_puzzles: None,
                 },
@@ -535,7 +538,11 @@ mod tests {
             .mint_datastore(
                 ctx,
                 DataStoreMintInfo {
-                    metadata: Metadata { items: vec![] },
+                    metadata: DataStoreMetadata {
+                        root_hash: Bytes32::new([0; 32]),
+                        label: None,
+                        description: None,
+                    },
                     owner_puzzle_hash: owner_puzzle_hash.into(),
                     delegated_puzzles: Some(vec![
                         admin_delegated_puzzle,
@@ -561,11 +568,18 @@ mod tests {
             ctx.spend(spend);
         }
 
+        assert_eq!(
+            encode(datastore_info.metadata.root_hash),
+            "0000000000000000000000000000000000000000000000000000000000000000" // serializing to bytes prepends a0 = len
+        );
+
         // writer: update metadata
-        let new_metadata = Metadata::<NodePtr> {
-            items: vec![ctx.alloc(&Bytes32::new([0; 32]))?],
+        let new_metadata = DataStoreMetadata {
+            root_hash: Bytes32::new([1; 32]),
+            label: Some(String::from("label")),
+            description: Some(String::from("description")),
         };
-        let new_metadata_condition = NewMetadataCondition::<i32, Metadata<NodePtr>, Bytes32, i32> {
+        let new_metadata_condition = NewMetadataCondition::<i32, DataStoreMetadata, Bytes32, i32> {
             metadata_updater_reveal: 11,
             metadata_updater_solution: DefaultMetadataSolution {
                 metadata_part: DefaultMetadataSolutionMetadataList {
@@ -597,16 +611,14 @@ mod tests {
             datastore_info.delegated_puzzles,
         )
         .unwrap();
-        assert!(datastore_info.metadata.items.len() == 1);
         assert_eq!(
-            encode(
-                Program::from_node_ptr(ctx.allocator_mut(), datastore_info.metadata.items[0])
-                    .unwrap()
-                    .clone()
-                    .to_bytes()
-                    .unwrap()
-            ),
-            "a00000000000000000000000000000000000000000000000000000000000000000" // serializing to bytes prepends a0 = len
+            encode(datastore_info.metadata.root_hash),
+            "0101010101010101010101010101010101010101010101010101010101010101" // serializing to bytes prepends a0 = len
+        );
+        assert_eq!(datastore_info.metadata.label, Some(String::from("label")));
+        assert_eq!(
+            datastore_info.metadata.description,
+            Some(String::from("description"))
         );
 
         // admin: remove writer from delegated puzzles
