@@ -48,7 +48,7 @@ pub fn spend_delegation_layer(
     datastore_info: &DataStoreInfo,
     inner_datastore_spend: DatastoreInnerSpend,
 ) -> Result<InnerSpend, SpendError> {
-    if datastore_info.delegated_puzzles.is_none() {
+    if datastore_info.delegated_puzzles.len() == 0 {
         return match inner_datastore_spend {
             DatastoreInnerSpend::OwnerPuzzleSpend(inner_spend) => Ok(inner_spend),
             DatastoreInnerSpend::DelegatedPuzzleSpend(_, __, inner_spend) => {
@@ -60,8 +60,7 @@ pub fn spend_delegation_layer(
         };
     }
 
-    let merkle_root =
-        merkle_root_for_delegated_puzzles(&datastore_info.delegated_puzzles.as_ref().unwrap());
+    let merkle_root = merkle_root_for_delegated_puzzles(&datastore_info.delegated_puzzles);
 
     let new_inner_puzzle_mod = ctx.delegation_layer_puzzle()?;
     let new_inner_puzzle_args =
@@ -99,13 +98,11 @@ pub fn spend_delegation_layer(
                 })?;
 
             let merkle_proof: (u32, Vec<chia_protocol::BytesImpl<32>>) =
-                merkle_tree_for_delegated_puzzles(
-                    &datastore_info.delegated_puzzles.as_ref().unwrap(),
-                )
-                .generate_proof(delegated_puzzle.puzzle_hash)
-                .ok_or(SpendError::FromClvm(FromClvmError::Custom(String::from(
-                    "could not generate merkle proof for spent puzzle",
-                ))))?;
+                merkle_tree_for_delegated_puzzles(&datastore_info.delegated_puzzles)
+                    .generate_proof(delegated_puzzle.puzzle_hash)
+                    .ok_or(SpendError::FromClvm(FromClvmError::Custom(String::from(
+                        "could not generate merkle proof for spent puzzle",
+                    ))))?;
 
             println!("merkle_proof: {:?}", merkle_proof); // todo: debug
 
@@ -230,7 +227,7 @@ pub struct DataStoreMintInfo {
     pub metadata: DataStoreMetadata,
     // inner puzzle (either p2 or delegation_layer + p2)
     pub owner_puzzle_hash: TreeHash,
-    pub delegated_puzzles: Option<Vec<DelegatedPuzzle>>,
+    pub delegated_puzzles: Vec<DelegatedPuzzle>,
 }
 
 pub trait LauncherExt {
@@ -243,31 +240,26 @@ pub trait LauncherExt {
         Self: Sized;
 }
 
-fn get_memos(
-    owner_puzzle_hash: TreeHash,
-    delegated_puzzles: Option<Vec<DelegatedPuzzle>>,
-) -> Vec<Bytes> {
+fn get_memos(owner_puzzle_hash: TreeHash, delegated_puzzles: Vec<DelegatedPuzzle>) -> Vec<Bytes> {
     let hint: Bytes32 = owner_puzzle_hash.into();
     let mut memos: Vec<Bytes> = vec![hint.into()];
 
-    if let Some(delegated_puzzles) = delegated_puzzles {
-        for delegated_puzzle in delegated_puzzles {
-            match delegated_puzzle.puzzle_info {
-                DelegatedPuzzleInfo::Admin(inner_puzzle_hash) => {
-                    memos.push(Bytes::new([HintType::AdminPuzzle.value()].into()));
-                    memos.push(inner_puzzle_hash.into());
-                }
-                DelegatedPuzzleInfo::Writer(inner_puzzle_hash) => {
-                    memos.push(Bytes::new([HintType::WriterPuzzle.value()].into()));
-                    memos.push(inner_puzzle_hash.into());
-                }
-                DelegatedPuzzleInfo::Oracle(oracle_puzzle_hash, oracle_fee) => {
-                    memos.push(Bytes::new([HintType::OraclePuzzle.value()].into()));
-                    memos.push(oracle_puzzle_hash.into());
-                    memos.push(Bytes::new(
-                        simplify_int_bytes(&BigInt::from(oracle_fee).to_signed_bytes_be()).into(),
-                    ));
-                }
+    for delegated_puzzle in delegated_puzzles {
+        match delegated_puzzle.puzzle_info {
+            DelegatedPuzzleInfo::Admin(inner_puzzle_hash) => {
+                memos.push(Bytes::new([HintType::AdminPuzzle.value()].into()));
+                memos.push(inner_puzzle_hash.into());
+            }
+            DelegatedPuzzleInfo::Writer(inner_puzzle_hash) => {
+                memos.push(Bytes::new([HintType::WriterPuzzle.value()].into()));
+                memos.push(inner_puzzle_hash.into());
+            }
+            DelegatedPuzzleInfo::Oracle(oracle_puzzle_hash, oracle_fee) => {
+                memos.push(Bytes::new([HintType::OraclePuzzle.value()].into()));
+                memos.push(oracle_puzzle_hash.into());
+                memos.push(Bytes::new(
+                    simplify_int_bytes(&BigInt::from(oracle_fee).to_signed_bytes_be()).into(),
+                ));
             }
         }
     }
@@ -288,12 +280,13 @@ impl<'a> LauncherExt for SpendableLauncher {
         NodePtr: ToClvm<NodePtr>,
         NftStateLayerArgs<TreeHash, TreeHash>: ToClvm<TreeHash> + ToTreeHash,
     {
-        let inner_puzzle_hash: TreeHash = match &info.delegated_puzzles {
-            None => info.owner_puzzle_hash,
-            Some(delegated_puzzles) => DelegationLayerArgs::curry_tree_hash(
+        let inner_puzzle_hash: TreeHash = if info.delegated_puzzles.len() == 0 {
+            info.owner_puzzle_hash
+        } else {
+            DelegationLayerArgs::curry_tree_hash(
                 info.owner_puzzle_hash.into(),
-                merkle_root_for_delegated_puzzles(delegated_puzzles),
-            ),
+                merkle_root_for_delegated_puzzles(&info.delegated_puzzles),
+            )
         };
 
         let metadata_ptr = ctx.alloc(&info.metadata)?;
@@ -310,7 +303,7 @@ impl<'a> LauncherExt for SpendableLauncher {
         .tree_hash();
 
         let mut memos = get_memos(info.owner_puzzle_hash, info.delegated_puzzles.clone());
-        if info.delegated_puzzles.is_none() {
+        if info.delegated_puzzles.len() == 0 {
             memos = vec![]; // owner ph = inner_puzzle_hash
         } else {
             memos.insert(
@@ -395,23 +388,21 @@ mod tests {
             datastore_info.owner_puzzle_hash
         );
 
-        match datastore_info.delegated_puzzles.clone() {
-            Some(delegated_puzzles) => {
-                // when comparing delegated puzzles, don't care about
-                // their full_puzzle attribute
-                let new_delegated_puzzles = new_datastore_info.delegated_puzzles.clone().unwrap();
-                for i in 0..delegated_puzzles.len() {
-                    let a = delegated_puzzles.get(i).unwrap();
-                    let b = new_delegated_puzzles.get(i).unwrap();
+        if datastore_info.delegated_puzzles.len() > 0 {
+            let delegated_puzzles = datastore_info.delegated_puzzles.clone();
+            // when comparing delegated puzzles, don't care about
+            // their full_puzzle attribute
+            let new_delegated_puzzles = new_datastore_info.delegated_puzzles.clone();
+            for i in 0..delegated_puzzles.len() {
+                let a = delegated_puzzles.get(i).unwrap();
+                let b = new_delegated_puzzles.get(i).unwrap();
 
-                    println!("compating phes - a: {:?}, b: {:?}", a, b); // todo: debug
-                    assert_eq!(a.puzzle_hash, b.puzzle_hash);
-                    assert_eq!(a.puzzle_info, b.puzzle_info);
-                }
+                println!("compating phes - a: {:?}, b: {:?}", a, b); // todo: debug
+                assert_eq!(a.puzzle_hash, b.puzzle_hash);
+                assert_eq!(a.puzzle_info, b.puzzle_info);
             }
-            None => {
-                assert!(new_datastore_info.delegated_puzzles.is_none());
-            }
+        } else {
+            assert_eq!(new_datastore_info.delegated_puzzles.len(), 0);
         }
     }
 
@@ -440,7 +431,7 @@ mod tests {
                         description: String::default(),
                     },
                     owner_puzzle_hash: puzzle_hash.into(),
-                    delegated_puzzles: None,
+                    delegated_puzzles: vec![],
                 },
             )?;
 
@@ -452,7 +443,7 @@ mod tests {
         for spend in spends {
             if spend.coin.coin_id() == datastore_info.launcher_id {
                 let new_datastore_info =
-                    DataStoreInfo::from_spend(ctx.allocator_mut(), &spend, None).unwrap();
+                    DataStoreInfo::from_spend(ctx.allocator_mut(), &spend, vec![]).unwrap();
 
                 assert_datastore_info_eq(ctx, &datastore_info, &new_datastore_info, true);
             }
@@ -550,11 +541,11 @@ mod tests {
                         description: String::default(),
                     },
                     owner_puzzle_hash: owner_puzzle_hash.into(),
-                    delegated_puzzles: Some(vec![
+                    delegated_puzzles: vec![
                         admin_delegated_puzzle,
                         writer_delegated_puzzle,
                         oracle_delegated_puzzle,
-                    ]),
+                    ],
                 },
             )?;
 
@@ -566,7 +557,7 @@ mod tests {
         for spend in spends {
             if spend.coin.coin_id() == datastore_info.launcher_id {
                 let new_datastore_info =
-                    DataStoreInfo::from_spend(ctx.allocator_mut(), &spend, None).unwrap();
+                    DataStoreInfo::from_spend(ctx.allocator_mut(), &spend, vec![]).unwrap();
 
                 assert_datastore_info_eq(ctx, &datastore_info, &new_datastore_info, true);
             }
@@ -640,7 +631,7 @@ mod tests {
 
         let new_merkle_root_condition = NewMerkleRootCondition {
             new_merkle_root,
-            memos: get_memos(owner_puzzle_hash.into(), Some(delegated_puzzles)),
+            memos: get_memos(owner_puzzle_hash.into(), delegated_puzzles),
         }
         .to_clvm(ctx.allocator_mut())
         .unwrap();
@@ -664,9 +655,9 @@ mod tests {
             datastore_info.delegated_puzzles,
         )
         .unwrap();
-        assert!(datastore_info.delegated_puzzles.is_some());
+        assert!(datastore_info.delegated_puzzles.len() > 0);
 
-        let dep_puzzs = datastore_info.clone().delegated_puzzles.unwrap();
+        let dep_puzzs = datastore_info.clone().delegated_puzzles;
         assert!(dep_puzzs.len() == 2);
         assert_eq!(dep_puzzs[0].puzzle_hash, admin_delegated_puzzle.puzzle_hash);
         assert_eq!(
@@ -728,8 +719,8 @@ mod tests {
         ctx.spend(new_spend.clone());
 
         let new_datastore_info =
-            DataStoreInfo::from_spend(ctx.allocator_mut(), &new_spend, None).unwrap();
-        assert!(new_datastore_info.delegated_puzzles.is_none());
+            DataStoreInfo::from_spend(ctx.allocator_mut(), &new_spend, vec![]).unwrap();
+        assert_eq!(new_datastore_info.delegated_puzzles.len(), 0);
         assert_eq!(new_datastore_info.owner_puzzle_hash, owner_puzzle_hash);
 
         let spends = ctx.take_spends();

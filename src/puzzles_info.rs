@@ -401,7 +401,7 @@ pub struct DataStoreInfo {
     pub metadata: DataStoreMetadata,
     // inner puzzle (either p2 or delegation_layer + p2)
     pub owner_puzzle_hash: Bytes32,
-    pub delegated_puzzles: Option<Vec<DelegatedPuzzle>>,
+    pub delegated_puzzles: Vec<DelegatedPuzzle>, // if empty, there is no delegation layer
 }
 
 #[derive(ToClvm, FromClvm)]
@@ -436,7 +436,7 @@ impl DataStoreInfo {
                 .map_err(|_| ParseError::MissingHint)?
         };
 
-        let delegated_puzzles = if hints.len() > 1 {
+        let delegated_puzzles = {
             println!("moar hints: {:?}", hints); // todo: debug
             let mut d_puzz: Vec<DelegatedPuzzle> = vec![];
 
@@ -444,9 +444,7 @@ impl DataStoreInfo {
                 d_puzz.push(DelegatedPuzzle::from_hint(allocator, &mut hints)?);
             }
 
-            Ok(Some(d_puzz))
-        } else {
-            Ok(None)
+            Ok(d_puzz)
         }
         .map_err(|_: ParseError| ParseError::MissingHint)?;
 
@@ -467,7 +465,7 @@ impl DataStoreInfo {
     pub fn from_spend(
         allocator: &mut Allocator,
         cs: &CoinSpend,
-        prev_delegated_puzzles: Option<Vec<DelegatedPuzzle>>,
+        prev_delegated_puzzles: Vec<DelegatedPuzzle>,
     ) -> Result<DataStoreInfo, ParseError>
     where
         // DLLauncherKVList<NodePtr>: FromClvm<NodePtr>, // todo: debug
@@ -737,7 +735,7 @@ impl DataStoreInfo {
             proof: Proof::Lineage(singleton_puzzle.lineage_proof(cs.coin)),
             metadata: new_metadata,
             owner_puzzle_hash: owner_puzzle_hash,
-            delegated_puzzles: None,
+            delegated_puzzles: vec![],
         })
     }
 }
