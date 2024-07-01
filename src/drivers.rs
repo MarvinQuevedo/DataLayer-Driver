@@ -1,8 +1,8 @@
 use crate::{
     merkle_root_for_delegated_puzzles, merkle_tree_for_delegated_puzzles,
     puzzles_info::{DataStoreInfo, DelegatedPuzzle},
-    DataStoreMetadata, DelegatedPuzzleInfo, DelegationLayerArgs, DelegationLayerSolution, HintKeys,
-    HintType, KeyValueList, KeyValueListItem, ADMIN_FILTER_PUZZLE, ADMIN_FILTER_PUZZLE_HASH,
+    DLLauncherKVList, DataStoreMetadata, DelegatedPuzzleInfo, DelegationLayerArgs,
+    DelegationLayerSolution, HintType, ADMIN_FILTER_PUZZLE, ADMIN_FILTER_PUZZLE_HASH,
     DELEGATION_LAYER_PUZZLE, DELEGATION_LAYER_PUZZLE_HASH, DL_METADATA_UPDATER_PUZZLE_HASH,
     WRITER_FILTER_PUZZLE, WRITER_FILTER_PUZZLE_HASH,
 };
@@ -14,7 +14,7 @@ use chia_puzzles::{
 use chia_sdk_driver::{
     spend_singleton, InnerSpend, SpendConditions, SpendContext, SpendError, SpendableLauncher,
 };
-use clvm_traits::{simplify_int_bytes, FromClvm, FromClvmError, ToClvm};
+use clvm_traits::{simplify_int_bytes, FromClvmError, ToClvm};
 use clvm_utils::{CurriedProgram, ToTreeHash, TreeHash};
 use clvmr::{reduction::EvalErr, NodePtr};
 
@@ -309,23 +309,21 @@ impl<'a> LauncherExt for SpendableLauncher {
         }
         .tree_hash();
 
-        let metadata_list = DataStoreMetadata::from_clvm(ctx.allocator_mut(), metadata_ptr)?;
-        let metadata_list_ptr = ctx.alloc(&metadata_list)?;
-
-        let memos_list = get_memos(info.owner_puzzle_hash, info.delegated_puzzles.clone())
-            .iter()
-            .map(|b| ctx.alloc(b))
-            .collect::<Result<_, _>>()?;
-        let kv_list: KeyValueList<NodePtr> = vec![
-            KeyValueListItem::<NodePtr> {
-                key: HintKeys::MetadataReveal.value(),
-                value: vec![metadata_list_ptr],
-            },
-            KeyValueListItem {
-                key: HintKeys::DelegationLayerInfo.value(),
-                value: memos_list,
-            },
-        ];
+        let mut memos = get_memos(info.owner_puzzle_hash, info.delegated_puzzles.clone());
+        if info.delegated_puzzles.is_none() {
+            memos = vec![]; // owner ph = inner_puzzle_hash
+        } else {
+            memos.insert(
+                0,
+                Bytes::from(info.metadata.description.clone().into_bytes()),
+            );
+            memos.insert(0, Bytes::from(info.metadata.label.clone().into_bytes()));
+        }
+        let kv_list = DLLauncherKVList {
+            root_hash: info.metadata.root_hash,
+            state_layer_inner_puzzle_hash: inner_puzzle_hash.into(),
+            memos,
+        };
 
         let launcher_coin = self.coin();
         let (chained_spend, eve_coin) = self.spend(ctx, state_layer_hash.into(), kv_list)?;
@@ -380,6 +378,14 @@ mod tests {
         }
         assert_eq!(new_datastore_info.launcher_id, datastore_info.launcher_id);
 
+        println!(
+            "new datastore info metadata: {:?}",
+            new_datastore_info.metadata.clone()
+        ); // todo: debug
+        println!(
+            "datastore info metadata: {:?}",
+            datastore_info.metadata.clone()
+        ); // todo: debug
         let ptr1 = ctx.alloc(&new_datastore_info.metadata).unwrap();
         let ptr2 = ctx.alloc(&datastore_info.metadata).unwrap();
         assert_eq!(ctx.tree_hash(ptr1), ctx.tree_hash(ptr2));
@@ -430,8 +436,8 @@ mod tests {
                 DataStoreMintInfo {
                     metadata: DataStoreMetadata {
                         root_hash: Bytes32::new([0; 32]),
-                        label: None,
-                        description: None,
+                        label: String::default(),
+                        description: String::default(),
                     },
                     owner_puzzle_hash: puzzle_hash.into(),
                     delegated_puzzles: None,
@@ -540,8 +546,8 @@ mod tests {
                 DataStoreMintInfo {
                     metadata: DataStoreMetadata {
                         root_hash: Bytes32::new([0; 32]),
-                        label: None,
-                        description: None,
+                        label: String::default(),
+                        description: String::default(),
                     },
                     owner_puzzle_hash: owner_puzzle_hash.into(),
                     delegated_puzzles: Some(vec![
@@ -576,8 +582,8 @@ mod tests {
         // writer: update metadata
         let new_metadata = DataStoreMetadata {
             root_hash: Bytes32::new([1; 32]),
-            label: Some(String::from("label")),
-            description: Some(String::from("description")),
+            label: String::from("label"),
+            description: String::from("description"),
         };
         let new_metadata_condition = NewMetadataCondition::<i32, DataStoreMetadata, Bytes32, i32> {
             metadata_updater_reveal: 11,
@@ -615,10 +621,10 @@ mod tests {
             encode(datastore_info.metadata.root_hash),
             "0101010101010101010101010101010101010101010101010101010101010101" // serializing to bytes prepends a0 = len
         );
-        assert_eq!(datastore_info.metadata.label, Some(String::from("label")));
+        assert_eq!(datastore_info.metadata.label, String::from("label"));
         assert_eq!(
             datastore_info.metadata.description,
-            Some(String::from("description"))
+            String::from("description")
         );
 
         // admin: remove writer from delegated puzzles

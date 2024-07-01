@@ -315,21 +315,13 @@ impl DelegatedPuzzle {
     }
 }
 
-#[derive(Debug, Clone, PartialEq, Eq, ToClvm, FromClvm)]
+#[derive(ToClvm, FromClvm, Debug, Clone, PartialEq, Eq)]
 #[clvm(list)]
-pub struct KeyValueListItem<T = NodePtr> {
-    pub key: Bytes,
+pub struct DLLauncherKVList<T = NodePtr> {
+    pub root_hash: Bytes32,
+    pub state_layer_inner_puzzle_hash: Bytes32,
     #[clvm(rest)]
-    pub value: Vec<T>,
-}
-
-pub type KeyValueList<T> = Vec<KeyValueListItem<T>>;
-
-#[derive(Debug, Clone, PartialEq, Eq, ToClvm, FromClvm)]
-#[clvm(list)]
-pub struct RawMetadata<T = NodePtr> {
-    #[clvm(rest)]
-    pub items: Vec<T>,
+    pub memos: Vec<T>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ToClvm, FromClvm)]
@@ -349,23 +341,24 @@ pub struct DataStoreMetadataWithLabelAndDescription {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct DataStoreMetadata {
     pub root_hash: Bytes32,
-    pub label: Option<String>,
-    pub description: Option<String>,
+    pub label: String,
+    pub description: String,
 }
 
 impl<N> ToClvm<N> for DataStoreMetadata {
     fn to_clvm(&self, encoder: &mut impl ClvmEncoder<Node = N>) -> Result<N, ToClvmError> {
-        match (&self.label, &self.description) {
-            (Some(label), Some(description)) => DataStoreMetadataWithLabelAndDescription {
+        if self.label.len() > 0 || self.description.len() > 0 {
+            DataStoreMetadataWithLabelAndDescription {
                 root_hash: self.root_hash,
-                label: label.clone(),
-                description: description.clone(),
+                label: self.label.clone(),
+                description: self.description.clone(),
             }
-            .to_clvm(encoder),
-            _ => DataStoreMetadataRootHashOnly {
+            .to_clvm(encoder)
+        } else {
+            DataStoreMetadataRootHashOnly {
                 root_hash: self.root_hash,
             }
-            .to_clvm(encoder),
+            .to_clvm(encoder)
         }
     }
 }
@@ -383,16 +376,16 @@ where
         {
             return Ok(DataStoreMetadata {
                 root_hash: metadata.root_hash,
-                label: Some(metadata.label),
-                description: Some(metadata.description),
+                label: metadata.label,
+                description: metadata.description,
             });
         }
 
         let metadata = DataStoreMetadataRootHashOnly::from_clvm(decoder, node)?;
         Ok(DataStoreMetadata {
             root_hash: metadata.root_hash,
-            label: None,
-            description: None,
+            label: String::default(),
+            description: String::default(),
         })
     }
 }
@@ -423,20 +416,6 @@ pub struct NewMerkleRootCondition<M = NodePtr> {
     pub memos: Vec<M>,
 }
 
-pub enum HintKeys {
-    MetadataReveal,
-    DelegationLayerInfo,
-}
-
-impl HintKeys {
-    pub fn value(&self) -> Bytes {
-        match self {
-            HintKeys::MetadataReveal => Bytes::new("m".into()), // stands for 'metadata'
-            HintKeys::DelegationLayerInfo => Bytes::new("h".into()), // stands for 'hint(s)'
-        }
-    }
-}
-
 impl DataStoreInfo {
     pub fn build_datastore_info(
         allocator: &mut Allocator,
@@ -444,18 +423,18 @@ impl DataStoreInfo {
         launcher_id: Bytes32,
         proof: Proof,
         metadata: DataStoreMetadata,
+        fallback_owner_ph: Bytes32,
         hints: &Vec<Bytes>,
     ) -> Result<DataStoreInfo, ParseError> {
         let mut hints = hints.clone();
         println!("hints clone: {:?}", hints); // todo: debug
 
-        if hints.len() < 1 {
-            println!("missing hint :("); // todo: debug
-            return Err(ParseError::MissingHint);
-        }
-
-        let owner_puzzle_hash: Bytes32 = Bytes32::from_bytes(&hints.drain(0..1).next().unwrap())
-            .map_err(|_| ParseError::MissingHint)?;
+        let owner_puzzle_hash: Bytes32 = if hints.len() < 1 {
+            fallback_owner_ph
+        } else {
+            Bytes32::from_bytes(&hints.drain(0..1).next().unwrap())
+                .map_err(|_| ParseError::MissingHint)?
+        };
 
         let delegated_puzzles = if hints.len() > 1 {
             println!("moar hints: {:?}", hints); // todo: debug
@@ -491,7 +470,7 @@ impl DataStoreInfo {
         prev_delegated_puzzles: Option<Vec<DelegatedPuzzle>>,
     ) -> Result<DataStoreInfo, ParseError>
     where
-        KeyValueList<NodePtr>: FromClvm<NodePtr>,
+        // DLLauncherKVList<NodePtr>: FromClvm<NodePtr>, // todo: debug
         NodePtr: ToClvm<NodePtr>,
         NftStateLayerArgs<TreeHash, TreeHash>: ToClvm<TreeHash> + ToTreeHash,
     {
@@ -504,47 +483,38 @@ impl DataStoreInfo {
         if cs.coin.puzzle_hash == SINGLETON_LAUNCHER_PUZZLE_HASH.into() {
             // we're just launching this singleton :)
             // solution is (singleton_full_puzzle_hash amount key_value_list)
-            let solution =
-                LauncherSolution::<KeyValueList<NodePtr>>::from_clvm(allocator, solution_node_ptr)
-                    .map_err(|_| ParseError::NonStandardLayer)?;
+            let solution = LauncherSolution::<DLLauncherKVList<Bytes>>::from_clvm(
+                allocator,
+                solution_node_ptr,
+            )
+            .map_err(|_| ParseError::NonStandardLayer)?;
 
-            println!("parsing metadata info..."); // todo: debug
-            let metadata_info: &KeyValueListItem = solution
-                .key_value_list
-                .iter()
-                .find(|item| {
-                    if item.key.eq(&HintKeys::MetadataReveal.value()) {
-                        return true;
-                    }
-
-                    return false;
-                })
-                .ok_or(ParseError::MissingHint)?;
-
-            println!("parsing delegation layer info..."); // todo: debug
-            let delegation_layer_info: &KeyValueListItem = solution
-                .key_value_list
-                .iter()
-                .find(|item| {
-                    println!("key: {:?}", item.key); // todo: debug
-                    if item.key.eq(&HintKeys::DelegationLayerInfo.value()) {
-                        return true;
-                    }
-
-                    return false;
-                })
-                .ok_or(ParseError::MissingHint)?;
+            let metadata_info = solution.key_value_list;
+            let label: String = if metadata_info.memos.len() >= 2 {
+                String::from_bytes(&metadata_info.memos[1].to_vec())
+                    .map_err(|err| {
+                        println!("err 1023948"); // todo: debug
+                        println!("metadata_info: {:?}", metadata_info); // todo: debug
+                        println!("err: {:?}", err); // todo: debug
+                        return ParseError::MissingHint;
+                    })
+                    .unwrap_or_default()
+            } else {
+                String::default()
+            };
+            let description: String = if metadata_info.memos.len() >= 3 {
+                String::from_bytes(&metadata_info.memos[2].to_vec()).unwrap_or_default()
+            } else {
+                String::default()
+            };
 
             println!("converting metadata..."); // todo: debug
             println!("metadata_info: {:?}", metadata_info); // todo: debug
-            let metadata = DataStoreMetadata::from_clvm(
-                allocator,
-                *metadata_info.value.get(0).ok_or(ParseError::MissingHint)?,
-            )
-            .map_err(|_| {
-                println!("err 1023948"); // todo: debug
-                return ParseError::MissingHint;
-            })?;
+            let metadata = DataStoreMetadata {
+                root_hash: metadata_info.root_hash,
+                label,
+                description,
+            };
 
             let launcher_id = cs.coin.coin_id();
             let new_coin = Coin {
@@ -559,12 +529,11 @@ impl DataStoreInfo {
             });
 
             println!("building datastore info..."); // todo: debug
-            println!("hints: {:?}", delegation_layer_info.value); // todo: debug
-            let hints = &delegation_layer_info
-                .value
-                .iter()
-                .map(|hint| Bytes::from_clvm(allocator, *hint))
-                .collect::<Result<_, _>>()?;
+            println!(
+                "hints (first 3 = label/description/inner ph): {:?}",
+                metadata_info.memos
+            ); // todo: debug
+            let hints: Vec<Bytes> = metadata_info.memos.iter().skip(2).cloned().collect();
             println!("calling build_datastore_info..."); // todo: debug
             return match DataStoreInfo::build_datastore_info(
                 allocator,
@@ -572,7 +541,8 @@ impl DataStoreInfo {
                 launcher_id,
                 proof,
                 metadata,
-                hints,
+                metadata_info.state_layer_inner_puzzle_hash,
+                &hints,
             ) {
                 Ok(info) => Ok(info),
                 Err(err) => Err(err),
@@ -691,6 +661,7 @@ impl DataStoreInfo {
                 singleton_puzzle.launcher_id,
                 Proof::Lineage(singleton_puzzle.lineage_proof(cs.coin)),
                 new_metadata,
+                tree_hash(&allocator, state_args.inner_puzzle).into(),
                 &odd_create_coin.memos,
             ) {
                 Ok(info) => Ok(info),
