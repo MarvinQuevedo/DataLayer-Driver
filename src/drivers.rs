@@ -11,9 +11,7 @@ use chia_puzzles::{
     nft::{NftStateLayerArgs, NftStateLayerSolution, NFT_STATE_LAYER_PUZZLE_HASH},
     EveProof, Proof,
 };
-use chia_sdk_driver::{
-    spend_singleton, InnerSpend, SpendConditions, SpendContext, SpendError, SpendableLauncher,
-};
+use chia_sdk_driver::{spend_singleton, Conditions, Launcher, Spend, SpendContext, SpendError};
 use clvm_traits::{simplify_int_bytes, FromClvmError, ToClvm};
 use clvm_utils::{CurriedProgram, ToTreeHash, TreeHash};
 use clvmr::{reduction::EvalErr, NodePtr};
@@ -24,7 +22,7 @@ pub trait SpendContextExt {
     fn delegated_writer_filter(&mut self) -> Result<NodePtr, SpendError>;
 }
 
-impl<'a> SpendContextExt for SpendContext<'a> {
+impl SpendContextExt for SpendContext {
     fn delegation_layer_puzzle(&mut self) -> Result<NodePtr, SpendError> {
         self.puzzle(DELEGATION_LAYER_PUZZLE_HASH, &DELEGATION_LAYER_PUZZLE)
     }
@@ -39,15 +37,15 @@ impl<'a> SpendContextExt for SpendContext<'a> {
 }
 
 pub enum DatastoreInnerSpend {
-    OwnerPuzzleSpend(InnerSpend), // owner puzzle spend
+    OwnerPuzzleSpend(Spend), // owner puzzle spend
     DelegatedPuzzleSpend(DelegatedPuzzle, Option<NodePtr>, NodePtr), // delegated puzzle info + inner puzzle reveal + solution
 }
 
 pub fn spend_delegation_layer(
-    ctx: &mut SpendContext<'_>,
+    ctx: &mut SpendContext,
     datastore_info: &DataStoreInfo,
     inner_datastore_spend: DatastoreInnerSpend,
-) -> Result<InnerSpend, SpendError> {
+) -> Result<Spend, SpendError> {
     if datastore_info.delegated_puzzles.len() == 0 {
         return match inner_datastore_spend {
             DatastoreInnerSpend::OwnerPuzzleSpend(inner_spend) => Ok(inner_spend),
@@ -79,7 +77,7 @@ pub fn spend_delegation_layer(
                 puzzle_solution: owner_puzzle_spend.solution(),
             };
 
-            return Ok(InnerSpend::new(
+            return Ok(Spend::new(
                 new_inner_puzzle.to_clvm(ctx.allocator_mut())?,
                 new_inner_solution.to_clvm(ctx.allocator_mut())?,
             ));
@@ -140,7 +138,7 @@ pub fn spend_delegation_layer(
             // ); // todo: debug
             // todo: debug
 
-            Ok(InnerSpend::new(
+            Ok(Spend::new(
                 new_inner_puzzle.to_clvm(ctx.allocator_mut())?,
                 new_inner_solution.to_clvm(ctx.allocator_mut())?,
             ))
@@ -149,10 +147,10 @@ pub fn spend_delegation_layer(
 }
 
 pub fn spend_nft_state_layer_custom_metadata_updated<M>(
-    ctx: &mut SpendContext<'_>,
+    ctx: &mut SpendContext,
     metadata: M,
-    inner_spend: InnerSpend,
-) -> Result<InnerSpend, SpendError>
+    inner_spend: Spend,
+) -> Result<Spend, SpendError>
 where
     M: ToClvm<NodePtr>,
 {
@@ -172,14 +170,14 @@ where
         inner_solution: inner_spend.solution(),
     })?;
 
-    Ok(InnerSpend::new(puzzle, solution))
+    Ok(Spend::new(puzzle, solution))
 }
 
 use hex::encode;
 use num_bigint::BigInt;
 
 pub fn datastore_spend(
-    ctx: &mut SpendContext<'_>,
+    ctx: &mut SpendContext,
     datastore_info: &DataStoreInfo,
     inner_datastore_spend: DatastoreInnerSpend,
 ) -> Result<CoinSpend, SpendError> {
@@ -233,9 +231,9 @@ pub struct DataStoreMintInfo {
 pub trait LauncherExt {
     fn mint_datastore(
         self,
-        ctx: &mut SpendContext<'_>,
+        ctx: &mut SpendContext,
         info: DataStoreMintInfo,
-    ) -> Result<(SpendConditions, DataStoreInfo), SpendError>
+    ) -> Result<(Conditions, DataStoreInfo), SpendError>
     where
         Self: Sized;
 }
@@ -268,12 +266,12 @@ fn get_memos(owner_puzzle_hash: TreeHash, delegated_puzzles: Vec<DelegatedPuzzle
     memos
 }
 
-impl<'a> LauncherExt for SpendableLauncher {
+impl LauncherExt for Launcher {
     fn mint_datastore(
         self,
-        ctx: &mut SpendContext<'_>,
+        ctx: &mut SpendContext,
         info: DataStoreMintInfo,
-    ) -> Result<(SpendConditions, DataStoreInfo), SpendError>
+    ) -> Result<(Conditions, DataStoreInfo), SpendError>
     where
         Self: Sized,
         TreeHash: ToTreeHash + ToClvm<TreeHash>,
@@ -351,13 +349,13 @@ mod tests {
     use chia::{bls::G2Element, traits::Streamable};
     use chia_protocol::{Bytes32, Program};
     use chia_puzzles::standard::StandardArgs;
-    use chia_sdk_driver::{Launcher, P2Spend, StandardSpend};
-    use chia_sdk_test::{test_transaction, Simulator};
+    use chia_sdk_driver::Launcher;
+    use chia_sdk_test::{secret_key, test_transaction, Simulator};
+    use chia_sdk_types::conditions::Condition;
     use clvm_traits::FromNodePtr;
-    use clvmr::Allocator;
 
     fn assert_datastore_info_eq(
-        ctx: &mut SpendContext<'_>,
+        ctx: &mut SpendContext,
         datastore_info: &DataStoreInfo,
         new_datastore_info: &DataStoreInfo,
         for_same_coin: bool,
@@ -411,33 +409,28 @@ mod tests {
         let sim = Simulator::new().await?;
         let peer = sim.connect().await?;
 
-        let sk = sim.secret_key().await?;
+        let sk = secret_key()?;
         let pk = sk.public_key();
 
         let puzzle_hash = StandardArgs::curry_tree_hash(pk).into();
         let coin = sim.mint_coin(puzzle_hash, 1).await;
 
-        let mut allocator = Allocator::new();
-        let ctx = &mut SpendContext::new(&mut allocator);
+        let ctx = &mut SpendContext::new();
 
-        let (launch_singleton, datastore_info) = Launcher::new(coin.coin_id(), 1)
-            .create(ctx)?
-            .mint_datastore(
-                ctx,
-                DataStoreMintInfo {
-                    metadata: DataStoreMetadata {
-                        root_hash: Bytes32::new([0; 32]),
-                        label: String::default(),
-                        description: String::default(),
-                    },
-                    owner_puzzle_hash: puzzle_hash.into(),
-                    delegated_puzzles: vec![],
+        let (launch_singleton, datastore_info) = Launcher::new(coin.coin_id(), 1).mint_datastore(
+            ctx,
+            DataStoreMintInfo {
+                metadata: DataStoreMetadata {
+                    root_hash: Bytes32::new([0; 32]),
+                    label: String::default(),
+                    description: String::default(),
                 },
-            )?;
+                owner_puzzle_hash: puzzle_hash.into(),
+                delegated_puzzles: vec![],
+            },
+        )?;
 
-        StandardSpend::new()
-            .chain(launch_singleton)
-            .finish(ctx, coin, pk)?;
+        ctx.spend_p2_coin(coin, pk, launch_singleton)?;
 
         let spends = ctx.take_spends();
         for spend in spends {
@@ -448,15 +441,15 @@ mod tests {
                 assert_datastore_info_eq(ctx, &datastore_info, &new_datastore_info, true);
             }
 
-            ctx.spend(spend);
+            ctx.insert_coin_spend(spend);
         }
 
-        let datastore_inner_spend = StandardSpend::new()
-            .chain(SpendConditions::new().create_coin(ctx, puzzle_hash, 1)?)
-            .inner_spend(ctx, pk)?;
+        let datastore_inner_spend = Conditions::new()
+            .create_coin(puzzle_hash, 1)
+            .p2_spend(ctx, pk)?;
         let inner_datastore_spend = DatastoreInnerSpend::OwnerPuzzleSpend(datastore_inner_spend);
         let new_spend = datastore_spend(ctx, &datastore_info, inner_datastore_spend)?;
-        ctx.spend(new_spend);
+        ctx.insert_coin_spend(new_spend);
 
         test_transaction(
             &peer,
@@ -482,13 +475,13 @@ mod tests {
         let sim = Simulator::new().await?;
         let peer = sim.connect().await?;
 
-        let owner_sk = sim.secret_key().await?;
+        let owner_sk = secret_key()?;
         let owner_pk = owner_sk.public_key();
 
-        let admin_sk = sim.secret_key().await?;
+        let admin_sk = secret_key()?;
         let admin_pk = admin_sk.public_key();
 
-        let writer_sk = sim.secret_key().await?;
+        let writer_sk = secret_key()?;
         let writer_pk = writer_sk.public_key();
 
         let oracle_puzzle_hash: Bytes32 = [1; 32].into();
@@ -497,8 +490,7 @@ mod tests {
         let owner_puzzle_hash = StandardArgs::curry_tree_hash(owner_pk).into();
         let coin = sim.mint_coin(owner_puzzle_hash, 1).await;
 
-        let mut allocator = Allocator::new();
-        let ctx = &mut SpendContext::new(&mut allocator);
+        let ctx = &mut SpendContext::new();
 
         // let owner_puzzle: NodePtr = CurriedProgram {
         //     program: ctx.standard_puzzle()?,
@@ -530,28 +522,24 @@ mod tests {
         let oracle_delegated_puzzle =
             DelegatedPuzzle::new_oracle(ctx.allocator_mut(), oracle_puzzle_hash, oracle_fee)
                 .unwrap();
-        let (launch_singleton, datastore_info) = Launcher::new(coin.coin_id(), 1)
-            .create(ctx)?
-            .mint_datastore(
-                ctx,
-                DataStoreMintInfo {
-                    metadata: DataStoreMetadata {
-                        root_hash: Bytes32::new([0; 32]),
-                        label: String::default(),
-                        description: String::default(),
-                    },
-                    owner_puzzle_hash: owner_puzzle_hash.into(),
-                    delegated_puzzles: vec![
-                        admin_delegated_puzzle,
-                        writer_delegated_puzzle,
-                        oracle_delegated_puzzle,
-                    ],
+        let (launch_singleton, datastore_info) = Launcher::new(coin.coin_id(), 1).mint_datastore(
+            ctx,
+            DataStoreMintInfo {
+                metadata: DataStoreMetadata {
+                    root_hash: Bytes32::new([0; 32]),
+                    label: String::default(),
+                    description: String::default(),
                 },
-            )?;
+                owner_puzzle_hash: owner_puzzle_hash.into(),
+                delegated_puzzles: vec![
+                    admin_delegated_puzzle,
+                    writer_delegated_puzzle,
+                    oracle_delegated_puzzle,
+                ],
+            },
+        )?;
 
-        StandardSpend::new()
-            .chain(launch_singleton)
-            .finish(ctx, coin, owner_pk)?;
+        ctx.spend_p2_coin(coin, owner_pk, launch_singleton)?;
 
         let spends = ctx.take_spends();
         for spend in spends {
@@ -562,7 +550,7 @@ mod tests {
                 assert_datastore_info_eq(ctx, &datastore_info, &new_datastore_info, true);
             }
 
-            ctx.spend(spend);
+            ctx.insert_coin_spend(spend);
         }
 
         assert_eq!(
@@ -589,9 +577,9 @@ mod tests {
         .to_clvm(ctx.allocator_mut())
         .unwrap();
 
-        let new_metadata_inner_spend = StandardSpend::new()
-            .chain(SpendConditions::new().raw_condition(new_metadata_condition))
-            .inner_spend(ctx, writer_pk)?;
+        let new_metadata_inner_spend = Conditions::new()
+            .condition(Condition::Other(new_metadata_condition))
+            .p2_spend(ctx, writer_pk)?;
 
         // delegated puzzle info + inner puzzle reveal + solution
         let inner_datastore_spend = DatastoreInnerSpend::DelegatedPuzzleSpend(
@@ -600,7 +588,7 @@ mod tests {
             new_metadata_inner_spend.solution(),
         );
         let new_spend = datastore_spend(ctx, &datastore_info, inner_datastore_spend)?;
-        ctx.spend(new_spend.clone());
+        ctx.insert_coin_spend(new_spend.clone());
 
         let datastore_info = DataStoreInfo::from_spend(
             ctx.allocator_mut(),
@@ -636,9 +624,9 @@ mod tests {
         .to_clvm(ctx.allocator_mut())
         .unwrap();
 
-        let inner_spend = StandardSpend::new()
-            .chain(SpendConditions::new().raw_condition(new_merkle_root_condition))
-            .inner_spend(ctx, writer_pk)?;
+        let inner_spend = Conditions::new()
+            .condition(Condition::Other(new_merkle_root_condition))
+            .p2_spend(ctx, writer_pk)?;
 
         // delegated puzzle info + inner puzzle reveal + solution
         let inner_datastore_spend = DatastoreInnerSpend::DelegatedPuzzleSpend(
@@ -647,7 +635,7 @@ mod tests {
             inner_spend.solution(),
         );
         let new_spend = datastore_spend(ctx, &datastore_info, inner_datastore_spend)?;
-        ctx.spend(new_spend.clone());
+        ctx.insert_coin_spend(new_spend.clone());
 
         let datastore_info = DataStoreInfo::from_spend(
             ctx.allocator_mut(),
@@ -688,7 +676,7 @@ mod tests {
             ctx.allocator().nil(),
         );
         let new_spend = datastore_spend(ctx, &datastore_info, inner_datastore_spend)?;
-        ctx.spend(new_spend.clone());
+        ctx.insert_coin_spend(new_spend.clone());
 
         let new_datastore_info = DataStoreInfo::from_spend(
             ctx.allocator_mut(),
@@ -701,22 +689,23 @@ mod tests {
 
         // mint a coin that asserts the announcement and has enough value
         let new_coin = sim.mint_coin(owner_puzzle_hash, oracle_fee).await;
-        StandardSpend::new()
-            .assert_puzzle_announcement(
-                ctx,
+        ctx.spend_p2_coin(
+            new_coin,
+            owner_pk,
+            Conditions::new().assert_puzzle_announcement(
                 datastore_info.coin.puzzle_hash,
                 &Bytes::new("$".into()),
-            )?
-            .finish(ctx, new_coin, owner_pk)?;
+            ),
+        )?;
 
         // finally, remove delegation layer altogether
-        let datastore_remove_delegation_layer_inner_spend = StandardSpend::new()
-            .chain(SpendConditions::new().create_coin(ctx, owner_puzzle_hash, 1)?)
-            .inner_spend(ctx, owner_pk)?;
+        let datastore_remove_delegation_layer_inner_spend = Conditions::new()
+            .create_coin(owner_puzzle_hash, 1)
+            .p2_spend(ctx, owner_pk)?;
         let inner_datastore_spend =
             DatastoreInnerSpend::OwnerPuzzleSpend(datastore_remove_delegation_layer_inner_spend);
         let new_spend = datastore_spend(ctx, &datastore_info, inner_datastore_spend)?;
-        ctx.spend(new_spend.clone());
+        ctx.insert_coin_spend(new_spend.clone());
 
         let new_datastore_info =
             DataStoreInfo::from_spend(ctx.allocator_mut(), &new_spend, vec![]).unwrap();

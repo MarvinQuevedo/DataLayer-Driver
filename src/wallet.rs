@@ -1,6 +1,7 @@
+use chia::client::Error as ClientError;
 use chia::client::Peer;
 use chia_protocol::{Bytes32, CoinSpend};
-use serde::de::value::Error;
+use thiserror::Error;
 
 use crate::{DataStoreInfo, DelegatedPuzzle};
 
@@ -11,15 +12,31 @@ pub struct SuccessResponse {
     pub new_info: DataStoreInfo,
 }
 
-pub fn mint_store_to_address(
+#[derive(Debug, Error)]
+pub enum Error {
+    #[error("{0:?}")]
+    WalletError(#[from] ClientError<()>),
+}
+
+pub async fn mint_store(
     peer: &Peer,
-    minter_address: &str,
+    minter_puzzle_hash: Bytes32,
+    minter_ph_min_height: u32,
     root_hash: Bytes32,
-    label: &str,
-    description: &str,
-    address: &str,
-    delegated_puzzles: Option<Vec<DelegatedPuzzle>>,
+    label: String,
+    description: String,
+    owner_puzzle_hash: Bytes32,
+    delegated_puzzles: Vec<DelegatedPuzzle>,
+    fee: u64,
 ) -> Result<SuccessResponse, Error> {
+    let coins = peer
+        .register_for_ph_updates(vec![minter_puzzle_hash], minter_ph_min_height)
+        .await
+        .map_err(|e| Error::WalletError(e))?;
+
+    let totalAmount = fee + 1;
+    // select_coins
+
     todo!()
 }
 
@@ -53,3 +70,10 @@ pub fn update_metadata(
 pub fn oracle_spend(peer: &Peer, store_info: &DataStoreInfo) -> Result<SuccessResponse, Error> {
     todo!()
 }
+
+// also need to be implemented/exposed:
+// - puzzle for pk
+// - puzzle hash for puzzle
+// - DelegatedPuzzle (from puzzle hash & type etc.)
+// - sign coin spends using sk
+// - address to puzzle hash
