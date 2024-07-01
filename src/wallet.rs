@@ -171,6 +171,39 @@ pub async fn sync_store(
     })
 }
 
+pub async fn sync_store_using_launcher_id(
+    peer: &Peer,
+    launcher_id: Bytes32,
+    min_height: u32,
+) -> Result<SyncStoreResponse, Error> {
+    let coin_states = peer
+        .register_for_coin_updates(vec![launcher_id], min_height)
+        .await
+        .map_err(|e| Error::Wallet(e))?;
+    let last_coin_record = coin_states.iter().next().ok_or(Error::UnknwonCoin())?;
+
+    let mut ctx = SpendContext::new(); // just to run puzzles more easily
+
+    let puzzle_and_solution_req = peer
+        .request_puzzle_and_solution(
+            last_coin_record.coin.coin_id(),
+            last_coin_record.spent_height.unwrap(),
+        )
+        .await
+        .map_err(|err| Error::RejectPuzzleSolution(err))?;
+
+    let cs = CoinSpend {
+        coin: last_coin_record.coin,
+        puzzle_reveal: puzzle_and_solution_req.puzzle,
+        solution: puzzle_and_solution_req.solution,
+    };
+
+    let first_info =
+        DataStoreInfo::from_spend(ctx.allocator_mut(), &cs, vec![]).map_err(|_| Error::Parse())?;
+
+    return sync_store(peer, &first_info, min_height).await;
+}
+
 pub fn burn_store(peer: &Peer, store_info: &DataStoreInfo) -> Result<SuccessResponse, Error> {
     todo!()
 }
