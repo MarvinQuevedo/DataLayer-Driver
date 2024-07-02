@@ -238,7 +238,10 @@ pub trait LauncherExt {
         Self: Sized;
 }
 
-fn get_memos(owner_puzzle_hash: TreeHash, delegated_puzzles: Vec<DelegatedPuzzle>) -> Vec<Bytes> {
+pub fn get_memos(
+    owner_puzzle_hash: TreeHash,
+    delegated_puzzles: Vec<DelegatedPuzzle>,
+) -> Vec<Bytes> {
     let hint: Bytes32 = owner_puzzle_hash.into();
     let mut memos: Vec<Bytes> = vec![hint.into()];
 

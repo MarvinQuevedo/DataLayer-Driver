@@ -1,10 +1,14 @@
-use chia::traits::Streamable;
+use chia::{
+    bls::{public_key, PublicKey},
+    traits::Streamable,
+};
 use chia_protocol::{Bytes, Bytes32, Coin, CoinSpend};
 use chia_puzzles::{
     nft::{NftStateLayerArgs, NftStateLayerSolution, NFT_STATE_LAYER_PUZZLE_HASH},
     singleton::{
         LauncherSolution, SingletonArgs, SingletonSolution, SINGLETON_LAUNCHER_PUZZLE_HASH,
     },
+    standard::{StandardArgs, STANDARD_PUZZLE},
     EveProof, Proof,
 };
 use chia_sdk_parser::{ParseError, Puzzle, SingletonPuzzle};
@@ -114,6 +118,21 @@ impl DelegatedPuzzle {
         })
     }
 
+    pub fn from_admin_pk(
+        allocator: &mut Allocator,
+        synthetic_key: PublicKey,
+    ) -> Result<Self, ToClvmError> {
+        let inner_puzzle_ptr = CurriedProgram {
+            program: STANDARD_PUZZLE,
+            args: StandardArgs {
+                synthetic_key: synthetic_key,
+            },
+        }
+        .to_clvm(allocator)?;
+
+        DelegatedPuzzle::from_admin_inner_puzzle(allocator, inner_puzzle_ptr)
+    }
+
     pub fn writer_layer_full_puzzle(
         allocator: &mut Allocator,
         inner_puzzle: NodePtr,
@@ -148,6 +167,21 @@ impl DelegatedPuzzle {
             puzzle_info: DelegatedPuzzleInfo::Writer(inner_puzzle_hash.into()),
             full_puzzle: Some(full_puzzle),
         })
+    }
+
+    pub fn from_writer_pk(
+        allocator: &mut Allocator,
+        synthetic_key: PublicKey,
+    ) -> Result<Self, ToClvmError> {
+        let inner_puzzle_ptr = CurriedProgram {
+            program: STANDARD_PUZZLE,
+            args: StandardArgs {
+                synthetic_key: synthetic_key,
+            },
+        }
+        .to_clvm(allocator)?;
+
+        DelegatedPuzzle::from_writer_inner_puzzle(allocator, inner_puzzle_ptr)
     }
 
     pub fn oracle_layer_full_puzzle(

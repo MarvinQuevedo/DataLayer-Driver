@@ -9,14 +9,22 @@ use chia_sdk_driver::Conditions;
 use chia_sdk_driver::Launcher;
 use chia_sdk_driver::SpendContext;
 use chia_sdk_driver::SpendError;
+use chia_sdk_types::conditions::Condition;
 use chia_wallet_sdk::select_coins;
 use chia_wallet_sdk::CoinSelectionError;
 use clvm_traits::FromClvmError;
+use clvm_traits::ToClvm;
+use clvm_traits::ToClvmError;
 use thiserror::Error;
 
+use crate::datastore_spend;
+use crate::get_memos;
 use crate::DataStoreMetadata;
 use crate::DataStoreMintInfo;
+use crate::DatastoreInnerSpend;
 use crate::LauncherExt;
+use crate::MerkleTree;
+use crate::NewMerkleRootCondition;
 use crate::{DataStoreInfo, DelegatedPuzzle};
 
 #[derive(Clone, Debug)]
@@ -43,11 +51,17 @@ pub enum Error {
     #[error("{0:?}")]
     FromClvm(#[from] FromClvmError),
 
+    #[error("{0:?}")]
+    ToClvm(#[from] ToClvmError),
+
     #[error("ParseError")]
     Parse(),
 
     #[error("UnknownCoin")]
     UnknwonCoin(),
+
+    #[error("Permission error: puzzle can't perform this action")]
+    Permission(),
 }
 
 pub async fn mint_store(
@@ -204,26 +218,89 @@ pub async fn sync_store_using_launcher_id(
     return sync_store(peer, &first_info, min_height).await;
 }
 
-pub fn burn_store(peer: &Peer, store_info: &DataStoreInfo) -> Result<SuccessResponse, Error> {
-    todo!()
+pub enum DataStoreInnerSpendInfo {
+    Owner(PublicKey),
+    Admin(PublicKey),
+    Writer(PublicKey),
+    // does not include oracle since it can't change metadata/owners :(
 }
 
-pub fn update_store(
-    peer: &Peer,
+pub fn update_store_ownership(
     store_info: &DataStoreInfo,
-    new_owner_address: &str,
-    new_delegated_puzzles: Option<Vec<DelegatedPuzzle>>,
+    new_owner_puzzle_hash: Bytes32,
+    new_delegated_puzzles: Vec<DelegatedPuzzle>,
+    inner_spend_info: DataStoreInnerSpendInfo,
 ) -> Result<SuccessResponse, Error> {
-    todo!()
+    let mut ctx = SpendContext::new();
+
+    let leaves: Vec<Bytes32> = new_delegated_puzzles
+        .clone()
+        .iter()
+        .map(|dp| dp.puzzle_hash)
+        .collect();
+    let merkle_tree = MerkleTree::new(&leaves);
+    let new_merkle_root = merkle_tree.get_root();
+
+    let new_merkle_root_condition = NewMerkleRootCondition {
+        new_merkle_root,
+        memos: get_memos(new_owner_puzzle_hash.into(), new_delegated_puzzles),
+    }
+    .to_clvm(ctx.allocator_mut())
+    .map_err(|err| Error::ToClvm(err))?;
+    let new_merkle_root_condition =
+        Conditions::new().condition(Condition::Other(new_merkle_root_condition));
+
+    let inner_datastore_spend = match inner_spend_info {
+        DataStoreInnerSpendInfo::Owner(pk) => DatastoreInnerSpend::OwnerPuzzleSpend(
+            new_merkle_root_condition
+                .p2_spend(&mut ctx, pk)
+                .map_err(|err| Error::Spend(err))?,
+        ),
+        DataStoreInnerSpendInfo::Admin(pk) => DatastoreInnerSpend::DelegatedPuzzleSpend(
+            DelegatedPuzzle::from_admin_pk(ctx.allocator_mut(), pk)
+                .map_err(|err| Error::ToClvm(err))?,
+            None,
+            new_merkle_root_condition
+                .p2_spend(&mut ctx, pk)
+                .map_err(|err| Error::Spend(err))?
+                .solution(),
+        ),
+        DataStoreInnerSpendInfo::Writer(pk) => {
+            return Err(Error::Permission());
+        }
+    };
+
+    let new_spend = datastore_spend(&mut ctx, &store_info, inner_datastore_spend)
+        .map_err(|err| Error::Spend(err))?;
+    ctx.insert_coin_spend(new_spend.clone());
+
+    let new_info = DataStoreInfo::from_spend(
+        ctx.allocator_mut(),
+        &new_spend,
+        store_info.delegated_puzzles.clone(),
+    )
+    .map_err(|_| Error::Parse())?;
+
+    Ok(SuccessResponse {
+        coin_spends: ctx.take_spends(),
+        new_info,
+    })
 }
 
-pub fn update_metadata(
-    peer: &Peer,
+pub fn update_store_metadata(
     store_info: &DataStoreInfo,
     new_root_hash: Bytes32,
     new_label: &str,
     new_description: &str,
+    inner_spend_info: DataStoreInnerSpendInfo,
 ) -> Result<SuccessResponse, Error> {
+    todo!()
+}
+
+pub fn burn_store(
+    store_info: &DataStoreInfo,
+    owner_pk: PublicKey,
+) -> Result<Vec<CoinSpend>, Error> {
     todo!()
 }
 
@@ -232,11 +309,10 @@ pub fn oracle_spend(peer: &Peer, store_info: &DataStoreInfo) -> Result<SuccessRe
 }
 
 // also need to be implemented/exposed:
-// - puzzle for pk
-// - puzzle hash for puzzle
+// - puzzle hash for pk
+// - puzzle hash to address
 // - DelegatedPuzzle (from puzzle hash & type etc.)
 // - sign coin spends using sk
 // - send sb to peer
 // - wait for sb confirmation
-// - address to puzzle hash
-// - pk to address
+// - public key to synthetic key
