@@ -1,6 +1,7 @@
 use chia::bls::PublicKey;
 use chia::client::Error as ClientError;
 use chia::client::Peer;
+use chia::consensus::gen::conditions;
 use chia_protocol::Coin;
 use chia_protocol::RejectPuzzleSolution;
 use chia_protocol::{Bytes32, CoinSpend};
@@ -22,9 +23,14 @@ use crate::get_memos;
 use crate::DataStoreMetadata;
 use crate::DataStoreMintInfo;
 use crate::DatastoreInnerSpend;
+use crate::DefaultMetadataSolution;
+use crate::DefaultMetadataSolutionMetadataList;
 use crate::LauncherExt;
 use crate::MerkleTree;
 use crate::NewMerkleRootCondition;
+use crate::NewMetadataCondition;
+use crate::DL_METADATA_UPDATER_PUZZLE;
+use crate::DL_METADATA_UPDATER_PUZZLE_HASH;
 use crate::{DataStoreInfo, DelegatedPuzzle};
 
 #[derive(Clone, Debug)]
@@ -290,11 +296,73 @@ pub fn update_store_ownership(
 pub fn update_store_metadata(
     store_info: &DataStoreInfo,
     new_root_hash: Bytes32,
-    new_label: &str,
-    new_description: &str,
+    new_label: String,
+    new_description: String,
     inner_spend_info: DataStoreInnerSpendInfo,
 ) -> Result<SuccessResponse, Error> {
-    todo!()
+    let mut ctx = SpendContext::new();
+
+    let new_metadata = DataStoreMetadata {
+        root_hash: new_root_hash,
+        label: new_label,
+        description: new_description,
+    };
+    let new_metadata_condition = NewMetadataCondition::<i32, DataStoreMetadata, Bytes32, i32> {
+        metadata_updater_reveal: 11,
+        metadata_updater_solution: DefaultMetadataSolution {
+            metadata_part: DefaultMetadataSolutionMetadataList {
+                new_metadata: new_metadata,
+                new_metadata_updater_ph: DL_METADATA_UPDATER_PUZZLE_HASH.into(),
+            },
+            conditions: 0,
+        },
+    }
+    .to_clvm(ctx.allocator_mut())
+    .map_err(|err| Error::ToClvm(err))?;
+    let new_metadata_condition =
+        Conditions::new().condition(Condition::Other(new_metadata_condition));
+
+    let inner_datastore_spend = match inner_spend_info {
+        DataStoreInnerSpendInfo::Owner(pk) => DatastoreInnerSpend::OwnerPuzzleSpend(
+            new_metadata_condition
+                .p2_spend(&mut ctx, pk)
+                .map_err(|err| Error::Spend(err))?,
+        ),
+        DataStoreInnerSpendInfo::Admin(pk) => DatastoreInnerSpend::DelegatedPuzzleSpend(
+            DelegatedPuzzle::from_admin_pk(ctx.allocator_mut(), pk)
+                .map_err(|err| Error::ToClvm(err))?,
+            None,
+            new_metadata_condition
+                .p2_spend(&mut ctx, pk)
+                .map_err(|err| Error::Spend(err))?
+                .solution(),
+        ),
+        DataStoreInnerSpendInfo::Writer(pk) => DatastoreInnerSpend::DelegatedPuzzleSpend(
+            DelegatedPuzzle::from_writer_pk(ctx.allocator_mut(), pk)
+                .map_err(|err| Error::ToClvm(err))?,
+            None,
+            new_metadata_condition
+                .p2_spend(&mut ctx, pk)
+                .map_err(|err| Error::Spend(err))?
+                .solution(),
+        ),
+    };
+
+    let new_spend = datastore_spend(&mut ctx, &store_info, inner_datastore_spend)
+        .map_err(|err| Error::Spend(err))?;
+    ctx.insert_coin_spend(new_spend.clone());
+
+    let new_info = DataStoreInfo::from_spend(
+        ctx.allocator_mut(),
+        &new_spend,
+        store_info.delegated_puzzles.clone(),
+    )
+    .map_err(|_| Error::Parse())?;
+
+    Ok(SuccessResponse {
+        coin_spends: ctx.take_spends(),
+        new_info,
+    })
 }
 
 pub fn burn_store(
@@ -304,7 +372,7 @@ pub fn burn_store(
     todo!()
 }
 
-pub fn oracle_spend(peer: &Peer, store_info: &DataStoreInfo) -> Result<SuccessResponse, Error> {
+pub fn oracle_spend(store_info: &DataStoreInfo) -> Result<SuccessResponse, Error> {
     todo!()
 }
 
