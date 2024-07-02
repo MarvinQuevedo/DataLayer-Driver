@@ -81,6 +81,18 @@ pub struct NewMetadataCondition<P = NodePtr, M = DataStoreMetadata, T = NodePtr,
     pub metadata_updater_solution: DefaultMetadataSolution<M, T, C>,
 }
 
+#[derive(ToClvm, FromClvm)]
+#[apply_constants]
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+#[clvm(list)]
+pub struct MeltCondition {
+    #[clvm(constant = 51)]
+    pub opcode: u8,
+    pub fake_puzzle_hash: Bytes32,
+    #[clvm(constant = -113)]
+    pub amount: i32,
+}
+
 impl DelegatedPuzzle {
     pub fn admin_layer_full_puzzle(
         allocator: &mut Allocator,
