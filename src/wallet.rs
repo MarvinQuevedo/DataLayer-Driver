@@ -1,7 +1,6 @@
 use chia::bls::PublicKey;
 use chia::client::Error as ClientError;
 use chia::client::Peer;
-use chia::consensus::gen::conditions;
 use chia_protocol::Coin;
 use chia_protocol::RejectPuzzleSolution;
 use chia_protocol::{Bytes32, CoinSpend};
@@ -11,7 +10,6 @@ use chia_sdk_driver::Launcher;
 use chia_sdk_driver::SpendContext;
 use chia_sdk_driver::SpendError;
 use chia_sdk_types::conditions::Condition;
-use chia_sdk_types::conditions::CreateCoin;
 use chia_sdk_types::conditions::ReserveFee;
 use chia_wallet_sdk::select_coins;
 use chia_wallet_sdk::CoinSelectionError;
@@ -27,12 +25,12 @@ use crate::DataStoreMintInfo;
 use crate::DatastoreInnerSpend;
 use crate::DefaultMetadataSolution;
 use crate::DefaultMetadataSolutionMetadataList;
+use crate::DelegatedPuzzleInfo;
 use crate::LauncherExt;
 use crate::MeltCondition;
 use crate::MerkleTree;
 use crate::NewMerkleRootCondition;
 use crate::NewMetadataCondition;
-use crate::DL_METADATA_UPDATER_PUZZLE;
 use crate::DL_METADATA_UPDATER_PUZZLE_HASH;
 use crate::{DataStoreInfo, DelegatedPuzzle};
 
@@ -127,7 +125,13 @@ pub async fn mint_store(
         },
     )?;
 
-    ctx.spend_p2_coin(lead_coin, minter_synthetic_key, launch_singleton)?;
+    let total_amount_from_coins = coins.iter().map(|c| c.amount).sum::<u64>();
+    let lead_coin_conditions = if total_amount_from_coins > total_amount {
+        launch_singleton.create_coin(minter_puzzle_hash, total_amount_from_coins - total_amount)
+    } else {
+        launch_singleton
+    };
+    ctx.spend_p2_coin(lead_coin, minter_synthetic_key, lead_coin_conditions)?;
 
     Ok(SuccessResponse {
         coin_spends: ctx.take_spends(),
@@ -402,13 +406,48 @@ pub fn melt_store(
 }
 
 pub fn oracle_spend(store_info: &DataStoreInfo) -> Result<SuccessResponse, Error> {
+    let oracle_delegated_puzzle =
+        store_info
+            .delegated_puzzles
+            .iter()
+            .find(|dp| match dp.puzzle_info {
+                DelegatedPuzzleInfo::Oracle(_, _) => true,
+                _ => false,
+            });
+    /*
+    let inner_datastore_spend = DatastoreInnerSpend::DelegatedPuzzleSpend(
+        oracle_delegated_puzzle,
+        Some(oracle_delegated_puzzle.full_puzzle.unwrap()), // oracle puzzle always available
+        ctx.allocator().nil(),
+    );
+    let new_spend = datastore_spend(ctx, &datastore_info, inner_datastore_spend)?;
+    ctx.insert_coin_spend(new_spend.clone());
+
+    let new_datastore_info = DataStoreInfo::from_spend(
+        ctx.allocator_mut(),
+        &new_spend,
+        datastore_info.clone().delegated_puzzles,
+    )
+    .unwrap();
+    assert_datastore_info_eq(ctx, &datastore_info, &new_datastore_info, false);
+    let datastore_info = new_datastore_info;
+
+    // mint a coin that asserts the announcement and has enough value
+    let new_coin = sim.mint_coin(owner_puzzle_hash, oracle_fee).await;
+    ctx.spend_p2_coin(
+        new_coin,
+        owner_pk,
+        Conditions::new()
+            .assert_puzzle_announcement(datastore_info.coin.puzzle_hash, &Bytes::new("$".into())),
+    )?;
+    */
+
     todo!()
 }
 
 // also need to be implemented/exposed:
 // - puzzle hash for pk
 // - puzzle hash to address
-// - DelegatedPuzzle (from puzzle hash & type etc.)
 // - sign coin spends using sk
 // - send sb to peer
 // - wait for sb confirmation
