@@ -34,8 +34,12 @@ jobs:
           - host: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian
+            # https://stackoverflow.com/questions/65553557/why-rust-is-failing-to-build-command-for-openssl-sys-v0-9-60-even-after-local-in
             build: |
-              sudo apt-get update && sudo apt-get install -y libssl-dev
+              sudo apt-get update
+              sudo apt install -y pkg-config 
+              sudo apt-get install -y libudev-dev 
+              sudo apt-get install -y libssl-dev
               yarn build --target x86_64-unknown-linux-gnu
           # - host: macos-latest
           #   target: aarch64-apple-darwin
