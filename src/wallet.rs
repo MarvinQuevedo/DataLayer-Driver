@@ -8,7 +8,6 @@ use chia::client::Error as ClientError;
 use chia::client::Peer;
 use chia_protocol::Bytes;
 use chia_protocol::Coin;
-use chia_protocol::PuzzleSolutionResponse;
 use chia_protocol::RejectPuzzleSolution;
 use chia_protocol::SpendBundle;
 use chia_protocol::TransactionAck;

@@ -1,13 +1,19 @@
 [package]
-name = "datalayer_driver"
-version = "0.1.0"
 edition = "2021"
+name = "datalayer-driver"
+version = "0.1.0"
 license = "MIT"
 authors = ["yakuhito <y@kuhi.to>"]
 homepage = "https://github.com/Datalayer-Storage/DataLayer-Driver"
 repository = "https://github.com/Datalayer-Storage/DataLayer-Driver"
 
+[lib]
+crate-type = ["cdylib"]
+
 [dependencies]
+# Default enable napi4 feature, see https://nodejs.org/api/n-api.html#node-api-version-matrix
+napi = { version = "2.12.2", default-features = false, features = ["napi4"] }
+napi-derive = "2.12.2"
 chia = "0.9.0"
 hex-literal = "0.4.1"
 chia-protocol = "0.9.0"
@@ -31,3 +37,10 @@ num-bigint = "0.4.5"
 thiserror = "1.0.61"
 chia-wallet-sdk = "0.11.0"
 bech32 = "0.9.1"
+
+[build-dependencies]
+napi-build = "2.0.1"
+
+[profile.release]
+lto = true
+strip = "symbols"
