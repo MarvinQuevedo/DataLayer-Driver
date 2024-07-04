@@ -1,22 +1,37 @@
+use std::collections::HashMap;
+
+use chia::bls::sign;
 use chia::bls::PublicKey;
+use chia::bls::SecretKey;
+use chia::bls::Signature;
 use chia::client::Error as ClientError;
 use chia::client::Peer;
 use chia_protocol::Bytes;
 use chia_protocol::Coin;
+use chia_protocol::PuzzleSolutionResponse;
 use chia_protocol::RejectPuzzleSolution;
+use chia_protocol::SpendBundle;
+use chia_protocol::TransactionAck;
 use chia_protocol::{Bytes32, CoinSpend};
 use chia_puzzles::standard::StandardArgs;
+use chia_puzzles::DeriveSynthetic;
 use chia_sdk_driver::Conditions;
 use chia_sdk_driver::Launcher;
 use chia_sdk_driver::SpendContext;
 use chia_sdk_driver::SpendError;
 use chia_sdk_types::conditions::Condition;
 use chia_sdk_types::conditions::ReserveFee;
+use chia_wallet_sdk::decode_address;
+use chia_wallet_sdk::encode_address;
 use chia_wallet_sdk::select_coins;
+use chia_wallet_sdk::AddressError;
 use chia_wallet_sdk::CoinSelectionError;
+use chia_wallet_sdk::RequiredSignature;
+use chia_wallet_sdk::SignerError;
 use clvm_traits::FromClvmError;
 use clvm_traits::ToClvm;
 use clvm_traits::ToClvmError;
+use clvmr::Allocator;
 use thiserror::Error;
 
 use crate::datastore_spend;
@@ -489,10 +504,77 @@ pub async fn oracle_spend(
     })
 }
 
-// also need to be implemented/exposed:
-// - puzzle hash for pk
-// - puzzle hash to address
-// - sign coin spends using sk
-// - send sb to peer
-// - wait for sb confirmation
-// - public key to synthetic key
+pub fn puzzle_hash_for_pk(pk: PublicKey) -> Bytes32 {
+    StandardArgs::curry_tree_hash(pk).into()
+}
+
+pub fn puzzle_hash_to_address(ph: Bytes32, prefix: &str) -> Result<String, bech32::Error> {
+    encode_address(ph.into(), prefix)
+}
+
+pub fn address_to_puzzle_hash(
+    address: String,
+) -> Result<([u8; 32], std::string::String), AddressError> {
+    decode_address(&address)
+}
+
+#[derive(Debug, Error)]
+pub enum SignCoinSpendsError {
+    #[error("{0:?}")]
+    Signer(#[from] SignerError),
+}
+
+pub fn public_key_to_synthetic_key(pk: PublicKey) -> PublicKey {
+    pk.derive_synthetic()
+}
+
+pub fn secret_key_to_synthetic_key(sk: SecretKey) -> SecretKey {
+    sk.derive_synthetic()
+}
+
+pub fn sign_coin_spends(
+    coin_spends: Vec<CoinSpend>,
+    private_keys: Vec<SecretKey>,
+    agg_sig_data: Bytes32,
+) -> Result<Signature, SignCoinSpendsError> {
+    let mut allocator = Allocator::new();
+
+    let required_signatures =
+        RequiredSignature::from_coin_spends(&mut allocator, &coin_spends, agg_sig_data)
+            .map_err(|err| SignCoinSpendsError::Signer(err))?;
+
+    let key_pairs = private_keys
+        .iter()
+        .map(|sk| {
+            (
+                sk.public_key(),
+                sk.clone(),
+                sk.public_key().derive_synthetic(),
+                sk.derive_synthetic(),
+            )
+        })
+        .flat_map(|(pk1, sk1, pk2, sk2)| vec![(pk1, sk1), (pk2, sk2)])
+        .collect::<HashMap<PublicKey, SecretKey>>();
+
+    let mut sig = Signature::default();
+
+    for required in required_signatures {
+        let sk = key_pairs.get(&required.public_key());
+
+        match sk {
+            Some(sk) => {
+                sig += &sign(sk, required.final_message());
+            }
+            None => {}
+        }
+    }
+
+    Ok(sig)
+}
+
+pub async fn broadcast_spend_bundle(
+    peer: &Peer,
+    spend_bundle: SpendBundle,
+) -> Result<TransactionAck, ClientError<()>> {
+    peer.send_transaction(spend_bundle).await
+}

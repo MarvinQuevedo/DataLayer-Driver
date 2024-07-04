@@ -666,6 +666,7 @@ name = "datalayer_driver"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "bech32",
  "chia",
  "chia-protocol",
  "chia-puzzles",

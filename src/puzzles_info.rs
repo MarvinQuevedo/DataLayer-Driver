@@ -1,7 +1,4 @@
-use chia::{
-    bls::{public_key, PublicKey},
-    traits::Streamable,
-};
+use chia::{bls::PublicKey, traits::Streamable};
 use chia_protocol::{Bytes, Bytes32, Coin, CoinSpend};
 use chia_puzzles::{
     nft::{NftStateLayerArgs, NftStateLayerSolution, NFT_STATE_LAYER_PUZZLE_HASH},
