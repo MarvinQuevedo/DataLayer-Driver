@@ -1,6 +1,7 @@
 use chia::bls::PublicKey;
 use chia::client::Error as ClientError;
 use chia::client::Peer;
+use chia_protocol::Bytes;
 use chia_protocol::Coin;
 use chia_protocol::RejectPuzzleSolution;
 use chia_protocol::{Bytes32, CoinSpend};
@@ -214,7 +215,7 @@ pub async fn sync_store_using_launcher_id(
     let puzzle_and_solution_req = peer
         .request_puzzle_and_solution(
             last_coin_record.coin.coin_id(),
-            last_coin_record.spent_height.unwrap(),
+            last_coin_record.spent_height.ok_or(Error::UnknwonCoin())?,
         )
         .await
         .map_err(|err| Error::RejectPuzzleSolution(err))?;
@@ -405,44 +406,87 @@ pub fn melt_store(
     Ok(ctx.take_spends())
 }
 
-pub fn oracle_spend(store_info: &DataStoreInfo) -> Result<SuccessResponse, Error> {
-    let oracle_delegated_puzzle =
-        store_info
-            .delegated_puzzles
+pub async fn oracle_spend(
+    peer: &Peer,
+    spender_synthetic_key: PublicKey,
+    spender_ph_min_height: u32,
+    store_info: &DataStoreInfo,
+) -> Result<SuccessResponse, Error> {
+    let oracle_delegated_puzzle = store_info
+        .delegated_puzzles
+        .iter()
+        .find(|dp| match dp.puzzle_info {
+            DelegatedPuzzleInfo::Oracle(_, _) => true,
+            _ => false,
+        })
+        .ok_or(Error::Permission())?;
+
+    let (_, oracle_fee) = match oracle_delegated_puzzle.puzzle_info {
+        DelegatedPuzzleInfo::Oracle(ph, fee) => (ph, fee),
+        _ => unreachable!(),
+    };
+
+    let spender_puzzle_hash: Bytes32 = StandardArgs::curry_tree_hash(spender_synthetic_key).into();
+    let coin_states = peer
+        .register_for_ph_updates(vec![spender_puzzle_hash], spender_ph_min_height)
+        .await
+        .map_err(|e| Error::Wallet(e))?;
+
+    let total_amount = oracle_fee;
+    let coins: Vec<Coin> = select_coins(
+        coin_states
             .iter()
-            .find(|dp| match dp.puzzle_info {
-                DelegatedPuzzleInfo::Oracle(_, _) => true,
-                _ => false,
-            });
-    /*
+            .filter(|cs| cs.spent_height.is_none())
+            .map(|coin_state| coin_state.coin)
+            .collect(),
+        total_amount.into(),
+    )
+    .map_err(|cserr| Error::CoinSelection(cserr))?;
+
+    let mut ctx = SpendContext::new();
+
+    let lead_coin = coins[0].clone();
+    let lead_coin_name = lead_coin.coin_id();
+    for coin in coins.iter().skip(1) {
+        ctx.spend_p2_coin(
+            *coin,
+            spender_synthetic_key,
+            Conditions::new().assert_coin_announcement(lead_coin_name, [0; 1]),
+        )
+        .map_err(|err| Error::Spend(err))?;
+    }
+
+    let assert_oracle_conds = Conditions::new()
+        .assert_puzzle_announcement(store_info.coin.puzzle_hash, &Bytes::new("$".into()));
+
+    let total_amount_from_coins = coins.iter().map(|c| c.amount).sum::<u64>();
+    let lead_coin_conditions = if total_amount_from_coins > total_amount {
+        assert_oracle_conds.create_coin(spender_puzzle_hash, total_amount_from_coins - total_amount)
+    } else {
+        assert_oracle_conds
+    };
+    ctx.spend_p2_coin(lead_coin, spender_synthetic_key, lead_coin_conditions)?;
+
     let inner_datastore_spend = DatastoreInnerSpend::DelegatedPuzzleSpend(
-        oracle_delegated_puzzle,
+        *oracle_delegated_puzzle,
         Some(oracle_delegated_puzzle.full_puzzle.unwrap()), // oracle puzzle always available
         ctx.allocator().nil(),
     );
-    let new_spend = datastore_spend(ctx, &datastore_info, inner_datastore_spend)?;
+
+    let new_spend = datastore_spend(&mut ctx, store_info, inner_datastore_spend)?;
     ctx.insert_coin_spend(new_spend.clone());
 
     let new_datastore_info = DataStoreInfo::from_spend(
         ctx.allocator_mut(),
         &new_spend,
-        datastore_info.clone().delegated_puzzles,
+        store_info.delegated_puzzles.clone(),
     )
-    .unwrap();
-    assert_datastore_info_eq(ctx, &datastore_info, &new_datastore_info, false);
-    let datastore_info = new_datastore_info;
+    .map_err(|_| Error::Parse())?;
 
-    // mint a coin that asserts the announcement and has enough value
-    let new_coin = sim.mint_coin(owner_puzzle_hash, oracle_fee).await;
-    ctx.spend_p2_coin(
-        new_coin,
-        owner_pk,
-        Conditions::new()
-            .assert_puzzle_announcement(datastore_info.coin.puzzle_hash, &Bytes::new("$".into())),
-    )?;
-    */
-
-    todo!()
+    Ok(SuccessResponse {
+        coin_spends: ctx.take_spends(),
+        new_info: new_datastore_info,
+    })
 }
 
 // also need to be implemented/exposed:
