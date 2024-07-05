@@ -15,7 +15,7 @@ use chia_wallet_sdk::{connect_peer, create_tls_connector, load_ssl_cert};
 pub use debug::*;
 pub use drivers::*;
 pub use merkle_tree::*;
-use napi::bindgen_prelude::{BigInt, Buffer};
+use napi::bindgen_prelude::*;
 use native_tls::TlsConnector;
 pub use puzzles::*;
 pub use puzzles_info::*;
@@ -130,25 +130,31 @@ pub struct SuccessResponse {
 pub struct Tls(TlsConnector);
 
 #[napi]
-pub fn new_tls_connector(cert_path: String, key_path: String) -> napi::Result<TlsConnector> {
-  let cert = load_ssl_cert(&cert_path, &key_path).map_err(js)?;
-  let tls = create_tls_connector(&cert).map_err(js)?;
-  Ok(tls)
+impl Tls {
+  #[napi(constructor)]
+  pub fn new(cert_path: String, key_path: String) -> napi::Result<Self> {
+    let cert = load_ssl_cert(&cert_path, &key_path).map_err(js)?;
+    let tls = create_tls_connector(&cert).map_err(js)?;
+    Ok(Self(tls))
+  }
 }
 
 #[napi]
 pub struct Peer(Arc<RustPeer>);
 
 #[napi]
-pub async fn new_peer(node_uri: String, network_id: String, tls: &Tls) -> napi::Result<Peer> {
-  let peer = connect_peer(&node_uri, tls.0.clone()).await.map_err(js)?;
+impl Peer {
+  #[napi(factory)]
+  pub async fn new(node_uri: String, network_id: String, tls: &Tls) -> napi::Result<Self> {
+    let peer = connect_peer(&node_uri, tls.0.clone()).await.map_err(js)?;
 
-  peer
-    .send_handshake(network_id, NodeType::Wallet)
-    .await
-    .map_err(js)?;
+    peer
+      .send_handshake(network_id, NodeType::Wallet)
+      .await
+      .map_err(js)?;
 
-  Ok(Peer(peer.into()))
+    Ok(Peer(peer.into()))
+  }
 }
 
 fn js<T>(error: T) -> napi::Error
