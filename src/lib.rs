@@ -7,10 +7,16 @@ mod puzzles;
 mod puzzles_info;
 mod wallet;
 
+use std::sync::Arc;
+
+use chia::client::Peer as RustPeer;
+use chia_protocol::NodeType;
+use chia_wallet_sdk::{connect_peer, create_tls_connector, load_ssl_cert};
 pub use debug::*;
 pub use drivers::*;
 pub use merkle_tree::*;
 use napi::bindgen_prelude::{BigInt, Buffer};
+use native_tls::TlsConnector;
 pub use puzzles::*;
 pub use puzzles_info::*;
 pub use wallet::*;
@@ -118,4 +124,36 @@ pub struct DataStoreInfo {
 pub struct SuccessResponse {
   pub coin_spends: Vec<CoinSpend>,
   pub new_info: DataStoreInfo,
+}
+
+#[napi]
+pub struct Tls(TlsConnector);
+
+#[napi]
+pub fn new_tls_connector(cert_path: String, key_path: String) -> napi::Result<TlsConnector> {
+  let cert = load_ssl_cert(&cert_path, &key_path).map_err(js)?;
+  let tls = create_tls_connector(&cert).map_err(js)?;
+  Ok(tls)
+}
+
+#[napi]
+pub struct Peer(Arc<RustPeer>);
+
+#[napi]
+pub async fn new_peer(node_uri: String, network_id: String, tls: &Tls) -> napi::Result<Peer> {
+  let peer = connect_peer(&node_uri, tls.0.clone()).await.map_err(js)?;
+
+  peer
+    .send_handshake(network_id, NodeType::Wallet)
+    .await
+    .map_err(js)?;
+
+  Ok(Peer(peer.into()))
+}
+
+fn js<T>(error: T) -> napi::Error
+where
+  T: ToString,
+{
+  napi::Error::from_reason(error.to_string())
 }

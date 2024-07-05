@@ -703,6 +703,7 @@ dependencies = [
  "napi",
  "napi-build",
  "napi-derive",
+ "native-tls",
  "num-bigint",
  "openssl",
  "openssl-sys",

@@ -14,6 +14,7 @@ crate-type = ["cdylib"]
 # Default enable napi4 feature, see https://nodejs.org/api/n-api.html#node-api-version-matrix
 napi = { version = "2.12.2", default-features = false, features = ["napi6", "async"] }
 napi-derive = "2.12.2"
+
 chia = "0.9.0"
 hex-literal = "0.4.1"
 chia-protocol = "0.9.0"
@@ -37,6 +38,7 @@ num-bigint = "0.4.5"
 thiserror = "1.0.61"
 chia-wallet-sdk = "0.11.0"
 bech32 = "0.9.1"
+native-tls = "0.2.12"
 
 [target.aarch64-unknown-linux-gnu.dependencies]
 openssl = { version = "0.10.64", features = ["vendored"] }
