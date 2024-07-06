@@ -556,6 +556,12 @@ pub async fn master_secret_key_to_wallet_secret_key(secret_key: Buffer) -> Buffe
 }
 
 #[napi]
+pub async fn secret_key_to_public_key(secret_key: Buffer) -> Buffer {
+  let secret_key = RustSecretKey::from_js(secret_key);
+  secret_key.public_key().to_js()
+}
+
+#[napi]
 pub fn puzzle_hash_to_address(puzzle_hash: Buffer, prefix: String) -> napi::Result<String> {
   let puzzle_hash = RustBytes32::from_js(puzzle_hash);
 
