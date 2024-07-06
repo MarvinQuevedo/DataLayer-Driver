@@ -532,14 +532,14 @@ impl Peer {
 }
 
 #[napi]
-pub async fn master_public_key_to_wallet_public_key(public_key: Buffer) -> Buffer {
+pub fn master_public_key_to_wallet_public_key(public_key: Buffer) -> Buffer {
   let public_key = RustPublicKey::from_js(public_key);
   let wallet_pk = master_to_wallet_unhardened(&public_key, 0).derive_synthetic();
   wallet_pk.to_js()
 }
 
 #[napi]
-pub async fn master_public_key_to_first_puzzle_hash(public_key: Buffer) -> Buffer {
+pub fn master_public_key_to_first_puzzle_hash(public_key: Buffer) -> Buffer {
   let public_key = RustPublicKey::from_js(public_key);
   let wallet_pk = master_to_wallet_unhardened(&public_key, 0).derive_synthetic();
 
@@ -549,14 +549,14 @@ pub async fn master_public_key_to_first_puzzle_hash(public_key: Buffer) -> Buffe
 }
 
 #[napi]
-pub async fn master_secret_key_to_wallet_secret_key(secret_key: Buffer) -> Buffer {
+pub fn master_secret_key_to_wallet_secret_key(secret_key: Buffer) -> Buffer {
   let secret_key = RustSecretKey::from_js(secret_key);
   let wallet_sk = master_to_wallet_unhardened(&secret_key, 0).derive_synthetic();
   wallet_sk.to_js()
 }
 
 #[napi]
-pub async fn secret_key_to_public_key(secret_key: Buffer) -> Buffer {
+pub fn secret_key_to_public_key(secret_key: Buffer) -> Buffer {
   let secret_key = RustSecretKey::from_js(secret_key);
   secret_key.public_key().to_js()
 }
