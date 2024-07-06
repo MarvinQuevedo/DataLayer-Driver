@@ -310,6 +310,9 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { sum } = nativeBinding
+const { newLineageProof, newEveProof, Tls, Peer } = nativeBinding
 
-module.exports.sum = sum
+module.exports.newLineageProof = newLineageProof
+module.exports.newEveProof = newEveProof
+module.exports.Tls = Tls
+module.exports.Peer = Peer

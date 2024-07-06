@@ -36,10 +36,6 @@ pub use wallet::*;
 #[macro_use]
 extern crate napi_derive;
 
-type Bytes32 = Buffer;
-type Program = Buffer;
-type PublicKey = Buffer;
-
 pub trait FromJS<T> {
   fn from_js(value: T) -> Self;
 }
@@ -48,49 +44,49 @@ pub trait ToJS<T> {
   fn to_js(self: &Self) -> T;
 }
 
-impl FromJS<Bytes32> for RustBytes32 {
-  fn from_js(value: Bytes32) -> Self {
+impl FromJS<Buffer> for RustBytes32 {
+  fn from_js(value: Buffer) -> Self {
     RustBytes32::from_bytes(&value.to_vec()).unwrap()
   }
 }
 
-impl ToJS<Bytes32> for RustBytes32 {
-  fn to_js(self: &Self) -> Bytes32 {
-    Bytes32::from(self.to_vec())
+impl ToJS<Buffer> for RustBytes32 {
+  fn to_js(self: &Self) -> Buffer {
+    Buffer::from(self.to_vec())
   }
 }
 
-impl FromJS<Program> for RustProgram {
-  fn from_js(value: Program) -> Self {
+impl FromJS<Buffer> for RustProgram {
+  fn from_js(value: Buffer) -> Self {
     RustProgram::from(value.to_vec())
   }
 }
 
-impl ToJS<Program> for RustProgram {
-  fn to_js(self: &Self) -> Program {
-    Program::from(self.to_vec())
+impl ToJS<Buffer> for RustProgram {
+  fn to_js(self: &Self) -> Buffer {
+    Buffer::from(self.to_vec())
   }
 }
 
-impl FromJS<PublicKey> for RustPublicKey {
-  fn from_js(value: PublicKey) -> Self {
+impl FromJS<Buffer> for RustPublicKey {
+  fn from_js(value: Buffer) -> Self {
     let vec = value.to_vec();
     let bytes: [u8; 48] = vec.try_into().expect("public key should be 48 bytes long");
     RustPublicKey::from_bytes(&bytes).unwrap()
   }
 }
 
-impl ToJS<PublicKey> for RustPublicKey {
-  fn to_js(self: &Self) -> PublicKey {
-    PublicKey::from(self.to_bytes().to_vec())
+impl ToJS<Buffer> for RustPublicKey {
+  fn to_js(self: &Self) -> Buffer {
+    Buffer::from(self.to_bytes().to_vec())
   }
 }
 
 #[napi(object)]
 #[derive(Clone)]
 pub struct Coin {
-  pub parent_coin_info: Bytes32,
-  pub puzzle_hash: Bytes32,
+  pub parent_coin_info: Buffer,
+  pub puzzle_hash: Buffer,
   pub amount: BigInt,
 }
 
@@ -130,8 +126,8 @@ impl ToJS<Coin> for RustCoin {
 #[derive(Clone)]
 pub struct CoinSpend {
   pub coin: Coin,
-  pub puzzle_reveal: Program,
-  pub solution: Program,
+  pub puzzle_reveal: Buffer,
+  pub solution: Buffer,
 }
 
 impl FromJS<CoinSpend> for RustCoinSpend {
@@ -157,8 +153,8 @@ impl ToJS<CoinSpend> for RustCoinSpend {
 #[napi(object)]
 #[derive(Clone)]
 pub struct LineageProof {
-  pub parent_parent_coin_id: Bytes32,
-  pub parent_inner_puzzle_hash: Bytes32,
+  pub parent_parent_coin_id: Buffer,
+  pub parent_inner_puzzle_hash: Buffer,
   pub parent_amount: BigInt,
 }
 
@@ -185,7 +181,7 @@ impl ToJS<LineageProof> for RustLineageProof {
 #[napi(object)]
 #[derive(Clone)]
 pub struct EveProof {
-  pub parent_coin_info: Bytes32,
+  pub parent_coin_info: Buffer,
   pub amount: BigInt,
 }
 
@@ -258,7 +254,7 @@ pub fn new_eve_proof(eve_proof: EveProof) -> Proof {
 #[napi(object)]
 #[derive(Clone)]
 pub struct DataStoreMetadata {
-  pub root_hash: Bytes32,
+  pub root_hash: Buffer,
   pub label: String,
   pub description: String,
 }
@@ -286,9 +282,9 @@ impl ToJS<DataStoreMetadata> for RustDataStoreMetadata {
 #[napi(object)]
 #[derive(Clone)]
 pub struct DelegatedPuzzleInfo {
-  pub admin_inner_puzzle_hash: Option<Bytes32>,
-  pub writer_inner_puzzle_hash: Option<Bytes32>,
-  pub oracle_payment_puzzle_hash: Option<Bytes32>,
+  pub admin_inner_puzzle_hash: Option<Buffer>,
+  pub writer_inner_puzzle_hash: Option<Buffer>,
+  pub oracle_payment_puzzle_hash: Option<Buffer>,
   pub oracle_fee: Option<BigInt>,
 }
 
@@ -339,7 +335,7 @@ impl ToJS<DelegatedPuzzleInfo> for RustDelegatedPuzzleInfo {
 #[napi(object)]
 #[derive(Clone)]
 pub struct DelegatedPuzzle {
-  pub puzzle_hash: Bytes32,
+  pub puzzle_hash: Buffer,
   pub puzzle_info: DelegatedPuzzleInfo,
 }
 
@@ -369,12 +365,12 @@ impl ToJS<DelegatedPuzzle> for RustDelegatedPuzzle {
 pub struct DataStoreInfo {
   pub coin: Coin,
   // singleton layer
-  pub launcher_id: Bytes32,
+  pub launcher_id: Buffer,
   pub proof: Proof,
   // NFT state layer
   pub metadata: DataStoreMetadata,
   // inner puzzle (either p2 or delegation_layer + p2)
-  pub owner_puzzle_hash: Bytes32,
+  pub owner_puzzle_hash: Buffer,
   pub delegated_puzzles: Vec<DelegatedPuzzle>, // if empty, there is no delegation layer
 }
 
@@ -473,12 +469,12 @@ impl Peer {
   #[napi]
   pub async fn mint_store(
     &self,
-    minter_synthetic_key: PublicKey,
+    minter_synthetic_key: Buffer,
     minter_ph_min_height: u32,
-    root_hash: Bytes32,
+    root_hash: Buffer,
     label: String,
     description: String,
-    owner_puzzle_hash: Bytes32,
+    owner_puzzle_hash: Buffer,
     delegated_puzzles: Vec<DelegatedPuzzle>,
     fee: BigInt,
   ) -> napi::Result<SuccessResponse> {
