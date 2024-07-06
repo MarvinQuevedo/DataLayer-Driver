@@ -467,6 +467,19 @@ impl Peer {
   }
 
   #[napi]
+  pub async fn get_coins(&self, puzzle_hash: Buffer, min_height: u32) -> napi::Result<Vec<Coin>> {
+    let coins = get_coins(
+      &self.0.clone(),
+      RustBytes32::from_js(puzzle_hash),
+      min_height,
+    )
+    .await
+    .map_err(js)?;
+
+    Ok(coins.iter().map(RustCoin::to_js).collect())
+  }
+
+  #[napi]
   pub async fn mint_store(
     &self,
     minter_synthetic_key: Buffer,

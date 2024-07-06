@@ -87,6 +87,25 @@ pub enum Error {
   Permission(),
 }
 
+pub async fn get_coins(
+  peer: &Peer,
+  puzzle_hash: Bytes32,
+  min_height: u32,
+) -> Result<Vec<Coin>, Error> {
+  let coin_states = peer
+    .register_for_ph_updates(vec![puzzle_hash], min_height)
+    .await
+    .map_err(|e| Error::Wallet(e))?;
+
+  Ok(
+    coin_states
+      .iter()
+      .filter(|cs| cs.spent_height.is_none())
+      .map(|cs| cs.coin)
+      .collect(),
+  )
+}
+
 pub async fn mint_store(
   peer: &Peer,
   minter_synthetic_key: PublicKey,
