@@ -310,9 +310,14 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { newLineageProof, newEveProof, Tls, Peer } = nativeBinding
+const { newLineageProof, newEveProof, Tls, Peer, masterPublicKeyToWalletPublicKey, masterPublicKeyToFirstPuzzleHash, masterSecretKeyToWalletSecretKey, puzzleHashToAddress, addressToPuzzleHash } = nativeBinding
 
 module.exports.newLineageProof = newLineageProof
 module.exports.newEveProof = newEveProof
 module.exports.Tls = Tls
 module.exports.Peer = Peer
+module.exports.masterPublicKeyToWalletPublicKey = masterPublicKeyToWalletPublicKey
+module.exports.masterPublicKeyToFirstPuzzleHash = masterPublicKeyToFirstPuzzleHash
+module.exports.masterSecretKeyToWalletSecretKey = masterSecretKeyToWalletSecretKey
+module.exports.puzzleHashToAddress = puzzleHashToAddress
+module.exports.addressToPuzzleHash = addressToPuzzleHash

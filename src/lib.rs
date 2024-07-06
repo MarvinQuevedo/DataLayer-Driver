@@ -9,16 +9,21 @@ mod wallet;
 
 use std::sync::Arc;
 
+use chia::bls::derive_keys::master_to_wallet_unhardened;
+use chia::bls::SecretKey as RustSecretKey;
 use chia::client::Peer as RustPeer;
 use chia::{bls::PublicKey as RustPublicKey, traits::Streamable};
 use chia_protocol::Coin as RustCoin;
 use chia_protocol::CoinSpend as RustCoinSpend;
 use chia_protocol::Program as RustProgram;
 use chia_protocol::{Bytes32 as RustBytes32, NodeType};
-use chia_puzzles::EveProof as RustEveProof;
+use chia_puzzles::standard::StandardArgs;
 use chia_puzzles::LineageProof as RustLineageProof;
 use chia_puzzles::Proof as RustProof;
-use chia_wallet_sdk::{connect_peer, create_tls_connector, load_ssl_cert};
+use chia_puzzles::{DeriveSynthetic, EveProof as RustEveProof};
+use chia_wallet_sdk::{
+  connect_peer, create_tls_connector, decode_address, encode_address, load_ssl_cert,
+};
 pub use debug::*;
 pub use drivers::*;
 pub use merkle_tree::*;
@@ -77,6 +82,20 @@ impl FromJS<Buffer> for RustPublicKey {
 }
 
 impl ToJS<Buffer> for RustPublicKey {
+  fn to_js(self: &Self) -> Buffer {
+    Buffer::from(self.to_bytes().to_vec())
+  }
+}
+
+impl FromJS<Buffer> for RustSecretKey {
+  fn from_js(value: Buffer) -> Self {
+    let vec = value.to_vec();
+    let bytes: [u8; 32] = vec.try_into().expect("secret key should be 32 bytes long");
+    RustSecretKey::from_bytes(&bytes).unwrap()
+  }
+}
+
+impl ToJS<Buffer> for RustSecretKey {
   fn to_js(self: &Self) -> Buffer {
     Buffer::from(self.to_bytes().to_vec())
   }
@@ -510,6 +529,45 @@ impl Peer {
 
     Ok(response.to_js())
   }
+}
+
+#[napi]
+pub async fn master_public_key_to_wallet_public_key(public_key: Buffer) -> Buffer {
+  let public_key = RustPublicKey::from_js(public_key);
+  let wallet_pk = master_to_wallet_unhardened(&public_key, 0).derive_synthetic();
+  wallet_pk.to_js()
+}
+
+#[napi]
+pub async fn master_public_key_to_first_puzzle_hash(public_key: Buffer) -> Buffer {
+  let public_key = RustPublicKey::from_js(public_key);
+  let wallet_pk = master_to_wallet_unhardened(&public_key, 0).derive_synthetic();
+
+  let puzzle_hash: RustBytes32 = StandardArgs::curry_tree_hash(wallet_pk).into();
+
+  puzzle_hash.to_js()
+}
+
+#[napi]
+pub async fn master_secret_key_to_wallet_secret_key(secret_key: Buffer) -> Buffer {
+  let secret_key = RustSecretKey::from_js(secret_key);
+  let wallet_sk = master_to_wallet_unhardened(&secret_key, 0).derive_synthetic();
+  wallet_sk.to_js()
+}
+
+#[napi]
+pub fn puzzle_hash_to_address(puzzle_hash: Buffer, prefix: String) -> napi::Result<String> {
+  let puzzle_hash = RustBytes32::from_js(puzzle_hash);
+
+  encode_address(puzzle_hash.into(), &prefix).map_err(js)
+}
+
+#[napi]
+pub fn address_to_puzzle_hash(address: String) -> napi::Result<Buffer> {
+  let (puzzle_hash, _) = decode_address(&address).map_err(js)?;
+  let puzzle_hash: RustBytes32 = RustBytes32::from_bytes(&puzzle_hash).map_err(js)?;
+
+  Ok(puzzle_hash.to_js())
 }
 
 fn js<T>(error: T) -> napi::Error

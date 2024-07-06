@@ -20,10 +20,7 @@ use chia_sdk_driver::SpendContext;
 use chia_sdk_driver::SpendError;
 use chia_sdk_types::conditions::Condition;
 use chia_sdk_types::conditions::ReserveFee;
-use chia_wallet_sdk::decode_address;
-use chia_wallet_sdk::encode_address;
 use chia_wallet_sdk::select_coins;
-use chia_wallet_sdk::AddressError;
 use chia_wallet_sdk::CoinSelectionError;
 use chia_wallet_sdk::RequiredSignature;
 use chia_wallet_sdk::SignerError;
@@ -523,20 +520,6 @@ pub async fn oracle_spend(
     coin_spends: ctx.take_spends(),
     new_info: new_datastore_info,
   })
-}
-
-pub fn puzzle_hash_for_pk(pk: PublicKey) -> Bytes32 {
-  StandardArgs::curry_tree_hash(pk).into()
-}
-
-pub fn puzzle_hash_to_address(ph: Bytes32, prefix: &str) -> Result<String, bech32::Error> {
-  encode_address(ph.into(), prefix)
-}
-
-pub fn address_to_puzzle_hash(
-  address: String,
-) -> Result<([u8; 32], std::string::String), AddressError> {
-  decode_address(&address)
 }
 
 #[derive(Debug, Error)]
