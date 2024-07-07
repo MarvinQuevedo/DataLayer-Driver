@@ -55,9 +55,9 @@ export interface SuccessResponse {
   coinSpends: Array<CoinSpend>
   newInfo: DataStoreInfo
 }
-export declare function masterPublicKeyToWalletPublicKey(publicKey: Buffer): Buffer
+export declare function masterPublicKeyToWalletSyntheticKey(publicKey: Buffer): Buffer
 export declare function masterPublicKeyToFirstPuzzleHash(publicKey: Buffer): Buffer
-export declare function masterSecretKeyToWalletSecretKey(secretKey: Buffer): Buffer
+export declare function masterSecretKeyToWalletSyntheticSecretKey(secretKey: Buffer): Buffer
 export declare function secretKeyToPublicKey(secretKey: Buffer): Buffer
 export declare function puzzleHashToAddress(puzzleHash: Buffer, prefix: string): string
 export declare function addressToPuzzleHash(address: string): Buffer
