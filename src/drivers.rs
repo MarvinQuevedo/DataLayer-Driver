@@ -36,8 +36,8 @@ impl SpendContextExt for SpendContext {
 }
 
 pub enum DatastoreInnerSpend {
-  OwnerPuzzleSpend(Spend), // owner puzzle spend
-  DelegatedPuzzleSpend(DelegatedPuzzle, Option<NodePtr>, NodePtr), // delegated puzzle info + inner puzzle reveal + solution
+  OwnerPuzzleSpend(Spend),                                 // owner puzzle spend
+  DelegatedPuzzleSpend(DelegatedPuzzle, NodePtr, NodePtr), // delegated puzzle info + inner puzzle reveal + solution
 }
 
 pub fn spend_delegation_layer(
@@ -348,13 +348,12 @@ mod tests {
 
   use super::*;
 
-  use chia::{bls::G2Element, traits::Streamable};
-  use chia_protocol::{Bytes32, Program};
+  use chia::bls::G2Element;
+  use chia_protocol::Bytes32;
   use chia_puzzles::standard::StandardArgs;
   use chia_sdk_driver::Launcher;
   use chia_sdk_test::{secret_key, test_transaction, Simulator};
   use chia_sdk_types::conditions::Condition;
-  use clvm_traits::FromNodePtr;
 
   fn assert_datastore_info_eq(
     ctx: &mut SpendContext,
@@ -585,7 +584,7 @@ mod tests {
     // delegated puzzle info + inner puzzle reveal + solution
     let inner_datastore_spend = DatastoreInnerSpend::DelegatedPuzzleSpend(
       writer_delegated_puzzle,
-      Some(writer_puzzle),
+      writer_puzzle,
       new_metadata_inner_spend.solution(),
     );
     let new_spend = datastore_spend(ctx, &datastore_info, inner_datastore_spend)?;
@@ -632,7 +631,7 @@ mod tests {
     // delegated puzzle info + inner puzzle reveal + solution
     let inner_datastore_spend = DatastoreInnerSpend::DelegatedPuzzleSpend(
       admin_delegated_puzzle,
-      Some(admin_puzzle),
+      admin_puzzle,
       inner_spend.solution(),
     );
     let new_spend = datastore_spend(ctx, &datastore_info, inner_datastore_spend)?;
@@ -657,23 +656,14 @@ mod tests {
     // oracle: just spend :)
     // delegated puzzle info + inner puzzle reveal + solution
 
-    println!(
-      "oracle full puzzle: {:}",
-      encode(
-        Program::from_node_ptr(
-          ctx.allocator_mut(),
-          oracle_delegated_puzzle.full_puzzle.unwrap()
-        )
-        .unwrap()
-        .clone()
-        .to_bytes()
-        .unwrap()
-      )
-    ); // todo: debug
-
     let inner_datastore_spend = DatastoreInnerSpend::DelegatedPuzzleSpend(
       oracle_delegated_puzzle,
-      Some(oracle_delegated_puzzle.full_puzzle.unwrap()), // oracle puzzle always available
+      DelegatedPuzzle::oracle_layer_full_puzzle(
+        ctx.allocator_mut(),
+        oracle_puzzle_hash,
+        oracle_fee,
+      )
+      .unwrap(),
       ctx.allocator().nil(),
     );
     let new_spend = datastore_spend(ctx, &datastore_info, inner_datastore_spend)?;

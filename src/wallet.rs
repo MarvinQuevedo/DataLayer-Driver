@@ -290,10 +290,11 @@ fn update_store_with_conditions(
         return Err(Error::Permission());
       }
 
+      let (dp, inner_puzzle_ptr) = DelegatedPuzzle::from_admin_pk(ctx.allocator_mut(), pk)
+        .map_err(|err| Error::ToClvm(err))?;
       DatastoreInnerSpend::DelegatedPuzzleSpend(
-        DelegatedPuzzle::from_admin_pk(ctx.allocator_mut(), pk)
-          .map_err(|err| Error::ToClvm(err))?,
-        None,
+        dp,
+        inner_puzzle_ptr,
         conditions
           .p2_spend(ctx, pk)
           .map_err(|err| Error::Spend(err))?
@@ -305,10 +306,11 @@ fn update_store_with_conditions(
         return Err(Error::Permission());
       }
 
+      let (dp, inner_puzzle_ptr) = DelegatedPuzzle::from_writer_pk(ctx.allocator_mut(), pk)
+        .map_err(|err| Error::ToClvm(err))?;
       DatastoreInnerSpend::DelegatedPuzzleSpend(
-        DelegatedPuzzle::from_writer_pk(ctx.allocator_mut(), pk)
-          .map_err(|err| Error::ToClvm(err))?,
-        None,
+        dp,
+        inner_puzzle_ptr,
         conditions
           .p2_spend(ctx, pk)
           .map_err(|err| Error::Spend(err))?
@@ -453,7 +455,7 @@ pub async fn oracle_spend(
     })
     .ok_or(Error::Permission())?;
 
-  let (_, oracle_fee) = match oracle_delegated_puzzle.puzzle_info {
+  let (oracle_ph, oracle_fee) = match oracle_delegated_puzzle.puzzle_info {
     DelegatedPuzzleInfo::Oracle(ph, fee) => (ph, fee),
     _ => unreachable!(),
   };
@@ -500,9 +502,12 @@ pub async fn oracle_spend(
   };
   ctx.spend_p2_coin(lead_coin, spender_synthetic_key, lead_coin_conditions)?;
 
+  let oracle_puzzle_ptr =
+    DelegatedPuzzle::oracle_layer_full_puzzle(ctx.allocator_mut(), oracle_ph, oracle_fee)
+      .map_err(|err| Error::ToClvm(err))?;
   let inner_datastore_spend = DatastoreInnerSpend::DelegatedPuzzleSpend(
     *oracle_delegated_puzzle,
-    Some(oracle_delegated_puzzle.full_puzzle.unwrap()), // oracle puzzle always available
+    oracle_puzzle_ptr, // oracle puzzle always available
     ctx.allocator().nil(),
   );
 

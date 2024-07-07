@@ -365,7 +365,6 @@ impl FromJS<DelegatedPuzzle> for RustDelegatedPuzzle {
     RustDelegatedPuzzle {
       puzzle_hash: RustBytes32::from_js(value.puzzle_hash),
       puzzle_info: puzzle_info,
-      full_puzzle: None,
     }
   }
 }
