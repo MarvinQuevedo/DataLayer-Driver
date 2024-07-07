@@ -10,7 +10,7 @@ mod wallet;
 use std::sync::Arc;
 
 use chia::bls::derive_keys::master_to_wallet_unhardened;
-use chia::bls::SecretKey as RustSecretKey;
+use chia::bls::{SecretKey as RustSecretKey, Signature as RustSignature};
 use chia::client::Peer as RustPeer;
 use chia::{bls::PublicKey as RustPublicKey, traits::Streamable};
 use chia_protocol::Coin as RustCoin;
@@ -97,6 +97,20 @@ impl FromJS<Buffer> for RustSecretKey {
 }
 
 impl ToJS<Buffer> for RustSecretKey {
+  fn to_js(self: &Self) -> Buffer {
+    Buffer::from(self.to_bytes().to_vec())
+  }
+}
+
+impl FromJS<Buffer> for RustSignature {
+  fn from_js(value: Buffer) -> Self {
+    let vec = value.to_vec();
+    let bytes: [u8; 96] = vec.try_into().expect("signature should be 96 bytes long");
+    RustSignature::from_bytes(&bytes).unwrap()
+  }
+}
+
+impl ToJS<Buffer> for RustSignature {
   fn to_js(self: &Self) -> Buffer {
     Buffer::from(self.to_bytes().to_vec())
   }
@@ -611,6 +625,27 @@ pub fn oracle_delegated_puzzle(
       .map_err(js)?
       .to_js(),
   )
+}
+
+#[napi]
+pub fn sign_coin_spends(
+  coin_spends: Vec<CoinSpend>,
+  private_keys: Vec<Buffer>,
+  agg_sig_data: Buffer,
+) -> napi::Result<Buffer> {
+  let coin_spends = coin_spends
+    .iter()
+    .map(|cs| RustCoinSpend::from_js(cs.clone()))
+    .collect();
+  let private_keys = private_keys
+    .iter()
+    .map(|sk| RustSecretKey::from_js(sk.clone()))
+    .collect();
+  let agg_sig_data = RustBytes32::from_js(agg_sig_data);
+
+  let sig = wallet::sign_coin_spends(coin_spends, private_keys, agg_sig_data).map_err(js)?;
+
+  Ok(sig.to_js())
 }
 
 fn js<T>(error: T) -> napi::Error
