@@ -482,7 +482,7 @@ impl Peer {
       .await
       .map_err(js)?;
 
-    Ok(Peer(peer.into()))
+    Ok(Self(Arc::new(peer)))
   }
 
   #[napi]
