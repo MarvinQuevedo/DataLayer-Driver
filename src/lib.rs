@@ -648,6 +648,13 @@ pub fn sign_coin_spends(
   Ok(sig.to_js())
 }
 
+#[napi]
+pub fn get_coin_id(coin: Coin) -> Buffer {
+  let coin = RustCoin::from_js(coin);
+
+  coin.coin_id().to_js()
+}
+
 fn js<T>(error: T) -> napi::Error
 where
   T: ToString,

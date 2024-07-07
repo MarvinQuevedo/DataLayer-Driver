@@ -65,6 +65,7 @@ export declare function adminDelegatedPuzzleFromKey(syntheticKey: Buffer): Deleg
 export declare function writerDelegatedPuzzleFromKey(syntheticKey: Buffer): DelegatedPuzzle
 export declare function oracleDelegatedPuzzle(oraclePuzzleHash: Buffer, oracleFee: bigint): DelegatedPuzzle
 export declare function signCoinSpends(coinSpends: Array<CoinSpend>, privateKeys: Array<Buffer>, aggSigData: Buffer): Buffer
+export declare function getCoinId(coin: Coin): Buffer
 export declare class Tls {
   constructor(certPath: string, keyPath: string)
 }
