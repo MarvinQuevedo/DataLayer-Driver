@@ -310,7 +310,7 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { newLineageProof, newEveProof, Tls, Peer, masterPublicKeyToWalletSyntheticKey, masterPublicKeyToFirstPuzzleHash, masterSecretKeyToWalletSyntheticSecretKey, secretKeyToPublicKey, puzzleHashToAddress, addressToPuzzleHash } = nativeBinding
+const { newLineageProof, newEveProof, Tls, Peer, masterPublicKeyToWalletSyntheticKey, masterPublicKeyToFirstPuzzleHash, masterSecretKeyToWalletSyntheticSecretKey, secretKeyToPublicKey, puzzleHashToAddress, addressToPuzzleHash, adminDelegatedPuzzleFromKey, writerDelegatedPuzzleFromKey, oracleDelegatedPuzzle } = nativeBinding
 
 module.exports.newLineageProof = newLineageProof
 module.exports.newEveProof = newEveProof
@@ -322,3 +322,6 @@ module.exports.masterSecretKeyToWalletSyntheticSecretKey = masterSecretKeyToWall
 module.exports.secretKeyToPublicKey = secretKeyToPublicKey
 module.exports.puzzleHashToAddress = puzzleHashToAddress
 module.exports.addressToPuzzleHash = addressToPuzzleHash
+module.exports.adminDelegatedPuzzleFromKey = adminDelegatedPuzzleFromKey
+module.exports.writerDelegatedPuzzleFromKey = writerDelegatedPuzzleFromKey
+module.exports.oracleDelegatedPuzzle = oracleDelegatedPuzzle

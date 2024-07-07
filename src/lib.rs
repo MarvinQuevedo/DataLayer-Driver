@@ -24,6 +24,7 @@ use chia_puzzles::{DeriveSynthetic, EveProof as RustEveProof};
 use chia_wallet_sdk::{
   connect_peer, create_tls_connector, decode_address, encode_address, load_ssl_cert,
 };
+use clvmr::Allocator;
 pub use debug::*;
 pub use drivers::*;
 pub use merkle_tree::*;
@@ -573,6 +574,43 @@ pub fn address_to_puzzle_hash(address: String) -> napi::Result<Buffer> {
   let puzzle_hash: RustBytes32 = RustBytes32::from_bytes(&puzzle_hash).map_err(js)?;
 
   Ok(puzzle_hash.to_js())
+}
+
+#[napi]
+pub fn admin_delegated_puzzle_from_key(synthetic_key: Buffer) -> napi::Result<DelegatedPuzzle> {
+  let synthetic_key = RustPublicKey::from_js(synthetic_key);
+
+  let allocator: &mut Allocator = &mut Allocator::new();
+  let (admin_dp, _) = RustDelegatedPuzzle::from_admin_pk(allocator, synthetic_key).map_err(js)?;
+
+  Ok(admin_dp.to_js())
+}
+
+#[napi]
+pub fn writer_delegated_puzzle_from_key(synthetic_key: Buffer) -> napi::Result<DelegatedPuzzle> {
+  let synthetic_key = RustPublicKey::from_js(synthetic_key);
+
+  let allocator: &mut Allocator = &mut Allocator::new();
+  let (writer_dp, _) = RustDelegatedPuzzle::from_writer_pk(allocator, synthetic_key).map_err(js)?;
+
+  Ok(writer_dp.to_js())
+}
+
+#[napi]
+pub fn oracle_delegated_puzzle(
+  oracle_puzzle_hash: Buffer,
+  oracle_fee: BigInt,
+) -> napi::Result<DelegatedPuzzle> {
+  let oracle_puzzle_hash = RustBytes32::from_js(oracle_puzzle_hash);
+  let oracle_fee = u64::from_js(oracle_fee);
+
+  let allocator: &mut Allocator = &mut Allocator::new();
+
+  Ok(
+    RustDelegatedPuzzle::new_oracle(allocator, oracle_puzzle_hash, oracle_fee)
+      .map_err(js)?
+      .to_js(),
+  )
 }
 
 fn js<T>(error: T) -> napi::Error

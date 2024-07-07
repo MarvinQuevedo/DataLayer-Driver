@@ -61,6 +61,9 @@ export declare function masterSecretKeyToWalletSyntheticSecretKey(secretKey: Buf
 export declare function secretKeyToPublicKey(secretKey: Buffer): Buffer
 export declare function puzzleHashToAddress(puzzleHash: Buffer, prefix: string): string
 export declare function addressToPuzzleHash(address: string): Buffer
+export declare function adminDelegatedPuzzleFromKey(syntheticKey: Buffer): DelegatedPuzzle
+export declare function writerDelegatedPuzzleFromKey(syntheticKey: Buffer): DelegatedPuzzle
+export declare function oracleDelegatedPuzzle(oraclePuzzleHash: Buffer, oracleFee: bigint): DelegatedPuzzle
 export declare class Tls {
   constructor(certPath: string, keyPath: string)
 }
