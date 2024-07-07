@@ -13,6 +13,10 @@ export interface CoinSpend {
   puzzleReveal: Buffer
   solution: Buffer
 }
+export interface SpendBundle {
+  coinSpends: Array<CoinSpend>
+  aggregatedSignature: Buffer
+}
 export interface LineageProof {
   parentParentCoinId: Buffer
   parentInnerPuzzleHash: Buffer
@@ -73,4 +77,5 @@ export declare class Peer {
   static new(nodeUri: string, networkId: string, tls: Tls): Promise<Peer>
   getCoins(puzzleHash: Buffer, minHeight: number): Promise<Array<Coin>>
   mintStore(minterSyntheticKey: Buffer, minterPhMinHeight: number, rootHash: Buffer, label: string, description: string, ownerPuzzleHash: Buffer, delegatedPuzzles: Array<DelegatedPuzzle>, fee: bigint): Promise<SuccessResponse>
+  broadcastSpendBundle(spendBundle: SpendBundle): Promise<string>
 }

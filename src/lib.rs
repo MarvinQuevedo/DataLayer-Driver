@@ -16,6 +16,7 @@ use chia::{bls::PublicKey as RustPublicKey, traits::Streamable};
 use chia_protocol::Coin as RustCoin;
 use chia_protocol::CoinSpend as RustCoinSpend;
 use chia_protocol::Program as RustProgram;
+use chia_protocol::SpendBundle as RustSpendBundle;
 use chia_protocol::{Bytes32 as RustBytes32, NodeType};
 use chia_puzzles::standard::StandardArgs;
 use chia_puzzles::LineageProof as RustLineageProof;
@@ -180,6 +181,35 @@ impl ToJS<CoinSpend> for RustCoinSpend {
       coin: self.coin.to_js(),
       puzzle_reveal: self.puzzle_reveal.to_js(),
       solution: self.solution.to_js(),
+    }
+  }
+}
+
+#[napi(object)]
+#[derive(Clone)]
+pub struct SpendBundle {
+  pub coin_spends: Vec<CoinSpend>,
+  pub aggregated_signature: Buffer,
+}
+
+impl FromJS<SpendBundle> for RustSpendBundle {
+  fn from_js(value: SpendBundle) -> Self {
+    RustSpendBundle::new(
+      value
+        .coin_spends
+        .into_iter()
+        .map(|cs| RustCoinSpend::from_js(cs))
+        .collect(),
+      RustSignature::from_js(value.aggregated_signature),
+    )
+  }
+}
+
+impl ToJS<SpendBundle> for RustSpendBundle {
+  fn to_js(self: &Self) -> SpendBundle {
+    SpendBundle {
+      coin_spends: self.coin_spends.iter().map(RustCoinSpend::to_js).collect(),
+      aggregated_signature: self.aggregated_signature.to_js(),
     }
   }
 }
@@ -542,6 +572,20 @@ impl Peer {
     .map_err(js)?;
 
     Ok(response.to_js())
+  }
+
+  // returns error
+  #[napi]
+  pub async fn broadcast_spend_bundle(&self, spend_bundle: SpendBundle) -> napi::Result<String> {
+    let spend_bundle = RustSpendBundle::from_js(spend_bundle);
+
+    Ok(
+      wallet::broadcast_spend_bundle(&self.0.clone(), spend_bundle)
+        .await
+        .map_err(js)?
+        .error
+        .unwrap_or(String::default()),
+    )
   }
 }
 
