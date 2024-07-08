@@ -59,6 +59,10 @@ export interface SuccessResponse {
   coinSpends: Array<CoinSpend>
   newInfo: DataStoreInfo
 }
+export interface SyncStoreResponse {
+  latestInfo: DataStoreInfo
+  latestHeight: number
+}
 export declare function masterPublicKeyToWalletSyntheticKey(publicKey: Buffer): Buffer
 export declare function masterPublicKeyToFirstPuzzleHash(publicKey: Buffer): Buffer
 export declare function masterSecretKeyToWalletSyntheticSecretKey(secretKey: Buffer): Buffer
@@ -77,6 +81,7 @@ export declare class Peer {
   static new(nodeUri: string, networkId: string, tls: Tls): Promise<Peer>
   getCoins(puzzleHash: Buffer, minHeight: number): Promise<Array<Coin>>
   mintStore(minterSyntheticKey: Buffer, minterPhMinHeight: number, rootHash: Buffer, label: string, description: string, ownerPuzzleHash: Buffer, delegatedPuzzles: Array<DelegatedPuzzle>, fee: bigint): Promise<SuccessResponse>
+  syncStore(storeInfo: DataStoreInfo, minHeight: number): Promise<SyncStoreResponse>
   broadcastSpendBundle(spendBundle: SpendBundle): Promise<string>
   isCoinSpent(coinId: Buffer): Promise<boolean>
 }

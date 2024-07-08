@@ -38,6 +38,7 @@ use puzzles_info::{
   DelegatedPuzzle as RustDelegatedPuzzle, DelegatedPuzzleInfo as RustDelegatedPuzzleInfo,
 };
 use wallet::SuccessResponse as RustSuccessResponse;
+use wallet::SyncStoreResponse as RustSyncStoreResponse;
 pub use wallet::*;
 
 #[macro_use]
@@ -471,6 +472,12 @@ impl ToJS<DataStoreInfo> for RustDataStoreInfo {
   }
 }
 
+#[napi(object)]
+pub struct SuccessResponse {
+  pub coin_spends: Vec<CoinSpend>,
+  pub new_info: DataStoreInfo,
+}
+
 impl FromJS<SuccessResponse> for RustSuccessResponse {
   fn from_js(value: SuccessResponse) -> Self {
     RustSuccessResponse {
@@ -494,9 +501,27 @@ impl ToJS<SuccessResponse> for RustSuccessResponse {
 }
 
 #[napi(object)]
-pub struct SuccessResponse {
-  pub coin_spends: Vec<CoinSpend>,
-  pub new_info: DataStoreInfo,
+pub struct SyncStoreResponse {
+  pub latest_info: DataStoreInfo,
+  pub latest_height: u32,
+}
+
+impl FromJS<SyncStoreResponse> for RustSyncStoreResponse {
+  fn from_js(value: SyncStoreResponse) -> Self {
+    RustSyncStoreResponse {
+      latest_info: RustDataStoreInfo::from_js(value.latest_info),
+      latest_height: value.latest_height,
+    }
+  }
+}
+
+impl ToJS<SyncStoreResponse> for RustSyncStoreResponse {
+  fn to_js(self: &Self) -> SyncStoreResponse {
+    SyncStoreResponse {
+      latest_info: self.latest_info.to_js(),
+      latest_height: self.latest_height,
+    }
+  }
 }
 
 #[napi]
@@ -572,6 +597,23 @@ impl Peer {
     .map_err(js)?;
 
     Ok(response.to_js())
+  }
+
+  #[napi]
+  pub async fn sync_store(
+    &self,
+    store_info: DataStoreInfo,
+    min_height: u32,
+  ) -> napi::Result<SyncStoreResponse> {
+    let res = sync_store(
+      &self.0.clone(),
+      &RustDataStoreInfo::from_js(store_info),
+      min_height,
+    )
+    .await
+    .map_err(js)?;
+
+    Ok(res.to_js())
   }
 
   // returns error
@@ -716,5 +758,3 @@ where
 {
   napi::Error::from_reason(error.to_string())
 }
-
-// todo: delegated puzzle - rm NodePtr
