@@ -88,4 +88,5 @@ export declare class Peer {
   broadcastSpendBundle(spendBundle: SpendBundle): Promise<string>
   isCoinSpent(coinId: Buffer): Promise<boolean>
   oracleSpend(spenderSyntheticKey: Buffer, spenderPhMinHeight: number, storeInfo: DataStoreInfo, fee: bigint): Promise<SuccessResponse>
+  addFee(spenderSyntheticKey: Buffer, spenderPhMinHeight: number, coinIds: Array<Buffer>, fee: bigint): Promise<Array<CoinSpend>>
 }

@@ -18,6 +18,7 @@ use chia_sdk_driver::Conditions;
 use chia_sdk_driver::Launcher;
 use chia_sdk_driver::SpendContext;
 use chia_sdk_driver::SpendError;
+use chia_sdk_types::conditions::AssertConcurrentSpend;
 use chia_sdk_types::conditions::Condition;
 use chia_sdk_types::conditions::ReserveFee;
 use chia_wallet_sdk::select_coins;
@@ -530,6 +531,63 @@ pub async fn oracle_spend(
     coin_spends: ctx.take_spends(),
     new_info: new_datastore_info,
   })
+}
+
+pub async fn add_fee(
+  peer: &Peer,
+  spender_synthetic_key: PublicKey,
+  spender_ph_min_height: u32,
+  coin_ids: Vec<Bytes32>,
+  fee: u64,
+) -> Result<Vec<CoinSpend>, Error> {
+  let spender_puzzle_hash: Bytes32 = StandardArgs::curry_tree_hash(spender_synthetic_key).into();
+  let coin_states = peer
+    .register_for_ph_updates(vec![spender_puzzle_hash], spender_ph_min_height)
+    .await
+    .map_err(|e| Error::Wallet(e))?;
+
+  let total_amount = fee;
+  let coins: Vec<Coin> = select_coins(
+    coin_states
+      .iter()
+      .filter(|cs| cs.spent_height.is_none())
+      .map(|coin_state| coin_state.coin)
+      .collect(),
+    total_amount.into(),
+  )
+  .map_err(|cserr| Error::CoinSelection(cserr))?;
+
+  let mut ctx = SpendContext::new();
+
+  let lead_coin = coins[0].clone();
+  let lead_coin_name = lead_coin.coin_id();
+  for coin in coins.iter().skip(1) {
+    ctx
+      .spend_p2_coin(
+        *coin,
+        spender_synthetic_key,
+        Conditions::new().assert_coin_announcement(lead_coin_name, [0; 1]),
+      )
+      .map_err(|err| Error::Spend(err))?;
+  }
+
+  let total_amount_from_coins = coins.iter().map(|c| c.amount).sum::<u64>();
+
+  let mut lead_coin_conditions = Conditions::new().reserve_fee(fee);
+  if total_amount_from_coins > total_amount {
+    lead_coin_conditions =
+      lead_coin_conditions.create_coin(spender_puzzle_hash, total_amount_from_coins - total_amount);
+  }
+  for coin_id in coin_ids {
+    lead_coin_conditions =
+      lead_coin_conditions.condition(Condition::AssertConcurrentSpend(AssertConcurrentSpend {
+        coin_id,
+      }));
+  }
+
+  ctx.spend_p2_coin(lead_coin, spender_synthetic_key, lead_coin_conditions)?;
+
+  Ok(ctx.take_spends())
 }
 
 #[derive(Debug, Error)]

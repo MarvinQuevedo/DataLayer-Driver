@@ -661,6 +661,30 @@ impl Peer {
 
     Ok(response.to_js())
   }
+
+  #[napi]
+  pub async fn add_fee(
+    &self,
+    spender_synthetic_key: Buffer,
+    spender_ph_min_height: u32,
+    coin_ids: Vec<Buffer>,
+    fee: BigInt,
+  ) -> napi::Result<Vec<CoinSpend>> {
+    let response = wallet::add_fee(
+      &self.0.clone(),
+      RustPublicKey::from_js(spender_synthetic_key),
+      spender_ph_min_height,
+      coin_ids
+        .into_iter()
+        .map(|cid| RustBytes32::from_js(cid))
+        .collect(),
+      u64::from_js(fee),
+    )
+    .await
+    .map_err(js)?;
+
+    Ok(response.into_iter().map(|cs| cs.to_js()).collect())
+  }
 }
 
 #[napi]
