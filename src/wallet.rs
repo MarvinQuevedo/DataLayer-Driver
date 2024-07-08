@@ -445,6 +445,7 @@ pub async fn oracle_spend(
   spender_synthetic_key: PublicKey,
   spender_ph_min_height: u32,
   store_info: &DataStoreInfo,
+  fee: u64,
 ) -> Result<SuccessResponse, Error> {
   let oracle_delegated_puzzle = store_info
     .delegated_puzzles
@@ -466,7 +467,7 @@ pub async fn oracle_spend(
     .await
     .map_err(|e| Error::Wallet(e))?;
 
-  let total_amount = oracle_fee;
+  let total_amount = oracle_fee + fee;
   let coins: Vec<Coin> = select_coins(
     coin_states
       .iter()
@@ -495,11 +496,15 @@ pub async fn oracle_spend(
     .assert_puzzle_announcement(store_info.coin.puzzle_hash, &Bytes::new("$".into()));
 
   let total_amount_from_coins = coins.iter().map(|c| c.amount).sum::<u64>();
-  let lead_coin_conditions = if total_amount_from_coins > total_amount {
-    assert_oracle_conds.create_coin(spender_puzzle_hash, total_amount_from_coins - total_amount)
-  } else {
-    assert_oracle_conds
-  };
+
+  let mut lead_coin_conditions = assert_oracle_conds;
+  if total_amount_from_coins > total_amount {
+    lead_coin_conditions =
+      lead_coin_conditions.create_coin(spender_puzzle_hash, total_amount_from_coins - total_amount);
+  }
+  if fee > 0 {
+    lead_coin_conditions = lead_coin_conditions.reserve_fee(fee);
+  }
   ctx.spend_p2_coin(lead_coin, spender_synthetic_key, lead_coin_conditions)?;
 
   let oracle_puzzle_ptr =

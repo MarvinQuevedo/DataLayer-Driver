@@ -74,6 +74,9 @@ export declare function writerDelegatedPuzzleFromKey(syntheticKey: Buffer): Dele
 export declare function oracleDelegatedPuzzle(oraclePuzzleHash: Buffer, oracleFee: bigint): DelegatedPuzzle
 export declare function signCoinSpends(coinSpends: Array<CoinSpend>, privateKeys: Array<Buffer>, aggSigData: Buffer): Buffer
 export declare function getCoinId(coin: Coin): Buffer
+export declare function updateStoreMetadata(storeInfo: DataStoreInfo, newRootHash: Buffer, newLabel: string, newDescription: string, ownerPublicKey?: Buffer | undefined | null, adminPublicKey?: Buffer | undefined | null, writerPublicKey?: Buffer | undefined | null): SuccessResponse
+export declare function updateStoreOwnership(storeInfo: DataStoreInfo, newOwnerPuzzleHash: Buffer, newDelegatedPuzzles: Array<DelegatedPuzzle>, ownerPublicKey?: Buffer | undefined | null, adminPublicKey?: Buffer | undefined | null): SuccessResponse
+export declare function meltStore(storeInfo: DataStoreInfo, ownerPublicKey: Buffer): Array<CoinSpend>
 export declare class Tls {
   constructor(certPath: string, keyPath: string)
 }
@@ -84,4 +87,5 @@ export declare class Peer {
   syncStore(storeInfo: DataStoreInfo, minHeight: number): Promise<SyncStoreResponse>
   broadcastSpendBundle(spendBundle: SpendBundle): Promise<string>
   isCoinSpent(coinId: Buffer): Promise<boolean>
+  oracleSpend(spenderSyntheticKey: Buffer, spenderPhMinHeight: number, storeInfo: DataStoreInfo, fee: bigint): Promise<SuccessResponse>
 }

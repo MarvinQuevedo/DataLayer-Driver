@@ -640,6 +640,27 @@ impl Peer {
 
     Ok(states.len() == 1 && states[0].spent_height.is_some())
   }
+
+  #[napi]
+  pub async fn oracle_spend(
+    &self,
+    spender_synthetic_key: Buffer,
+    spender_ph_min_height: u32,
+    store_info: DataStoreInfo,
+    fee: BigInt,
+  ) -> napi::Result<SuccessResponse> {
+    let response = wallet::oracle_spend(
+      &self.0.clone(),
+      RustPublicKey::from_js(spender_synthetic_key),
+      spender_ph_min_height,
+      &RustDataStoreInfo::from_js(store_info),
+      u64::from_js(fee),
+    )
+    .await
+    .map_err(js)?;
+
+    Ok(response.to_js())
+  }
 }
 
 #[napi]
@@ -750,6 +771,95 @@ pub fn get_coin_id(coin: Coin) -> Buffer {
   let coin = RustCoin::from_js(coin);
 
   coin.coin_id().to_js()
+}
+
+#[napi]
+pub fn update_store_metadata(
+  store_info: DataStoreInfo,
+  new_root_hash: Buffer,
+  new_label: String,
+  new_description: String,
+  owner_public_key: Option<Buffer>,
+  admin_public_key: Option<Buffer>,
+  writer_public_key: Option<Buffer>,
+) -> napi::Result<SuccessResponse> {
+  let inner_spend_info = match (owner_public_key, admin_public_key, writer_public_key) {
+    (Some(owner_public_key), None, None) => {
+      DataStoreInnerSpendInfo::Owner(RustPublicKey::from_js(owner_public_key))
+    }
+    (None, Some(admin_public_key), None) => {
+      DataStoreInnerSpendInfo::Admin(RustPublicKey::from_js(admin_public_key))
+    }
+    (None, None, Some(writer_public_key)) => {
+      DataStoreInnerSpendInfo::Writer(RustPublicKey::from_js(writer_public_key))
+    }
+    _ => {
+      return Err(js(
+        "Exactly one of owner_public_key, admin_public_key, writer_public_key must be provided",
+      ))
+    }
+  };
+
+  let res = wallet::update_store_metadata(
+    RustDataStoreInfo::from_js(store_info),
+    RustBytes32::from_js(new_root_hash),
+    new_label,
+    new_description,
+    inner_spend_info,
+  )
+  .map_err(js)?;
+
+  Ok(res.to_js())
+}
+
+#[napi]
+pub fn update_store_ownership(
+  store_info: DataStoreInfo,
+  new_owner_puzzle_hash: Buffer,
+  new_delegated_puzzles: Vec<DelegatedPuzzle>,
+  owner_public_key: Option<Buffer>,
+  admin_public_key: Option<Buffer>,
+) -> napi::Result<SuccessResponse> {
+  let inner_spend_info = match (owner_public_key, admin_public_key) {
+    (Some(owner_public_key), None) => {
+      DataStoreInnerSpendInfo::Owner(RustPublicKey::from_js(owner_public_key))
+    }
+    (None, Some(admin_public_key)) => {
+      DataStoreInnerSpendInfo::Admin(RustPublicKey::from_js(admin_public_key))
+    }
+    _ => {
+      return Err(js(
+        "Exactly one of owner_public_key, admin_public_key must be provided",
+      ))
+    }
+  };
+
+  let res = wallet::update_store_ownership(
+    RustDataStoreInfo::from_js(store_info),
+    RustBytes32::from_js(new_owner_puzzle_hash),
+    new_delegated_puzzles
+      .into_iter()
+      .map(|dp| RustDelegatedPuzzle::from_js(dp))
+      .collect(),
+    inner_spend_info,
+  )
+  .map_err(js)?;
+
+  Ok(res.to_js())
+}
+
+#[napi]
+pub fn melt_store(
+  store_info: DataStoreInfo,
+  owner_public_key: Buffer,
+) -> napi::Result<Vec<CoinSpend>> {
+  let res = wallet::melt_store(
+    &RustDataStoreInfo::from_js(store_info),
+    RustPublicKey::from_js(owner_public_key),
+  )
+  .map_err(js)?;
+
+  Ok(res.into_iter().map(|cs| cs.to_js()).collect())
 }
 
 fn js<T>(error: T) -> napi::Error
