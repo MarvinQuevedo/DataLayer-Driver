@@ -78,4 +78,5 @@ export declare class Peer {
   getCoins(puzzleHash: Buffer, minHeight: number): Promise<Array<Coin>>
   mintStore(minterSyntheticKey: Buffer, minterPhMinHeight: number, rootHash: Buffer, label: string, description: string, ownerPuzzleHash: Buffer, delegatedPuzzles: Array<DelegatedPuzzle>, fee: bigint): Promise<SuccessResponse>
   broadcastSpendBundle(spendBundle: SpendBundle): Promise<string>
+  isCoinSpent(coinId: Buffer): Promise<boolean>
 }

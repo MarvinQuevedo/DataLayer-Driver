@@ -13,11 +13,11 @@ use chia::bls::derive_keys::master_to_wallet_unhardened;
 use chia::bls::{SecretKey as RustSecretKey, Signature as RustSignature};
 use chia::client::Peer as RustPeer;
 use chia::{bls::PublicKey as RustPublicKey, traits::Streamable};
-use chia_protocol::Coin as RustCoin;
 use chia_protocol::CoinSpend as RustCoinSpend;
 use chia_protocol::Program as RustProgram;
 use chia_protocol::SpendBundle as RustSpendBundle;
 use chia_protocol::{Bytes32 as RustBytes32, NodeType};
+use chia_protocol::{Coin as RustCoin, CoinState};
 use chia_puzzles::standard::StandardArgs;
 use chia_puzzles::LineageProof as RustLineageProof;
 use chia_puzzles::Proof as RustProof;
@@ -586,6 +586,17 @@ impl Peer {
         .error
         .unwrap_or(String::default()),
     )
+  }
+
+  #[napi]
+  pub async fn is_coin_spent(&self, coin_id: Buffer) -> napi::Result<bool> {
+    let p: &RustPeer = &self.0.clone();
+    let states: Vec<CoinState> = p
+      .register_for_coin_updates(vec![RustBytes32::from_js(coin_id)], 0)
+      .await
+      .map_err(js)?;
+
+    Ok(states.len() == 1 && states[0].spent_height.is_some())
   }
 }
 
