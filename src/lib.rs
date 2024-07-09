@@ -595,17 +595,15 @@ impl Peer {
     coin_spends: Vec<CoinSpend>,
     sigs: Vec<Buffer>,
   ) -> napi::Result<String> {
-    let mut sig = RustSignature::default();
-    for s in sigs {
-      sig.aggregate(&RustSignature::from_js(s));
-    }
-
     let spend_bundle = RustSpendBundle::new(
       coin_spends
         .into_iter()
         .map(RustCoinSpend::from_js)
         .collect(),
-      sig,
+      sigs
+        .into_iter()
+        .map(|js_sig| RustSignature::from_js(js_sig))
+        .fold(RustSignature::default(), |acc, sig| acc + &sig),
     );
 
     Ok(
