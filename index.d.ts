@@ -13,10 +13,6 @@ export interface CoinSpend {
   puzzleReveal: Buffer
   solution: Buffer
 }
-export interface SpendBundle {
-  coinSpends: Array<CoinSpend>
-  aggregatedSignature: Buffer
-}
 export interface LineageProof {
   parentParentCoinId: Buffer
   parentInnerPuzzleHash: Buffer
@@ -85,7 +81,7 @@ export declare class Peer {
   getCoins(puzzleHash: Buffer, minHeight: number): Promise<Array<Coin>>
   mintStore(minterSyntheticKey: Buffer, minterPhMinHeight: number, rootHash: Buffer, label: string, description: string, ownerPuzzleHash: Buffer, delegatedPuzzles: Array<DelegatedPuzzle>, fee: bigint): Promise<SuccessResponse>
   syncStore(storeInfo: DataStoreInfo, minHeight: number): Promise<SyncStoreResponse>
-  broadcastSpendBundle(spendBundle: SpendBundle): Promise<string>
+  broadcastSpend(coinSpends: Array<CoinSpend>, sigs: Array<Buffer>): Promise<string>
   isCoinSpent(coinId: Buffer): Promise<boolean>
   oracleSpend(spenderSyntheticKey: Buffer, spenderPhMinHeight: number, storeInfo: DataStoreInfo, fee: bigint): Promise<SuccessResponse>
   addFee(spenderSyntheticKey: Buffer, spenderPhMinHeight: number, coinIds: Array<Buffer>, fee: bigint): Promise<Array<CoinSpend>>

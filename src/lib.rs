@@ -189,35 +189,6 @@ impl ToJS<CoinSpend> for RustCoinSpend {
 
 #[napi(object)]
 #[derive(Clone)]
-pub struct SpendBundle {
-  pub coin_spends: Vec<CoinSpend>,
-  pub aggregated_signature: Buffer,
-}
-
-impl FromJS<SpendBundle> for RustSpendBundle {
-  fn from_js(value: SpendBundle) -> Self {
-    RustSpendBundle::new(
-      value
-        .coin_spends
-        .into_iter()
-        .map(|cs| RustCoinSpend::from_js(cs))
-        .collect(),
-      RustSignature::from_js(value.aggregated_signature),
-    )
-  }
-}
-
-impl ToJS<SpendBundle> for RustSpendBundle {
-  fn to_js(self: &Self) -> SpendBundle {
-    SpendBundle {
-      coin_spends: self.coin_spends.iter().map(RustCoinSpend::to_js).collect(),
-      aggregated_signature: self.aggregated_signature.to_js(),
-    }
-  }
-}
-
-#[napi(object)]
-#[derive(Clone)]
 pub struct LineageProof {
   pub parent_parent_coin_id: Buffer,
   pub parent_inner_puzzle_hash: Buffer,
@@ -619,8 +590,23 @@ impl Peer {
 
   // returns error
   #[napi]
-  pub async fn broadcast_spend_bundle(&self, spend_bundle: SpendBundle) -> napi::Result<String> {
-    let spend_bundle = RustSpendBundle::from_js(spend_bundle);
+  pub async fn broadcast_spend(
+    &self,
+    coin_spends: Vec<CoinSpend>,
+    sigs: Vec<Buffer>,
+  ) -> napi::Result<String> {
+    let mut sig = RustSignature::default();
+    for s in sigs {
+      sig.aggregate(&RustSignature::from_js(s));
+    }
+
+    let spend_bundle = RustSpendBundle::new(
+      coin_spends
+        .into_iter()
+        .map(RustCoinSpend::from_js)
+        .collect(),
+      sig,
+    );
 
     Ok(
       wallet::broadcast_spend_bundle(&self.0.clone(), spend_bundle)
