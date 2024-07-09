@@ -112,8 +112,16 @@ pub fn spend_delegation_layer(
 
       // todo: debug
       println!(
-        "writer + filter puzzle hash: {:}",
+        "puz + filter puzzle hash: {:}",
         encode(ctx.tree_hash(full_puzzle))
+      );
+      println!(
+        "puz puzzle hash: {:}",
+        match delegated_puzzle.puzzle_info {
+          DelegatedPuzzleInfo::Admin(a) => encode(a),
+          DelegatedPuzzleInfo::Writer(b) => encode(b),
+          DelegatedPuzzleInfo::Oracle(_, _) => "nope".to_string(),
+        }
       );
       // println!(
       //     "writer puzzle reveal: {:}",

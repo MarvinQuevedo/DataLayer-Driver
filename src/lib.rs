@@ -22,6 +22,7 @@ use chia_puzzles::standard::StandardArgs;
 use chia_puzzles::LineageProof as RustLineageProof;
 use chia_puzzles::Proof as RustProof;
 use chia_puzzles::{DeriveSynthetic, EveProof as RustEveProof};
+use chia_sdk_driver::SpendContext;
 use chia_wallet_sdk::{
   connect_peer, create_tls_connector, decode_address, encode_address, load_ssl_cert,
 };
@@ -736,8 +737,8 @@ pub fn address_to_puzzle_hash(address: String) -> napi::Result<Buffer> {
 pub fn admin_delegated_puzzle_from_key(synthetic_key: Buffer) -> napi::Result<DelegatedPuzzle> {
   let synthetic_key = RustPublicKey::from_js(synthetic_key);
 
-  let allocator: &mut Allocator = &mut Allocator::new();
-  let (admin_dp, _) = RustDelegatedPuzzle::from_admin_pk(allocator, synthetic_key).map_err(js)?;
+  let ctx: &mut SpendContext = &mut SpendContext::new();
+  let (admin_dp, _) = RustDelegatedPuzzle::from_admin_pk(ctx, synthetic_key).map_err(js)?;
 
   Ok(admin_dp.to_js())
 }
@@ -746,8 +747,8 @@ pub fn admin_delegated_puzzle_from_key(synthetic_key: Buffer) -> napi::Result<De
 pub fn writer_delegated_puzzle_from_key(synthetic_key: Buffer) -> napi::Result<DelegatedPuzzle> {
   let synthetic_key = RustPublicKey::from_js(synthetic_key);
 
-  let allocator: &mut Allocator = &mut Allocator::new();
-  let (writer_dp, _) = RustDelegatedPuzzle::from_writer_pk(allocator, synthetic_key).map_err(js)?;
+  let ctx: &mut SpendContext = &mut SpendContext::new();
+  let (writer_dp, _) = RustDelegatedPuzzle::from_writer_pk(ctx, synthetic_key).map_err(js)?;
 
   Ok(writer_dp.to_js())
 }

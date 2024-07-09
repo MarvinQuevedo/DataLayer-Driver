@@ -33,6 +33,7 @@ use thiserror::Error;
 
 use crate::datastore_spend;
 use crate::get_memos;
+use crate::print_spend_bundle_to_file;
 use crate::puzzles_info::DataStoreInfo;
 use crate::puzzles_info::DataStoreMetadata;
 use crate::puzzles_info::DelegatedPuzzle;
@@ -281,6 +282,7 @@ fn update_store_with_conditions(
   allow_writer: bool,
 ) -> Result<SuccessResponse, Error> {
   let inner_datastore_spend = match inner_spend_info {
+    // todo: if no CREATE_COINs, re-create with same params
     DataStoreInnerSpendInfo::Owner(pk) => DatastoreInnerSpend::OwnerPuzzleSpend(
       conditions
         .p2_spend(ctx, pk)
@@ -291,8 +293,8 @@ fn update_store_with_conditions(
         return Err(Error::Permission());
       }
 
-      let (dp, inner_puzzle_ptr) = DelegatedPuzzle::from_admin_pk(ctx.allocator_mut(), pk)
-        .map_err(|err| Error::ToClvm(err))?;
+      let (dp, inner_puzzle_ptr) =
+        DelegatedPuzzle::from_admin_pk(ctx, pk).map_err(|err| Error::Spend(err))?;
       DatastoreInnerSpend::DelegatedPuzzleSpend(
         dp,
         inner_puzzle_ptr,
@@ -307,8 +309,8 @@ fn update_store_with_conditions(
         return Err(Error::Permission());
       }
 
-      let (dp, inner_puzzle_ptr) = DelegatedPuzzle::from_writer_pk(ctx.allocator_mut(), pk)
-        .map_err(|err| Error::ToClvm(err))?;
+      let (dp, inner_puzzle_ptr) =
+        DelegatedPuzzle::from_writer_pk(ctx, pk).map_err(|err| Error::Spend(err))?;
       DatastoreInnerSpend::DelegatedPuzzleSpend(
         dp,
         inner_puzzle_ptr,
@@ -323,6 +325,8 @@ fn update_store_with_conditions(
   let new_spend =
     datastore_spend(ctx, &store_info, inner_datastore_spend).map_err(|err| Error::Spend(err))?;
   ctx.insert_coin_spend(new_spend.clone());
+
+  print_spend_bundle_to_file(vec![new_spend.clone()], Signature::default(), "sb.debug"); // todo: debug
 
   let new_info = DataStoreInfo::from_spend(
     ctx.allocator_mut(),
@@ -400,6 +404,8 @@ pub fn update_store_metadata(
   .map_err(|err| Error::ToClvm(err))?;
   let new_metadata_condition =
     Conditions::new().condition(Condition::Other(new_metadata_condition));
+
+  // todo: if owner, re-create store
 
   update_store_with_conditions(
     &mut ctx,

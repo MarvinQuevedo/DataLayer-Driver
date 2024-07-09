@@ -1,17 +1,21 @@
 use chia::{bls::PublicKey, traits::Streamable};
-use chia_protocol::{Bytes, Bytes32, Coin, CoinSpend};
+use chia_protocol::{Bytes, Bytes32, Coin, CoinSpend, Program};
 use chia_puzzles::{
   nft::{NftStateLayerArgs, NftStateLayerSolution, NFT_STATE_LAYER_PUZZLE_HASH},
   singleton::{LauncherSolution, SingletonArgs, SingletonSolution, SINGLETON_LAUNCHER_PUZZLE_HASH},
-  standard::{StandardArgs, STANDARD_PUZZLE},
+  standard::StandardArgs,
   EveProof, Proof,
 };
+use chia_sdk_driver::{SpendContext, SpendError};
 use chia_sdk_parser::{ParseError, Puzzle, SingletonPuzzle};
 use chia_sdk_types::conditions::{run_puzzle, Condition, CreateCoin, CreatePuzzleAnnouncement};
-use clvm_traits::{apply_constants, clvm_quote, ClvmDecoder, ClvmEncoder, FromClvmError};
+use clvm_traits::{
+  apply_constants, clvm_quote, ClvmDecoder, ClvmEncoder, FromClvmError, FromNodePtr,
+};
 use clvm_traits::{FromClvm, ToClvm, ToClvmError, ToNodePtr};
 use clvm_utils::{tree_hash, CurriedProgram, ToTreeHash, TreeHash};
 use clvmr::{serde::node_from_bytes, Allocator, NodePtr};
+use hex::encode;
 use num_bigint::BigInt;
 
 use crate::{
@@ -122,19 +126,20 @@ impl DelegatedPuzzle {
   }
 
   pub fn from_admin_pk(
-    allocator: &mut Allocator,
+    ctx: &mut SpendContext,
     synthetic_key: PublicKey,
-  ) -> Result<(Self, NodePtr), ToClvmError> {
-    let inner_puzzle_ptr = CurriedProgram {
-      program: STANDARD_PUZZLE,
+  ) -> Result<(Self, NodePtr), SpendError> {
+    let inner_puzzle_ptr: NodePtr = CurriedProgram {
+      program: ctx.standard_puzzle()?,
       args: StandardArgs {
         synthetic_key: synthetic_key,
       },
     }
-    .to_clvm(allocator)?;
+    .to_clvm(ctx.allocator_mut())
+    .map_err(|err| SpendError::ToClvm(err))?;
 
     Ok((
-      DelegatedPuzzle::from_admin_inner_puzzle(allocator, inner_puzzle_ptr)?,
+      DelegatedPuzzle::from_admin_inner_puzzle(ctx.allocator_mut(), inner_puzzle_ptr)?,
       inner_puzzle_ptr,
     ))
   }
@@ -173,19 +178,20 @@ impl DelegatedPuzzle {
   }
 
   pub fn from_writer_pk(
-    allocator: &mut Allocator,
+    ctx: &mut SpendContext,
     synthetic_key: PublicKey,
-  ) -> Result<(Self, NodePtr), ToClvmError> {
-    let inner_puzzle_ptr = CurriedProgram {
-      program: STANDARD_PUZZLE,
+  ) -> Result<(Self, NodePtr), SpendError> {
+    let inner_puzzle_ptr: NodePtr = CurriedProgram {
+      program: ctx.standard_puzzle()?,
       args: StandardArgs {
         synthetic_key: synthetic_key,
       },
     }
-    .to_clvm(allocator)?;
+    .to_clvm(ctx.allocator_mut())
+    .map_err(|err| SpendError::ToClvm(err))?;
 
     Ok((
-      DelegatedPuzzle::from_writer_inner_puzzle(allocator, inner_puzzle_ptr)?,
+      DelegatedPuzzle::from_writer_inner_puzzle(ctx.allocator_mut(), inner_puzzle_ptr)?,
       inner_puzzle_ptr,
     ))
   }
@@ -602,17 +608,18 @@ impl DataStoreInfo {
         _ => {}
       }
     });
+    println!("all ok now :)");
 
-    // println!(
-    //     "inner_inner_output: {:?}",
-    //     encode(
-    //         Program::from_node_ptr(&allocator, inner_inner_output)
-    //             .unwrap()
-    //             .to_bytes()
-    //             .unwrap()
-    //     )
-    // ); // todo: debug
-    // coin re-creation
+    println!(
+      "inner_inner_output: {:?}",
+      encode(
+        Program::from_node_ptr(&allocator, inner_inner_output)
+          .unwrap()
+          .to_bytes()
+          .unwrap()
+      )
+    ); // todo: debug
+       // coin re-creation
     let odd_create_coin: Condition<NodePtr> = inner_inner_output_conditions
       .iter()
       .map(|cond| Condition::<NodePtr>::from_clvm(allocator, *cond))
@@ -621,6 +628,7 @@ impl DataStoreInfo {
         _ => false,
       })
       .ok_or(ParseError::MissingChild)??;
+    println!("odd create coin found"); // todo: debug
 
     let Condition::CreateCoin(odd_create_coin) = odd_create_coin else {
       return Err(ParseError::MismatchedOutput);
