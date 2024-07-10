@@ -288,11 +288,16 @@ mod tests {
     Ok(())
   }
 
+  const NULL_B32: [u8; 32] =
+    hex!("0000000000000000000000000000000000000000000000000000000000000000");
+  const FULL_B32: [u8; 32] =
+    hex!("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
+
   #[rstest]
-  #[case(Bytes32::from(hex!("0000000000000000000000000000000000000000000000000000000000000000")), Bytes32::from(hex!("0000000000000000000000000000000000000000000000000000000000000000")))]
-  #[case(Bytes32::from(hex!("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")), Bytes32::from(hex!("0000000000000000000000000000000000000000000000000000000000000000")))]
-  #[case(Bytes32::from(hex!("0000000000000000000000000000000000000000000000000000000000000000")), Bytes32::from(hex!("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")))]
-  #[case(Bytes32::from(hex!("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")), Bytes32::from(hex!("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")))]
+  #[case(Bytes32::from(NULL_B32), Bytes32::from(NULL_B32))]
+  #[case(Bytes32::from(FULL_B32), Bytes32::from(NULL_B32))]
+  #[case(Bytes32::from(NULL_B32), Bytes32::from(FULL_B32))]
+  #[case(Bytes32::from(FULL_B32), Bytes32::from(FULL_B32))]
   fn delegation_layer_curry_tree_hash(
     #[case] inner_puzzle_hash: Bytes32,
     #[case] merkle_root: Bytes32,
@@ -386,6 +391,72 @@ mod tests {
           assert_eq!(eval_err.1, "clvm raise");
           Ok(())
         }
+        _ => Err(()),
+      },
+    }
+  }
+
+  #[derive(ToClvm)]
+  #[apply_constants]
+  #[derive(Debug, Clone, PartialEq, Eq)]
+  #[clvm(list)]
+  pub struct NewMerkleRootCondition<M = Bytes32> {
+    #[clvm(constant = -13)]
+    pub opcode: i32,
+    pub new_merkle_root: Bytes32,
+    #[clvm(rest)]
+    pub memos: Vec<M>,
+  }
+
+  #[rstest]
+  #[case(TestFilterPuzzle::Admin, Bytes32::from(NULL_B32), vec![])]
+  #[case(TestFilterPuzzle::Admin, Bytes32::from(FULL_B32), vec![])]
+  #[case(TestFilterPuzzle::Admin, Bytes32::from(NULL_B32), vec![Bytes32::from(NULL_B32)])]
+  #[case(TestFilterPuzzle::Admin, Bytes32::from(FULL_B32), vec![Bytes32::from(NULL_B32)])]
+  #[case(TestFilterPuzzle::Admin, Bytes32::from(NULL_B32), vec![Bytes32::from(FULL_B32)])]
+  #[case(TestFilterPuzzle::Admin, Bytes32::from(FULL_B32), vec![Bytes32::from(FULL_B32)])]
+  #[case(TestFilterPuzzle::Writer, Bytes32::from(NULL_B32), vec![])]
+  #[case(TestFilterPuzzle::Writer, Bytes32::from(FULL_B32), vec![])]
+  #[case(TestFilterPuzzle::Writer, Bytes32::from(NULL_B32), vec![Bytes32::from(NULL_B32)])]
+  #[case(TestFilterPuzzle::Writer, Bytes32::from(FULL_B32), vec![Bytes32::from(NULL_B32)])]
+  #[case(TestFilterPuzzle::Writer, Bytes32::from(NULL_B32), vec![Bytes32::from(FULL_B32)])]
+  #[case(TestFilterPuzzle::Writer, Bytes32::from(FULL_B32), vec![Bytes32::from(FULL_B32)])]
+  fn test_new_merkle_root_filter(
+    #[case] filter_puzzle: TestFilterPuzzle,
+    #[case] new_merkle_root: Bytes32,
+    #[case] memos: Vec<Bytes32>,
+  ) -> Result<(), ()> {
+    let mut ctx = SpendContext::new();
+
+    let inner_puzzle = clvm_quote!(vec![NewMerkleRootCondition::<Bytes32> {
+      new_merkle_root,
+      memos,
+    }
+    .to_clvm(ctx.allocator_mut())
+    .unwrap(),])
+    .to_clvm(ctx.allocator_mut())
+    .unwrap();
+
+    let filter_puzzle_ptr =
+      get_filter_puzzle_ptr(ctx.allocator_mut(), &filter_puzzle, inner_puzzle).unwrap();
+
+    let solution_ptr = vec![ctx.allocator().nil()]
+      .to_clvm(ctx.allocator_mut())
+      .unwrap();
+
+    match ctx.run(filter_puzzle_ptr, solution_ptr) {
+      Ok(_) => match filter_puzzle {
+        TestFilterPuzzle::Admin => Ok(()),
+        TestFilterPuzzle::Writer => Err(()),
+      },
+      Err(err) => match err {
+        SpendError::Eval(eval_err) => match filter_puzzle {
+          TestFilterPuzzle::Admin => Err(()),
+          TestFilterPuzzle::Writer => {
+            assert_eq!(eval_err.1, "clvm raise");
+            Ok(())
+          }
+        },
         _ => Err(()),
       },
     }
