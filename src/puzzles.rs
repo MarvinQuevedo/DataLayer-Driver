@@ -22,7 +22,9 @@ impl DelegationLayerArgs {
       merkle_root,
     }
   }
+}
 
+impl DelegationLayerArgs {
   pub fn curry_tree_hash(inner_puzzle_hash: Bytes32, merkle_root: Bytes32) -> TreeHash {
     CurriedProgram {
       program: DELEGATION_LAYER_PUZZLE_HASH,
@@ -278,5 +280,35 @@ mod tests {
     Ok(())
   }
 
-  // todo: for delegation layer and writer layer
+  #[rstest]
+  #[case(Bytes32::from(hex!("0000000000000000000000000000000000000000000000000000000000000000")), Bytes32::from(hex!("0000000000000000000000000000000000000000000000000000000000000000")))]
+  #[case(Bytes32::from(hex!("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")), Bytes32::from(hex!("0000000000000000000000000000000000000000000000000000000000000000")))]
+  #[case(Bytes32::from(hex!("0000000000000000000000000000000000000000000000000000000000000000")), Bytes32::from(hex!("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")))]
+  #[case(Bytes32::from(hex!("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")), Bytes32::from(hex!("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff")))]
+  fn delegation_layer_curry_tree_hash(
+    #[case] inner_puzzle_hash: Bytes32,
+    #[case] merkle_root: Bytes32,
+  ) -> Result<(), ()> {
+    let mut allocator = Allocator::new();
+
+    let delegation_layer_mod_ptr =
+      node_from_bytes(&mut allocator, &DELEGATION_LAYER_PUZZLE).unwrap();
+
+    let full_puzzle = CurriedProgram {
+      program: delegation_layer_mod_ptr,
+      args: DelegationLayerArgs::new(inner_puzzle_hash, merkle_root),
+    }
+    .to_clvm(&mut allocator)
+    .unwrap();
+    let full_puzzle_hash = tree_hash(&allocator, full_puzzle);
+
+    let curry_puzzle_hash = DelegationLayerArgs::curry_tree_hash(inner_puzzle_hash, merkle_root);
+
+    assert_eq!(
+      hex::encode(full_puzzle_hash),
+      hex::encode(curry_puzzle_hash)
+    );
+
+    Ok(())
+  }
 }
