@@ -197,10 +197,11 @@ mod tests {
   use chia::traits::Streamable;
   use chia_protocol::Program;
   use chia_puzzles::standard::STANDARD_PUZZLE;
-  use chia_sdk_driver::SpendContext;
-  use clvm_traits::FromNodePtr;
+  use chia_sdk_driver::{SpendContext, SpendError};
+  use chia_sdk_types::conditions::CreateCoin;
+  use clvm_traits::{clvm_quote, FromNodePtr};
   use clvm_utils::tree_hash;
-  use clvmr::{serde::node_from_bytes, Allocator};
+  use clvmr::{serde::node_from_bytes, Allocator, NodePtr};
   use hex::encode;
   use rstest::rstest;
 
@@ -231,6 +232,29 @@ mod tests {
     Writer,
   }
 
+  fn get_filter_puzzle_ptr(
+    allocator: &mut Allocator,
+    filter_puzzle: &TestFilterPuzzle,
+    inner_puzzle_ptr: NodePtr,
+  ) -> Result<NodePtr, SpendError> {
+    match filter_puzzle {
+      TestFilterPuzzle::Admin => CurriedProgram {
+        program: node_from_bytes(allocator, &ADMIN_FILTER_PUZZLE)
+          .map_err(|err| SpendError::Io(err))?,
+        args: AdminFilterArgs::new(inner_puzzle_ptr),
+      }
+      .to_clvm(allocator)
+      .map_err(|err| SpendError::ToClvm(err)),
+      TestFilterPuzzle::Writer => CurriedProgram {
+        program: node_from_bytes(allocator, &WRITER_FILTER_PUZZLE)
+          .map_err(|err| SpendError::Io(err))?,
+        args: WriterFilterArgs::new(inner_puzzle_ptr),
+      }
+      .to_clvm(allocator)
+      .map_err(|err| SpendError::ToClvm(err)),
+    }
+  }
+
   #[rstest]
   #[case(TestFilterPuzzle::Admin, hex!("80").to_vec())] // run -d '(mod () ())'
   #[case(TestFilterPuzzle::Admin, hex!("01").to_vec())] // run -d '(mod solution solution)'
@@ -242,35 +266,15 @@ mod tests {
     #[case] filter_puzzle: TestFilterPuzzle,
     #[case] inner_puzzle_bytes: Vec<u8>,
   ) -> Result<(), ()> {
-    let mut allocator = Allocator::new();
-    let inner_puzzle_ptr = node_from_bytes(&mut allocator, &inner_puzzle_bytes).unwrap();
+    let allocator: &mut Allocator = &mut Allocator::new();
+    let inner_puzzle_ptr = node_from_bytes(allocator, &inner_puzzle_bytes).unwrap();
 
-    let filter_mod_ptr = node_from_bytes(
-      &mut allocator,
-      match filter_puzzle {
-        TestFilterPuzzle::Admin => &ADMIN_FILTER_PUZZLE,
-        TestFilterPuzzle::Writer => &WRITER_FILTER_PUZZLE,
-      },
-    )
-    .unwrap();
+    let full_puzzle_ptr =
+      get_filter_puzzle_ptr(allocator, &filter_puzzle, inner_puzzle_ptr).unwrap();
 
-    let full_puzzle = match filter_puzzle {
-      TestFilterPuzzle::Admin => CurriedProgram {
-        program: filter_mod_ptr,
-        args: AdminFilterArgs::new(inner_puzzle_ptr),
-      }
-      .to_clvm(&mut allocator)
-      .unwrap(),
-      TestFilterPuzzle::Writer => CurriedProgram {
-        program: filter_mod_ptr,
-        args: WriterFilterArgs::new(inner_puzzle_ptr),
-      }
-      .to_clvm(&mut allocator)
-      .unwrap(),
-    };
-    let full_puzzle_hash = tree_hash(&allocator, full_puzzle);
+    let full_puzzle_hash = tree_hash(allocator, full_puzzle_ptr);
 
-    let inner_puzzle_hash: TreeHash = tree_hash(&mut allocator, inner_puzzle_ptr);
+    let inner_puzzle_hash: TreeHash = tree_hash(allocator, inner_puzzle_ptr);
     let curry_puzzle_hash = match filter_puzzle {
       TestFilterPuzzle::Admin => AdminFilterArgs::curry_tree_hash(inner_puzzle_hash),
       TestFilterPuzzle::Writer => WriterFilterArgs::curry_tree_hash(inner_puzzle_hash),
@@ -327,8 +331,7 @@ mod tests {
     let mut ctx = SpendContext::new();
 
     let third_arg_ptr = node_from_bytes(ctx.allocator_mut(), &third_arg).unwrap();
-    let nil_ptr = node_from_bytes(ctx.allocator_mut(), &hex!("80").to_vec()).unwrap();
-    let solution_ptr = vec![nil_ptr, nil_ptr, third_arg_ptr]
+    let solution_ptr = vec![ctx.allocator().nil(), ctx.allocator().nil(), third_arg_ptr]
       .to_clvm(ctx.allocator_mut())
       .unwrap();
 
@@ -351,5 +354,40 @@ mod tests {
     );
 
     Ok(())
+  }
+
+  #[rstest]
+  #[case(TestFilterPuzzle::Admin)]
+  #[case(TestFilterPuzzle::Writer)]
+  fn test_create_coin_filter(#[case] filter_puzzle: TestFilterPuzzle) -> Result<(), ()> {
+    let mut ctx = SpendContext::new();
+
+    let inner_puzzle = clvm_quote!(vec![CreateCoin {
+      puzzle_hash: [0; 32].into(),
+      amount: 1,
+      memos: vec![],
+    }
+    .to_clvm(ctx.allocator_mut())
+    .unwrap(),])
+    .to_clvm(ctx.allocator_mut())
+    .unwrap();
+
+    let filter_puzzle_ptr =
+      get_filter_puzzle_ptr(ctx.allocator_mut(), &filter_puzzle, inner_puzzle).unwrap();
+
+    let solution_ptr = vec![ctx.allocator().nil()]
+      .to_clvm(ctx.allocator_mut())
+      .unwrap();
+
+    match ctx.run(filter_puzzle_ptr, solution_ptr) {
+      Ok(_) => Err(()),
+      Err(err) => match err {
+        SpendError::Eval(eval_err) => {
+          assert_eq!(eval_err.1, "clvm raise");
+          Ok(())
+        }
+        _ => Err(()),
+      },
+    }
   }
 }
