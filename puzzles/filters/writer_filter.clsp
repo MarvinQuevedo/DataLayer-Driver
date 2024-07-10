@@ -20,7 +20,6 @@
     (if conditions
       (if (any
         (= (f (f conditions)) CREATE_COIN)
-        (= (f (f conditions)) -113) ; don't allow melting
         (= (f (f conditions)) -13) ; don't allow updating merkle root
         ; don't allow metadata updater to create extra conditions
         ; update metadata condition is (list -24 [metadata updater puzzle reveal] [solution])

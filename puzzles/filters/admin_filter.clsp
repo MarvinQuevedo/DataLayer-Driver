@@ -22,7 +22,6 @@
     (if conditions
       (if (any
         (= (f (f conditions)) CREATE_COIN)
-        (= (f (f conditions)) -113) ; don't allow melting
         ; don't allow metadata updater to create extra conditions
         ; update metadata condition is (list -24 [metadata updater puzzle reveal] [solution])
         ; for the standard DL, solution is (list (list [new metadata] [new updater ph]) [conditions])
