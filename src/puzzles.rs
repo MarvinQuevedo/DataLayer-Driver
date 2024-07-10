@@ -94,6 +94,16 @@ impl<I> AdminFilterArgs<I> {
   }
 }
 
+impl AdminFilterArgs<TreeHash> {
+  pub fn curry_tree_hash(inner_puzzle: TreeHash) -> TreeHash {
+    CurriedProgram {
+      program: ADMIN_FILTER_PUZZLE_HASH,
+      args: AdminFilterArgs { inner_puzzle },
+    }
+    .tree_hash()
+  }
+}
+
 #[derive(ToClvm, FromClvm)]
 #[apply_constants]
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -130,6 +140,16 @@ pub struct WriterFilterArgs<I> {
 impl<I> WriterFilterArgs<I> {
   pub fn new(inner_puzzle: I) -> Self {
     Self { inner_puzzle }
+  }
+}
+
+impl WriterFilterArgs<TreeHash> {
+  pub fn curry_tree_hash(inner_puzzle: TreeHash) -> TreeHash {
+    CurriedProgram {
+      program: WRITER_FILTER_PUZZLE_HASH,
+      args: WriterFilterArgs { inner_puzzle },
+    }
+    .tree_hash()
   }
 }
 
@@ -173,6 +193,11 @@ pub const DL_METADATA_UPDATER_PUZZLE_HASH: TreeHash = TreeHash::new(hex!(
 
 #[cfg(test)]
 mod tests {
+  use chia_puzzles::standard::STANDARD_PUZZLE;
+  use clvm_utils::tree_hash;
+  use clvmr::{serde::node_from_bytes, Allocator};
+  use rstest::rstest;
+
   use super::*;
 
   // unfortunately, this isn't publicly exported, so I had to copy-paste
@@ -194,4 +219,64 @@ mod tests {
     assert_puzzle_hash!(WRITER_FILTER_PUZZLE => WRITER_FILTER_PUZZLE_HASH);
     assert_puzzle_hash!(DL_METADATA_UPDATER_PUZZLE => DL_METADATA_UPDATER_PUZZLE_HASH);
   }
+
+  enum TestFilterPuzzle {
+    Admin,
+    Writer,
+  }
+
+  #[rstest]
+  #[case(TestFilterPuzzle::Admin, hex!("80").to_vec())] // run -d '(mod () ())'
+  #[case(TestFilterPuzzle::Admin, hex!("01").to_vec())] // run -d '(mod solution solution)'
+  #[case(TestFilterPuzzle::Admin, STANDARD_PUZZLE.to_vec())]
+  #[case(TestFilterPuzzle::Writer, hex!("80").to_vec())] // run -d '(mod () ())'
+  #[case(TestFilterPuzzle::Writer, hex!("01").to_vec())] // run -d '(mod solution solution)'
+  #[case(TestFilterPuzzle::Writer, STANDARD_PUZZLE.to_vec())]
+  fn filter_curry_tree_hash(
+    #[case] filter_puzzle: TestFilterPuzzle,
+    #[case] inner_puzzle_bytes: Vec<u8>,
+  ) -> Result<(), ()> {
+    let mut allocator = Allocator::new();
+    let inner_puzzle_ptr = node_from_bytes(&mut allocator, &inner_puzzle_bytes).unwrap();
+
+    let filter_mod_ptr = node_from_bytes(
+      &mut allocator,
+      match filter_puzzle {
+        TestFilterPuzzle::Admin => &ADMIN_FILTER_PUZZLE,
+        TestFilterPuzzle::Writer => &WRITER_FILTER_PUZZLE,
+      },
+    )
+    .unwrap();
+
+    let full_puzzle = match filter_puzzle {
+      TestFilterPuzzle::Admin => CurriedProgram {
+        program: filter_mod_ptr,
+        args: AdminFilterArgs::new(inner_puzzle_ptr),
+      }
+      .to_clvm(&mut allocator)
+      .unwrap(),
+      TestFilterPuzzle::Writer => CurriedProgram {
+        program: filter_mod_ptr,
+        args: WriterFilterArgs::new(inner_puzzle_ptr),
+      }
+      .to_clvm(&mut allocator)
+      .unwrap(),
+    };
+    let full_puzzle_hash = tree_hash(&allocator, full_puzzle);
+
+    let inner_puzzle_hash: TreeHash = tree_hash(&mut allocator, inner_puzzle_ptr);
+    let curry_puzzle_hash = match filter_puzzle {
+      TestFilterPuzzle::Admin => AdminFilterArgs::curry_tree_hash(inner_puzzle_hash),
+      TestFilterPuzzle::Writer => WriterFilterArgs::curry_tree_hash(inner_puzzle_hash),
+    };
+
+    assert_eq!(
+      hex::encode(full_puzzle_hash),
+      hex::encode(curry_puzzle_hash)
+    );
+
+    Ok(())
+  }
+
+  // todo: for delegation layer and writer layer
 }
