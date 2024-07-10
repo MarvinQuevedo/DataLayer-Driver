@@ -26,7 +26,9 @@
   ; only one odd CREATE_COIN enforced in upper layers
   (defun morph_conditions (MOD_HASH INNER_PUZZLE_HASH conditions new_merkle_root_info odd_create_coin_found)
     (if conditions
-      (if (if (= (f (f conditions)) NEW_MERKLE_ROOT_CONDITION) (= (strlen (f (r (f conditions)))) 32) ())
+      ; todo: I don't understand why my initial code also checked (= (strlen (f (r (f conditions)))) 32)
+      ;; will have to come back, but, for now, removing the condition
+      (if (= (f (f conditions)) NEW_MERKLE_ROOT_CONDITION)
         (morph_conditions
           MOD_HASH INNER_PUZZLE_HASH
           (r conditions)
@@ -67,23 +69,20 @@
     )
   )
 
-  (defun-inline main (
-    puzzle_hash
-  )
-    (if merkle_proof
-      (if (= MERKLE_ROOT (simplify_merkle_proof (sha256tree puzzle_reveal) merkle_proof))
-        (morph_conditions MOD_HASH INNER_PUZZLE_HASH (a puzzle_reveal puzzle_solution) (list MERKLE_ROOT) ())
-        ; else
-        (x "ph proof invalid")
-      )
+  ; will return () if all's ok, raise if not
+  (defun verify_puzzle_hash (puzzle_hash INNER_PUZZLE_HASH MERKLE_ROOT merkle_proof)
+    (if (= puzzle_hash INNER_PUZZLE_HASH)
+      ()
       ; else
-      (if (= puzzle_hash INNER_PUZZLE_HASH)
-        (a puzzle_reveal puzzle_solution)
-        ; else
-        (x "ph invalid")
-      )
+      (if (= MERKLE_ROOT (simplify_merkle_proof puzzle_hash merkle_proof)) () (x)) 
     )
   )
 
-  (main (sha256tree puzzle_reveal))
+  (morph_conditions
+    MOD_HASH
+    INNER_PUZZLE_HASH
+    (a puzzle_reveal puzzle_solution)
+    (list MERKLE_ROOT)
+    (verify_puzzle_hash (sha256tree puzzle_reveal) INNER_PUZZLE_HASH MERKLE_ROOT merkle_proof) ; ()
+  )
 )
