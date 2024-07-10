@@ -195,9 +195,14 @@ pub const DL_METADATA_UPDATER_PUZZLE_HASH: TreeHash = TreeHash::new(hex!(
 
 #[cfg(test)]
 mod tests {
+  use chia::traits::Streamable;
+  use chia_protocol::Program;
   use chia_puzzles::standard::STANDARD_PUZZLE;
+  use chia_sdk_driver::SpendContext;
+  use clvm_traits::FromNodePtr;
   use clvm_utils::tree_hash;
   use clvmr::{serde::node_from_bytes, Allocator};
+  use hex::encode;
   use rstest::rstest;
 
   use super::*;
@@ -307,6 +312,43 @@ mod tests {
     assert_eq!(
       hex::encode(full_puzzle_hash),
       hex::encode(curry_puzzle_hash)
+    );
+
+    Ok(())
+  }
+
+  // tests that it indeed returns the third argument
+  #[rstest]
+  #[case(hex!("8379616b").to_vec())] // run -d '"yak"'
+  #[case(hex!("ff018379616b").to_vec())] // run -d '(mod () "yak"))'
+  #[case(hex!("ff01ff0180").to_vec())] // run -d '(mod () (list 1)))'
+  #[case(hex!("ff01ff01ff02ff0380").to_vec())] // run -d '(mod () (list 1 2 3)))'
+  #[case(hex!("ff01ff01ffff02ff0380ffff04ff0580ffff060780").to_vec())] // run -d '(mod () (list 1 (list 2 3) (list 4 5) (c 6 7))))'
+  fn dl_metadata_updater_puzzle(#[case] third_arg: Vec<u8>) -> Result<(), ()> {
+    let mut ctx = SpendContext::new();
+
+    let third_arg_ptr = node_from_bytes(ctx.allocator_mut(), &third_arg).unwrap();
+    let nil_ptr = node_from_bytes(ctx.allocator_mut(), &hex!("80").to_vec()).unwrap();
+    let solution_ptr = vec![nil_ptr, nil_ptr, third_arg_ptr]
+      .to_clvm(ctx.allocator_mut())
+      .unwrap();
+
+    let puzzle_ptr = node_from_bytes(ctx.allocator_mut(), &DL_METADATA_UPDATER_PUZZLE).unwrap();
+    let output = ctx.run(puzzle_ptr, solution_ptr).unwrap();
+
+    assert_eq!(
+      encode(
+        Program::from_node_ptr(ctx.allocator_mut(), output)
+          .unwrap()
+          .to_bytes()
+          .unwrap()
+      ),
+      encode(
+        Program::from_node_ptr(ctx.allocator_mut(), third_arg_ptr)
+          .unwrap()
+          .to_bytes()
+          .unwrap()
+      )
     );
 
     Ok(())
