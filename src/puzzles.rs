@@ -205,6 +205,8 @@ mod tests {
   use hex::encode;
   use rstest::rstest;
 
+  use crate::{DefaultMetadataSolution, DefaultMetadataSolutionMetadataList, NewMetadataCondition};
+
   use super::*;
 
   // unfortunately, this isn't publicly exported, so I had to copy-paste
@@ -294,7 +296,7 @@ mod tests {
     hex!("ffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffffff");
 
   #[rstest]
-  #[case(Bytes32::from(NULL_B32), Bytes32::from(NULL_B32))]
+  #[case(Bytes32::from(NULL_B32), Bytes32::from(FULL_B32))]
   #[case(Bytes32::from(FULL_B32), Bytes32::from(NULL_B32))]
   #[case(Bytes32::from(NULL_B32), Bytes32::from(FULL_B32))]
   #[case(Bytes32::from(FULL_B32), Bytes32::from(FULL_B32))]
@@ -457,6 +459,186 @@ mod tests {
             Ok(())
           }
         },
+        _ => Err(()),
+      },
+    }
+  }
+
+  #[rstest]
+  // fail because of wrong new updater ph
+  #[case(
+    TestFilterPuzzle::Admin,
+    Bytes32::from(NULL_B32),
+    Bytes32::from(NULL_B32),
+    false,
+    true
+  )]
+  #[case(
+    TestFilterPuzzle::Admin,
+    Bytes32::from(NULL_B32),
+    Bytes32::from(FULL_B32),
+    false,
+    true
+  )]
+  #[case(
+    TestFilterPuzzle::Admin,
+    Bytes32::from(FULL_B32),
+    Bytes32::from(NULL_B32),
+    false,
+    true
+  )]
+  #[case(
+    TestFilterPuzzle::Admin,
+    Bytes32::from(FULL_B32),
+    Bytes32::from(FULL_B32),
+    false,
+    true
+  )]
+  #[case(
+    TestFilterPuzzle::Writer,
+    Bytes32::from(NULL_B32),
+    Bytes32::from(NULL_B32),
+    false,
+    true
+  )]
+  #[case(
+    TestFilterPuzzle::Writer,
+    Bytes32::from(NULL_B32),
+    Bytes32::from(FULL_B32),
+    false,
+    true
+  )]
+  #[case(
+    TestFilterPuzzle::Writer,
+    Bytes32::from(FULL_B32),
+    Bytes32::from(NULL_B32),
+    false,
+    true
+  )]
+  #[case(
+    TestFilterPuzzle::Writer,
+    Bytes32::from(FULL_B32),
+    Bytes32::from(FULL_B32),
+    false,
+    true
+  )]
+  // valid metadata update - should not fail
+  #[case(
+    TestFilterPuzzle::Admin,
+    Bytes32::from(NULL_B32),
+    DL_METADATA_UPDATER_PUZZLE_HASH.into(),
+    false,
+    false
+  )]
+  #[case(
+    TestFilterPuzzle::Writer,
+    Bytes32::from(FULL_B32),
+    DL_METADATA_UPDATER_PUZZLE_HASH.into(),
+    false,
+    false
+  )]
+  #[case(
+    TestFilterPuzzle::Admin,
+    Bytes32::from(NULL_B32),
+    DL_METADATA_UPDATER_PUZZLE_HASH.into(),
+    false,
+    false
+  )]
+  #[case(
+    TestFilterPuzzle::Writer,
+    Bytes32::from(FULL_B32),
+    DL_METADATA_UPDATER_PUZZLE_HASH.into(),
+    false,
+    false
+  )]
+  // should fail because output conditions are not empty
+  #[case(
+    TestFilterPuzzle::Admin,
+    Bytes32::from(NULL_B32),
+    DL_METADATA_UPDATER_PUZZLE_HASH.into(),
+    true,
+    true
+  )]
+  #[case(
+    TestFilterPuzzle::Writer,
+    Bytes32::from(FULL_B32),
+    DL_METADATA_UPDATER_PUZZLE_HASH.into(),
+    true,
+    true
+  )]
+  #[case(
+    TestFilterPuzzle::Admin,
+    Bytes32::from(NULL_B32),
+    DL_METADATA_UPDATER_PUZZLE_HASH.into(),
+    true,
+    true
+  )]
+  #[case(
+    TestFilterPuzzle::Writer,
+    Bytes32::from(FULL_B32),
+    DL_METADATA_UPDATER_PUZZLE_HASH.into(),
+    true,
+    true
+  )]
+  fn test_metadata_filter(
+    #[case] filter_puzzle: TestFilterPuzzle,
+    #[case] new_metadata: Bytes32,
+    #[case] new_updater_ph: Bytes32,
+    #[case] output_conditions: bool,
+    #[case] should_error_out: bool,
+  ) -> Result<(), ()> {
+    let mut ctx = SpendContext::new();
+
+    let cond = NewMetadataCondition {
+      metadata_updater_reveal: 11,
+      metadata_updater_solution: DefaultMetadataSolution {
+        metadata_part: DefaultMetadataSolutionMetadataList {
+          new_metadata: new_metadata,
+          new_metadata_updater_ph: new_updater_ph,
+        },
+        conditions: if output_conditions {
+          vec![CreateCoin {
+            puzzle_hash: [0; 32].into(),
+            amount: 1,
+            memos: vec![],
+          }]
+        } else {
+          vec![]
+        },
+      },
+    };
+    let inner_puzzle = clvm_quote!(vec![cond.to_clvm(ctx.allocator_mut()).unwrap(),])
+      .to_clvm(ctx.allocator_mut())
+      .unwrap();
+
+    let filter_puzzle_ptr =
+      get_filter_puzzle_ptr(ctx.allocator_mut(), &filter_puzzle, inner_puzzle).unwrap();
+
+    let solution_ptr = vec![ctx.allocator().nil()]
+      .to_clvm(ctx.allocator_mut())
+      .unwrap();
+
+    match ctx.run(filter_puzzle_ptr, solution_ptr) {
+      Ok(_) => {
+        if should_error_out {
+          Err(())
+        } else {
+          Ok(())
+        }
+      }
+      Err(err) => match err {
+        SpendError::Eval(eval_err) => {
+          if should_error_out {
+            if output_conditions {
+              assert_eq!(eval_err.1, "= on list");
+            } else {
+              assert_eq!(eval_err.1, "clvm raise");
+            }
+            Ok(())
+          } else {
+            Err(())
+          }
+        }
         _ => Err(()),
       },
     }
