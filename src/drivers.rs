@@ -350,18 +350,18 @@ impl LauncherExt for Launcher {
 #[cfg(test)]
 mod tests {
   use crate::{
-    print_spend_bundle_to_file, DefaultMetadataSolution, DefaultMetadataSolutionMetadataList,
-    MerkleTree, NewMerkleRootCondition, NewMetadataCondition,
+    DefaultMetadataSolution, DefaultMetadataSolutionMetadataList, MerkleTree,
+    NewMerkleRootCondition, NewMetadataCondition,
   };
 
   use super::*;
 
-  use chia::bls::G2Element;
   use chia_protocol::Bytes32;
   use chia_puzzles::standard::StandardArgs;
   use chia_sdk_driver::Launcher;
   use chia_sdk_test::{secret_key, test_transaction, Simulator};
   use chia_sdk_types::conditions::Condition;
+  use rstest::rstest;
 
   fn assert_datastore_info_eq(
     ctx: &mut SpendContext,
@@ -710,7 +710,7 @@ mod tests {
     assert_eq!(new_datastore_info.owner_puzzle_hash, owner_puzzle_hash);
 
     let spends = ctx.take_spends();
-    print_spend_bundle_to_file(spends.clone(), G2Element::default(), "sb.debug");
+    // print_spend_bundle_to_file(spends.clone(), G2Element::default(), "sb.debug");
     test_transaction(
       &peer,
       spends,
@@ -726,6 +726,120 @@ mod tests {
       .expect("expected datastore coin");
     assert_eq!(coin_state.coin, datastore_info.coin);
     assert!(coin_state.spent_height.is_some());
+
+    Ok(())
+  }
+
+  #[rstest(
+    use_label_and_desc => [true, false],
+    with_writer => [true, false],
+    with_admin => [true, false],
+    with_oracle => [true, false]
+  )]
+  #[tokio::test]
+  async fn test_datastore_launch(
+    use_label_and_desc: bool,
+    with_writer: bool,
+    with_admin: bool,
+    with_oracle: bool,
+  ) -> anyhow::Result<()> {
+    let sim = Simulator::new().await?;
+    let peer = sim.connect().await?;
+
+    let owner_sk = secret_key()?;
+    let owner_pk = owner_sk.public_key();
+
+    let admin_sk = secret_key()?;
+    let admin_pk = admin_sk.public_key();
+
+    let writer_sk = secret_key()?;
+    let writer_pk = writer_sk.public_key();
+
+    let oracle_puzzle_hash: Bytes32 = [7; 32].into();
+    let oracle_fee = 1000;
+
+    let owner_puzzle_hash = StandardArgs::curry_tree_hash(owner_pk).into();
+    let coin = sim.mint_coin(owner_puzzle_hash, 1).await;
+
+    let ctx = &mut SpendContext::new();
+
+    let (admin_delegated_puzzle, _) = DelegatedPuzzle::from_admin_pk(ctx, admin_pk).unwrap();
+
+    let (writer_delegated_puzzle, _) = DelegatedPuzzle::from_writer_pk(ctx, writer_pk).unwrap();
+
+    let oracle_delegated_puzzle =
+      DelegatedPuzzle::new_oracle(ctx.allocator_mut(), oracle_puzzle_hash, oracle_fee).unwrap();
+
+    let mut delegated_puzzles: Vec<DelegatedPuzzle> = vec![];
+    if with_admin {
+      delegated_puzzles.push(admin_delegated_puzzle);
+    }
+    if with_writer {
+      delegated_puzzles.push(writer_delegated_puzzle);
+    }
+    if with_oracle {
+      delegated_puzzles.push(oracle_delegated_puzzle);
+    }
+
+    let label = if use_label_and_desc {
+      "label".to_string()
+    } else {
+      String::default()
+    };
+
+    let description = if use_label_and_desc {
+      "description".to_string()
+    } else {
+      String::default()
+    };
+
+    let (launch_singleton, datastore_info) = Launcher::new(coin.coin_id(), 1).mint_datastore(
+      ctx,
+      DataStoreMintInfo {
+        metadata: DataStoreMetadata {
+          root_hash: Bytes32::new([0; 32]),
+          label: label,
+          description: description,
+        },
+        owner_puzzle_hash: owner_puzzle_hash.into(),
+        delegated_puzzles: delegated_puzzles,
+      },
+    )?;
+
+    ctx.spend_p2_coin(coin, owner_pk, launch_singleton)?;
+
+    let spends = ctx.take_spends();
+    for spend in spends.clone() {
+      if spend.coin.coin_id() == datastore_info.launcher_id {
+        let new_datastore_info =
+          DataStoreInfo::from_spend(ctx.allocator_mut(), &spend, vec![]).unwrap();
+
+        assert_datastore_info_eq(ctx, &datastore_info, &new_datastore_info, true);
+      }
+
+      ctx.insert_coin_spend(spend);
+    }
+
+    assert_eq!(
+      encode(datastore_info.metadata.root_hash),
+      "0000000000000000000000000000000000000000000000000000000000000000" // serializing to bytes prepends a0 = len
+    );
+
+    test_transaction(
+      &peer,
+      spends,
+      &[owner_sk, admin_sk, writer_sk],
+      sim.config().genesis_challenge,
+    )
+    .await;
+
+    // Make sure the datastore was created.
+    let coin_state = sim
+      .coin_state(datastore_info.coin.coin_id())
+      .await
+      .expect("expected datastore coin");
+    assert_eq!(coin_state.coin, datastore_info.coin);
+    assert!(coin_state.created_height.is_some());
 
     Ok(())
   }
