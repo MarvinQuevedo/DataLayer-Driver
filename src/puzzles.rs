@@ -205,7 +205,10 @@ mod tests {
   use hex::encode;
   use rstest::rstest;
 
-  use crate::{DefaultMetadataSolution, DefaultMetadataSolutionMetadataList, NewMetadataCondition};
+  use crate::{
+    DefaultMetadataSolution, DefaultMetadataSolutionMetadataList, MeltCondition,
+    NewMetadataCondition,
+  };
 
   use super::*;
 
@@ -638,6 +641,44 @@ mod tests {
           } else {
             Err(())
           }
+        }
+        _ => Err(()),
+      },
+    }
+  }
+
+  #[rstest]
+  #[case(TestFilterPuzzle::Admin, Bytes32::from(NULL_B32))]
+  #[case(TestFilterPuzzle::Admin, Bytes32::from(FULL_B32))]
+  #[case(TestFilterPuzzle::Writer, Bytes32::from(NULL_B32))]
+  #[case(TestFilterPuzzle::Writer, Bytes32::from(FULL_B32))]
+  fn test_melt_filter(
+    #[case] filter_puzzle: TestFilterPuzzle,
+    #[case] puzzle_hash: Bytes32,
+  ) -> Result<(), ()> {
+    let mut ctx = SpendContext::new();
+
+    let inner_puzzle = clvm_quote!(vec![MeltCondition {
+      fake_puzzle_hash: puzzle_hash
+    }
+    .to_clvm(ctx.allocator_mut())
+    .unwrap(),])
+    .to_clvm(ctx.allocator_mut())
+    .unwrap();
+
+    let filter_puzzle_ptr =
+      get_filter_puzzle_ptr(ctx.allocator_mut(), &filter_puzzle, inner_puzzle).unwrap();
+
+    let solution_ptr = vec![ctx.allocator().nil()]
+      .to_clvm(ctx.allocator_mut())
+      .unwrap();
+
+    match ctx.run(filter_puzzle_ptr, solution_ptr) {
+      Ok(_) => Err(()),
+      Err(err) => match err {
+        SpendError::Eval(eval_err) => {
+          assert_eq!(eval_err.1, "clvm raise");
+          Ok(())
         }
         _ => Err(()),
       },
