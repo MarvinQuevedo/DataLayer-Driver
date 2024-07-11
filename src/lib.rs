@@ -55,7 +55,7 @@ pub trait ToJS<T> {
 
 impl FromJS<Buffer> for RustBytes32 {
   fn from_js(value: Buffer) -> Self {
-    RustBytes32::from_bytes(&value.to_vec()).unwrap()
+    RustBytes32::from_bytes(&value.to_vec()).expect("Bytes32 value should be 32 bytes long")
   }
 }
 
@@ -81,7 +81,7 @@ impl FromJS<Buffer> for RustPublicKey {
   fn from_js(value: Buffer) -> Self {
     let vec = value.to_vec();
     let bytes: [u8; 48] = vec.try_into().expect("public key should be 48 bytes long");
-    RustPublicKey::from_bytes(&bytes).unwrap()
+    RustPublicKey::from_bytes(&bytes).expect("error parsing public key")
   }
 }
 
@@ -95,7 +95,7 @@ impl FromJS<Buffer> for RustSecretKey {
   fn from_js(value: Buffer) -> Self {
     let vec = value.to_vec();
     let bytes: [u8; 32] = vec.try_into().expect("secret key should be 32 bytes long");
-    RustSecretKey::from_bytes(&bytes).unwrap()
+    RustSecretKey::from_bytes(&bytes).expect("error parsing secret key")
   }
 }
 
@@ -109,7 +109,7 @@ impl FromJS<Buffer> for RustSignature {
   fn from_js(value: Buffer) -> Self {
     let vec = value.to_vec();
     let bytes: [u8; 96] = vec.try_into().expect("signature should be 96 bytes long");
-    RustSignature::from_bytes(&bytes).unwrap()
+    RustSignature::from_bytes(&bytes).expect("error parsing signature")
   }
 }
 
@@ -250,9 +250,19 @@ pub struct Proof {
 impl FromJS<Proof> for RustProof {
   fn from_js(value: Proof) -> Self {
     if value.lineage_proof.is_some() {
-      RustProof::Lineage(value.lineage_proof.map(RustLineageProof::from_js).unwrap())
+      RustProof::Lineage(
+        value
+          .lineage_proof
+          .map(RustLineageProof::from_js)
+          .expect("error parsing lineage proof"),
+      )
     } else {
-      RustProof::Eve(value.eve_proof.map(RustEveProof::from_js).unwrap())
+      RustProof::Eve(
+        value
+          .eve_proof
+          .map(RustEveProof::from_js)
+          .expect("error parsing eve proof"),
+      )
     }
   }
 }
@@ -328,15 +338,25 @@ pub struct DelegatedPuzzleInfo {
 impl FromJS<DelegatedPuzzleInfo> for RustDelegatedPuzzleInfo {
   fn from_js(value: DelegatedPuzzleInfo) -> Self {
     if value.admin_inner_puzzle_hash.is_some() {
-      RustDelegatedPuzzleInfo::Admin(RustBytes32::from_js(value.admin_inner_puzzle_hash.unwrap()))
+      RustDelegatedPuzzleInfo::Admin(RustBytes32::from_js(
+        value
+          .admin_inner_puzzle_hash
+          .expect("error parsing admin inner puzzle hash as Bytes32"),
+      ))
     } else if value.writer_inner_puzzle_hash.is_some() {
       RustDelegatedPuzzleInfo::Writer(RustBytes32::from_js(
-        value.writer_inner_puzzle_hash.unwrap(),
+        value
+          .writer_inner_puzzle_hash
+          .expect("error parsing writer inner puzzle hash as Bytes32"),
       ))
     } else {
       RustDelegatedPuzzleInfo::Oracle(
-        RustBytes32::from_js(value.oracle_payment_puzzle_hash.unwrap()),
-        u64::from_js(value.oracle_fee.unwrap()),
+        RustBytes32::from_js(
+          value
+            .oracle_payment_puzzle_hash
+            .expect("error parsing oracle payment puzzle hash as Bytes32"),
+        ),
+        u64::from_js(value.oracle_fee.expect("error parsing oracle fee as u64")),
       )
     }
   }

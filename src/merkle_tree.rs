@@ -156,7 +156,7 @@ mod tests {
                (Bytes32::from([8; 32]), 7, vec![hex!("d3907c0247e7e98b72338a00d87244248df71eb313589da290d45adfba44e6d2").into(), hex!("3831644ba5da8ec5f16d32ef7c0a318cfec302245fac118321a5da9f43efbf94").into(), hex!("7eb919730e38f305365791a43adddeea0fc275371aac8c7b08983937beeb956f").into()])
            ]
     )]
-    fn test_merkle_tree_basic(#[case] leaves: &[Bytes32], #[case] expected_root: Bytes32, #[case] expected_proofs: Vec<(Bytes32, u32, Vec<Bytes32>)>) -> Result<(), ()> {
+    fn test_merkle_tree(#[case] leaves: &[Bytes32], #[case] expected_root: Bytes32, #[case] expected_proofs: Vec<(Bytes32, u32, Vec<Bytes32>)>) -> Result<(), ()> {
         let merkle_tree = MerkleTree::new(leaves);
 
         assert_eq!(
