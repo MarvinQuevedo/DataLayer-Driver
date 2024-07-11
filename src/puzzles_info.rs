@@ -495,8 +495,8 @@ impl DataStoreInfo {
           .map_err(|_| ParseError::NonStandardLayer)?;
 
       let metadata_info = solution.key_value_list;
-      let label: String = if metadata_info.memos.len() >= 2 {
-        String::from_bytes(&metadata_info.memos[1].to_vec())
+      let label: String = if metadata_info.memos.len() >= 1 {
+        String::from_utf8(metadata_info.memos[0].to_vec())
           .map_err(|err| {
             println!("err 1023948"); // todo: debug
             println!("metadata_info: {:?}", metadata_info); // todo: debug
@@ -507,8 +507,8 @@ impl DataStoreInfo {
       } else {
         String::default()
       };
-      let description: String = if metadata_info.memos.len() >= 3 {
-        String::from_bytes(&metadata_info.memos[2].to_vec()).unwrap_or_default()
+      let description: String = if metadata_info.memos.len() >= 2 {
+        String::from_utf8(metadata_info.memos[1].to_vec()).unwrap_or_default()
       } else {
         String::default()
       };

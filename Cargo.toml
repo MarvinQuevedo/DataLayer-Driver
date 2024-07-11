@@ -39,7 +39,6 @@ thiserror = "1.0.61"
 chia-wallet-sdk = "0.11.0"
 bech32 = "0.9.1"
 native-tls = "0.2.12"
-async-std = { version = "1.5", features = ["attributes"] }
 
 [target.aarch64-unknown-linux-gnu.dependencies]
 openssl = { version = "0.10.64", features = ["vendored"] }
