@@ -311,8 +311,8 @@ impl LauncherExt for Launcher {
     .tree_hash();
 
     let mut memos = get_memos(info.owner_puzzle_hash, info.delegated_puzzles.clone());
-    if info.delegated_puzzles.len() == 0 {
-      memos = vec![]; // owner ph = inner_puzzle_hash
+    if info.delegated_puzzles.len() == 0 && info.metadata.description.len() == 0 {
+      memos = vec![];
     } else {
       memos.insert(
         0,
