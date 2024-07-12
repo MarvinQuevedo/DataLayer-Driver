@@ -836,7 +836,6 @@ mod tests {
     src_with_writer => [true, false],
     src_with_oracle => [true, false],
     dst_with_writer => [true, false],
-    dst_with_admin => [true, false],
     dst_with_oracle => [true, false],
     src_meta => [
       (Bytes32::from([0; 32]), "".to_string(), "".to_string()),
@@ -855,7 +854,6 @@ mod tests {
     // src must have admin layer in this scenario
     src_with_oracle: bool,
     dst_with_writer: bool,
-    dst_with_admin: bool,
     dst_with_oracle: bool,
     dst_meta: (Bytes32, String, String),
   ) -> anyhow::Result<()> {
@@ -932,11 +930,10 @@ mod tests {
     let mut admin_inner_spend = Conditions::new();
 
     let mut dst_delegated_puzzles: Vec<DelegatedPuzzle> = src_delegated_puzzles.clone();
-    if !dst_with_admin || src_with_writer != dst_with_writer || src_with_oracle != dst_with_oracle {
+    if src_with_writer != dst_with_writer || src_with_oracle != dst_with_oracle {
       dst_delegated_puzzles.clear();
-      if dst_with_admin {
-        dst_delegated_puzzles.push(admin_delegated_puzzle);
-      }
+      dst_delegated_puzzles.push(admin_delegated_puzzle);
+
       if dst_with_writer {
         dst_delegated_puzzles.push(writer_delegated_puzzle);
       }
