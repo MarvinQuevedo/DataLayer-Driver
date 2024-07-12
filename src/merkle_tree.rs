@@ -27,7 +27,6 @@ impl MerkleTree {
 
     fn build_merkle_tree(leaves: &[Bytes32]) -> (Bytes32, HashMap<Bytes32, (u32, Vec<Bytes32>)>) {
         let binary_tree = MerkleTree::list_to_binary_tree(leaves).unwrap();
-        println!("{:?}", binary_tree);
         MerkleTree::build_merkle_tree_from_binary_tree(&binary_tree)
     }
 

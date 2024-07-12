@@ -3,7 +3,7 @@ use chia_protocol::{Bytes, Bytes32, Coin, CoinSpend, Program};
 use chia_puzzles::{
   nft::{NftStateLayerArgs, NftStateLayerSolution, NFT_STATE_LAYER_PUZZLE_HASH},
   singleton::{LauncherSolution, SingletonArgs, SingletonSolution, SINGLETON_LAUNCHER_PUZZLE_HASH},
-  standard::StandardArgs,
+  standard::{StandardArgs, DEFAULT_HIDDEN_PUZZLE_HASH},
   EveProof, Proof,
 };
 use chia_sdk_driver::{SpendContext, SpendError};
@@ -226,6 +226,10 @@ impl DelegatedPuzzle {
   ) -> Result<Self, ToClvmError> {
     let full_puzzle =
       DelegatedPuzzle::oracle_layer_full_puzzle(allocator, oracle_puzzle_hash, oracle_fee)?;
+
+    if oracle_fee % 2 == 1 {
+      return Err(ToClvmError::Custom("Oracle fee must be even".to_string()));
+    }
 
     Ok(Self {
       puzzle_hash: tree_hash(&allocator, full_puzzle).into(),
@@ -750,10 +754,14 @@ impl DataStoreInfo {
 }
 
 pub fn merkle_tree_for_delegated_puzzles(delegated_puzzles: &Vec<DelegatedPuzzle>) -> MerkleTree {
-  let leafs: Vec<Bytes32> = delegated_puzzles
-    .iter()
-    .map(|delegated_puzzle| -> Bytes32 { delegated_puzzle.puzzle_hash.into() })
-    .collect();
+  let leafs: Vec<Bytes32> = if delegated_puzzles.len() > 0 {
+    delegated_puzzles
+      .iter()
+      .map(|delegated_puzzle| -> Bytes32 { delegated_puzzle.puzzle_hash.into() })
+      .collect()
+  } else {
+    vec![DEFAULT_HIDDEN_PUZZLE_HASH.into()]
+  };
 
   MerkleTree::new(&leafs)
 }

@@ -48,7 +48,7 @@ pub struct DelegationLayerSolution<P, S> {
   pub puzzle_solution: S,
 }
 
-pub const DELEGATION_LAYER_PUZZLE: [u8; 904] = hex!(
+pub const DELEGATION_LAYER_PUZZLE: [u8; 918] = hex!(
   "
     ff02ffff01ff02ff12ffff04ff02ffff04ff05ffff04ff0bffff04ffff02ff5fff81bf80ffff04ff
     ff04ff17ff8080ffff04ffff02ff1effff04ff02ffff04ffff02ff1affff04ff02ffff04ff5fff80
@@ -72,13 +72,13 @@ pub const DELEGATION_LAYER_PUZZLE: [u8; 904] = hex!(
     ffff0102ff2bff0580ffff01ff0bffff0102ff05ff2b8080ff0180ffff04ffff04ffff17ff13ffff
     0181ff80ff3b80ff8080808080ffff010580ff0180ff02ffff03ffff09ff05ff0b80ff80ffff01ff
     02ffff03ffff09ff17ffff02ff16ffff04ff02ffff04ffff0bffff0101ff0580ffff04ff2fff8080
-    80808080ff80ffff01ff088080ff018080ff0180ff018080
+    80808080ff80ffff01ff08ffff018a696e76616c69642070688080ff018080ff0180ff018080
     "
 );
 
 pub const DELEGATION_LAYER_PUZZLE_HASH: TreeHash = TreeHash::new(hex!(
   "
-    b8285eb41ad8934a5d8651d14d5fb68916f0f1d91019d0a3e1a3b1ff8a65861e
+    02fe2a3e9d53dd0c1e0ed3eccc61886403076c61e1d5eec1ceb2f2e3f13345cb
     "
 ));
 

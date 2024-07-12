@@ -350,13 +350,12 @@ impl LauncherExt for Launcher {
 #[cfg(test)]
 mod tests {
   use crate::{
-    print_spend_bundle_to_file, DefaultMetadataSolution, DefaultMetadataSolutionMetadataList,
-    MerkleTree, NewMerkleRootCondition, NewMetadataCondition,
+    DefaultMetadataSolution, DefaultMetadataSolutionMetadataList, NewMerkleRootCondition,
+    NewMetadataCondition,
   };
 
   use super::*;
 
-  use chia::bls::Signature;
   use chia_protocol::Bytes32;
   use chia_puzzles::standard::StandardArgs;
   use chia_sdk_driver::Launcher;
@@ -617,14 +616,7 @@ mod tests {
 
     // admin: remove writer from delegated puzzles
     let delegated_puzzles = vec![admin_delegated_puzzle, oracle_delegated_puzzle];
-
-    let leaves: Vec<Bytes32> = delegated_puzzles
-      .clone()
-      .iter()
-      .map(|dp| dp.puzzle_hash)
-      .collect();
-    let merkle_tree = MerkleTree::new(&leaves);
-    let new_merkle_root = merkle_tree.get_root();
+    let new_merkle_root = merkle_root_for_delegated_puzzles(&delegated_puzzles);
 
     let new_merkle_root_condition = NewMerkleRootCondition {
       new_merkle_root,
@@ -731,18 +723,13 @@ mod tests {
     Ok(())
   }
 
-  #[rstest(
-    use_label_and_desc => [true, false],
-    with_writer => [true, false],
-    with_admin => [true, false],
-    with_oracle => [true, false]
-  )]
+  #[rstest]
   #[tokio::test]
   async fn test_datastore_launch(
-    use_label_and_desc: bool,
-    with_writer: bool,
-    with_admin: bool,
-    with_oracle: bool,
+    #[values(true, false)] use_label_and_desc: bool,
+    #[values(true, false)] with_writer: bool,
+    #[values(true, false)] with_admin: bool,
+    #[values(true, false)] with_oracle: bool,
   ) -> anyhow::Result<()> {
     let sim = Simulator::new().await?;
     let peer = sim.connect().await?;
@@ -925,7 +912,7 @@ mod tests {
     ctx.spend_p2_coin(coin, owner_pk, launch_singleton)?;
 
     let spends = ctx.take_spends();
-    for spend in spends.clone() {
+    for spend in spends {
       if spend.coin.coin_id() == src_datastore_info.launcher_id {
         let new_datastore_info =
           DataStoreInfo::from_spend(ctx.allocator_mut(), &spend, vec![]).unwrap();
@@ -957,13 +944,7 @@ mod tests {
         dst_delegated_puzzles.push(oracle_delegated_puzzle);
       }
 
-      let leaves: Vec<Bytes32> = dst_delegated_puzzles
-        .clone()
-        .iter()
-        .map(|dp| dp.puzzle_hash)
-        .collect();
-      let merkle_tree = MerkleTree::new(&leaves);
-      let new_merkle_root = merkle_tree.get_root();
+      let new_merkle_root = merkle_root_for_delegated_puzzles(&dst_delegated_puzzles);
 
       let new_merkle_root_condition = NewMerkleRootCondition {
         new_merkle_root,
@@ -1000,11 +981,10 @@ mod tests {
     // delegated puzzle info + inner puzzle reveal + solution
     let inner_datastore_spend = DatastoreInnerSpend::DelegatedPuzzleSpend(
       admin_delegated_puzzle,
-      admin_delegated_puzzle.get_full_puzzle(ctx.allocator_mut(), admin_inner_puzzle_reveal)?,
+      admin_inner_puzzle_reveal,
       admin_inner_spend.p2_spend(ctx, admin_pk)?.solution(),
     );
     let new_spend = datastore_spend(ctx, &src_datastore_info, inner_datastore_spend)?;
-    print_spend_bundle_to_file(vec![new_spend.clone()], Signature::default(), "sb.debug");
     ctx.insert_coin_spend(new_spend.clone());
 
     let dst_datastore_info = DataStoreInfo::from_spend(
@@ -1019,7 +999,7 @@ mod tests {
 
     test_transaction(
       &peer,
-      spends,
+      ctx.take_spends(),
       &[owner_sk, admin_sk, writer_sk],
       sim.config().genesis_challenge,
     )
@@ -1031,7 +1011,6 @@ mod tests {
       .expect("expected datastore coin");
     assert_eq!(src_coin_state.coin, src_datastore_info.coin);
     assert!(src_coin_state.spent_height.is_some());
-
     let dst_coin_state = sim
       .coin_state(dst_datastore_info.coin.coin_id())
       .await
