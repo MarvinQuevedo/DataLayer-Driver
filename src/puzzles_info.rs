@@ -593,7 +593,10 @@ impl DataStoreInfo {
       state_args.inner_puzzle,
       solution.inner_solution.inner_solution,
     )
-    .map_err(|_| ParseError::MismatchedOutput)?;
+    .map_err(|err| {
+      println!("{:?}", err); // todo: debug
+      ParseError::MismatchedOutput
+    })?;
     println!("ran state layer's inner puzzle");
     let inner_inner_output_conditions = Vec::<NodePtr>::from_clvm(allocator, inner_inner_output)?;
 

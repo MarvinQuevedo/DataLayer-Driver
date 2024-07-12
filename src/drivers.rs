@@ -350,12 +350,13 @@ impl LauncherExt for Launcher {
 #[cfg(test)]
 mod tests {
   use crate::{
-    DefaultMetadataSolution, DefaultMetadataSolutionMetadataList, MerkleTree,
-    NewMerkleRootCondition, NewMetadataCondition,
+    print_spend_bundle_to_file, DefaultMetadataSolution, DefaultMetadataSolutionMetadataList,
+    MerkleTree, NewMerkleRootCondition, NewMetadataCondition,
   };
 
   use super::*;
 
+  use chia::bls::Signature;
   use chia_protocol::Bytes32;
   use chia_puzzles::standard::StandardArgs;
   use chia_sdk_driver::Launcher;
@@ -840,6 +841,203 @@ mod tests {
       .expect("expected datastore coin");
     assert_eq!(coin_state.coin, datastore_info.coin);
     assert!(coin_state.created_height.is_some());
+
+    Ok(())
+  }
+
+  #[rstest(
+    src_with_writer => [true, false],
+    src_with_oracle => [true, false],
+    dst_with_writer => [true, false],
+    dst_with_admin => [true, false],
+    dst_with_oracle => [true, false],
+    src_meta => [
+      (Bytes32::from([0; 32]), "".to_string(), "".to_string()),
+      (Bytes32::from([0; 32]), "label".to_string(), "description".to_string()),
+    ],
+    dst_meta => [
+      (Bytes32::from([0; 32]), "".to_string(), "".to_string()),
+      (Bytes32::from([0; 32]), "label".to_string(), "description".to_string()),
+      (Bytes32::from([0; 32]), "new_label".to_string(), "new_description".to_string()),
+    ],
+  )]
+  #[tokio::test]
+  async fn test_datastore_ownership_transition_by_admin(
+    src_meta: (Bytes32, String, String),
+    src_with_writer: bool,
+    // src must have admin layer in this scenario
+    src_with_oracle: bool,
+    dst_with_writer: bool,
+    dst_with_admin: bool,
+    dst_with_oracle: bool,
+    dst_meta: (Bytes32, String, String),
+  ) -> anyhow::Result<()> {
+    let sim = Simulator::new().await?;
+    let peer = sim.connect().await?;
+
+    let owner_sk = secret_key()?;
+    let owner_pk = owner_sk.public_key();
+
+    let admin_sk = secret_key()?;
+    let admin_pk = admin_sk.public_key();
+
+    let writer_sk = secret_key()?;
+    let writer_pk = writer_sk.public_key();
+
+    let oracle_puzzle_hash: Bytes32 = [7; 32].into();
+    let oracle_fee = 1000;
+
+    let owner_puzzle_hash = StandardArgs::curry_tree_hash(owner_pk).into();
+    let coin = sim.mint_coin(owner_puzzle_hash, 1).await;
+
+    let ctx = &mut SpendContext::new();
+
+    let (admin_delegated_puzzle, admin_inner_puzzle_reveal) =
+      DelegatedPuzzle::from_admin_pk(ctx, admin_pk).unwrap();
+
+    let (writer_delegated_puzzle, _) = DelegatedPuzzle::from_writer_pk(ctx, writer_pk).unwrap();
+
+    let oracle_delegated_puzzle =
+      DelegatedPuzzle::new_oracle(ctx.allocator_mut(), oracle_puzzle_hash, oracle_fee).unwrap();
+
+    let mut src_delegated_puzzles: Vec<DelegatedPuzzle> = vec![];
+    src_delegated_puzzles.push(admin_delegated_puzzle);
+    if src_with_writer {
+      src_delegated_puzzles.push(writer_delegated_puzzle);
+    }
+    if src_with_oracle {
+      src_delegated_puzzles.push(oracle_delegated_puzzle);
+    }
+
+    let (launch_singleton, src_datastore_info) = Launcher::new(coin.coin_id(), 1).mint_datastore(
+      ctx,
+      DataStoreMintInfo {
+        metadata: DataStoreMetadata {
+          root_hash: src_meta.0,
+          label: src_meta.1.clone(),
+          description: src_meta.2.clone(),
+        },
+        owner_puzzle_hash: owner_puzzle_hash.into(),
+        delegated_puzzles: src_delegated_puzzles.clone(),
+      },
+    )?;
+
+    ctx.spend_p2_coin(coin, owner_pk, launch_singleton)?;
+
+    let spends = ctx.take_spends();
+    for spend in spends.clone() {
+      if spend.coin.coin_id() == src_datastore_info.launcher_id {
+        let new_datastore_info =
+          DataStoreInfo::from_spend(ctx.allocator_mut(), &spend, vec![]).unwrap();
+
+        assert_datastore_info_eq(ctx, &src_datastore_info, &new_datastore_info, true);
+      }
+
+      ctx.insert_coin_spend(spend);
+    }
+
+    assert_eq!(
+      encode(src_datastore_info.metadata.root_hash),
+      "0000000000000000000000000000000000000000000000000000000000000000" // serializing to bytes prepends a0 = len
+    );
+
+    // transition from src to dst
+    let mut admin_inner_spend = Conditions::new();
+
+    let mut dst_delegated_puzzles: Vec<DelegatedPuzzle> = src_delegated_puzzles.clone();
+    if !dst_with_admin || src_with_writer != dst_with_writer || src_with_oracle != dst_with_oracle {
+      dst_delegated_puzzles.clear();
+      if dst_with_admin {
+        dst_delegated_puzzles.push(admin_delegated_puzzle);
+      }
+      if dst_with_writer {
+        dst_delegated_puzzles.push(writer_delegated_puzzle);
+      }
+      if dst_with_oracle {
+        dst_delegated_puzzles.push(oracle_delegated_puzzle);
+      }
+
+      let leaves: Vec<Bytes32> = dst_delegated_puzzles
+        .clone()
+        .iter()
+        .map(|dp| dp.puzzle_hash)
+        .collect();
+      let merkle_tree = MerkleTree::new(&leaves);
+      let new_merkle_root = merkle_tree.get_root();
+
+      let new_merkle_root_condition = NewMerkleRootCondition {
+        new_merkle_root,
+        memos: get_memos(owner_puzzle_hash.into(), dst_delegated_puzzles),
+      }
+      .to_clvm(ctx.allocator_mut())
+      .unwrap();
+
+      admin_inner_spend = admin_inner_spend.condition(Condition::Other(new_merkle_root_condition));
+    }
+
+    if src_meta.0 != dst_meta.0 || src_meta.1 != dst_meta.1 || src_meta.2 != dst_meta.2 {
+      let new_metadata = DataStoreMetadata {
+        root_hash: dst_meta.0,
+        label: dst_meta.1,
+        description: dst_meta.2,
+      };
+      let new_metadata_condition = NewMetadataCondition::<i32, DataStoreMetadata, Bytes32, i32> {
+        metadata_updater_reveal: 11,
+        metadata_updater_solution: DefaultMetadataSolution {
+          metadata_part: DefaultMetadataSolutionMetadataList {
+            new_metadata: new_metadata,
+            new_metadata_updater_ph: DL_METADATA_UPDATER_PUZZLE_HASH.into(),
+          },
+          conditions: 0,
+        },
+      }
+      .to_clvm(ctx.allocator_mut())
+      .unwrap();
+
+      admin_inner_spend = admin_inner_spend.condition(Condition::Other(new_metadata_condition));
+    }
+
+    // delegated puzzle info + inner puzzle reveal + solution
+    let inner_datastore_spend = DatastoreInnerSpend::DelegatedPuzzleSpend(
+      admin_delegated_puzzle,
+      admin_delegated_puzzle.get_full_puzzle(ctx.allocator_mut(), admin_inner_puzzle_reveal)?,
+      admin_inner_spend.p2_spend(ctx, admin_pk)?.solution(),
+    );
+    let new_spend = datastore_spend(ctx, &src_datastore_info, inner_datastore_spend)?;
+    print_spend_bundle_to_file(vec![new_spend.clone()], Signature::default(), "sb.debug");
+    ctx.insert_coin_spend(new_spend.clone());
+
+    let dst_datastore_info = DataStoreInfo::from_spend(
+      ctx.allocator_mut(),
+      &new_spend,
+      src_datastore_info.delegated_puzzles,
+    )
+    .unwrap();
+    assert!(dst_datastore_info.delegated_puzzles.len() > 0);
+
+    // todo: check nw delg puzzles
+
+    test_transaction(
+      &peer,
+      spends,
+      &[owner_sk, admin_sk, writer_sk],
+      sim.config().genesis_challenge,
+    )
+    .await;
+
+    let src_coin_state = sim
+      .coin_state(src_datastore_info.coin.coin_id())
+      .await
+      .expect("expected datastore coin");
+    assert_eq!(src_coin_state.coin, src_datastore_info.coin);
+    assert!(src_coin_state.spent_height.is_some());
+
+    let dst_coin_state = sim
+      .coin_state(dst_datastore_info.coin.coin_id())
+      .await
+      .expect("expected datastore coin");
+    assert_eq!(dst_coin_state.coin, dst_datastore_info.coin);
+    assert!(dst_coin_state.created_height.is_some());
 
     Ok(())
   }
