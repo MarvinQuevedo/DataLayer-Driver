@@ -376,13 +376,13 @@ pub fn get_new_ownership_inner_condition(
 #[cfg(test)]
 mod tests {
   use crate::{
-    print_spend_bundle, DefaultMetadataSolution, DefaultMetadataSolutionMetadataList,
-    NewMerkleRootCondition, NewMetadataCondition,
+    DefaultMetadataSolution, DefaultMetadataSolutionMetadataList, NewMerkleRootCondition,
+    NewMetadataCondition,
   };
 
   use super::*;
 
-  use chia::bls::{SecretKey, Signature};
+  use chia::bls::SecretKey;
   use chia_protocol::Bytes32;
   use chia_puzzles::standard::StandardArgs;
   use chia_sdk_driver::Launcher;
@@ -1263,9 +1263,9 @@ mod tests {
 
       owner_output_conds = owner_output_conds.condition(get_new_ownership_inner_condition(
         if also_change_owner {
-          &owner_puzzle_hash
-        } else {
           &owner2_puzzle_hash
+        } else {
+          &owner_puzzle_hash
         },
         &dst_delegated_puzzles,
       ));
@@ -1299,7 +1299,7 @@ mod tests {
     let new_spend = datastore_spend(ctx, &src_datastore_info, inner_datastore_spend)?;
     ctx.insert_coin_spend(new_spend.clone());
 
-    print_spend_bundle(vec![new_spend.clone()], Signature::default()); // todo: debug
+    // print_spend_bundle(vec![new_spend.clone()], Signature::default()); // todo: debug
 
     let dst_datastore_info = DataStoreInfo::from_spend(
       ctx.allocator_mut(),
