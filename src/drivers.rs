@@ -350,17 +350,18 @@ impl LauncherExt for Launcher {
 #[cfg(test)]
 mod tests {
   use crate::{
-    DefaultMetadataSolution, DefaultMetadataSolutionMetadataList, NewMerkleRootCondition,
-    NewMetadataCondition,
+    print_spend_bundle, DefaultMetadataSolution, DefaultMetadataSolutionMetadataList,
+    NewMerkleRootCondition, NewMetadataCondition,
   };
 
   use super::*;
 
+  use chia::bls::Signature;
   use chia_protocol::Bytes32;
   use chia_puzzles::standard::StandardArgs;
   use chia_sdk_driver::Launcher;
   use chia_sdk_test::{secret_key, test_transaction, Simulator};
-  use chia_sdk_types::conditions::Condition;
+  use chia_sdk_types::conditions::{Condition, CreateCoin};
   use rstest::rstest;
 
   fn assert_datastore_info_eq(
@@ -1089,6 +1090,7 @@ mod tests {
     if src_with_admin != dst_with_admin
       || src_with_writer != dst_with_writer
       || src_with_oracle != dst_with_oracle
+      || dst_delegated_puzzles.len() == 0
     {
       dst_delegated_puzzles.clear();
 
@@ -1102,17 +1104,43 @@ mod tests {
         dst_delegated_puzzles.push(oracle_delegated_puzzle);
       }
 
-      let new_merkle_root = merkle_root_for_delegated_puzzles(&dst_delegated_puzzles);
+      // YAK TODO: get this to a function
+      if dst_delegated_puzzles.len() > 0 && src_delegated_puzzles.len() > 0 {
+        let new_merkle_root = merkle_root_for_delegated_puzzles(&dst_delegated_puzzles);
 
-      let new_merkle_root_condition = NewMerkleRootCondition {
-        new_merkle_root,
-        memos: get_memos(owner_puzzle_hash.into(), dst_delegated_puzzles.clone()),
+        let new_merkle_root_condition = NewMerkleRootCondition {
+          new_merkle_root,
+          memos: get_memos(owner_puzzle_hash.into(), dst_delegated_puzzles.clone()),
+        }
+        .to_clvm(ctx.allocator_mut())
+        .unwrap();
+
+        owner_output_conds =
+          owner_output_conds.condition(Condition::Other(new_merkle_root_condition));
+      } else if src_delegated_puzzles.len() > 0 {
+        // but dst_delegated_puzzles.len() < 0 -> this is a downgrade
+        owner_output_conds = owner_output_conds.condition(Condition::CreateCoin(CreateCoin {
+          amount: 1,
+          puzzle_hash: owner_puzzle_hash.into(),
+          memos: get_memos(owner_puzzle_hash.into(), dst_delegated_puzzles.clone()),
+        }));
+      } else if dst_delegated_puzzles.len() > 0 {
+        // but src_delegated_puzzles.len() < 0 -> this is an upgrade
+        // upgrade from vanilla to delegated
+        // owner_output_conds = owner_output_conds.condition(Condition::CreateCoin(CreateCoin {
+        //   amount: 1,
+        //   puzzle_hash: owner_puzzle_hash.into(),
+        //   memos: vec![],
+        // }));
+        todo!();
+      } else {
+        // this is just a normal transition (vanilla -> vanilla)
+        owner_output_conds = owner_output_conds.condition(Condition::CreateCoin(CreateCoin {
+          amount: 1,
+          puzzle_hash: owner_puzzle_hash.into(),
+          memos: get_memos(owner_puzzle_hash.into(), dst_delegated_puzzles.clone()),
+        }));
       }
-      .to_clvm(ctx.allocator_mut())
-      .unwrap();
-
-      owner_output_conds =
-        owner_output_conds.condition(Condition::Other(new_merkle_root_condition));
     }
 
     if src_meta.0 != dst_meta.0 || src_meta.1 != dst_meta.1 || src_meta.2 != dst_meta.2 {
@@ -1142,6 +1170,8 @@ mod tests {
       DatastoreInnerSpend::OwnerPuzzleSpend(owner_output_conds.p2_spend(ctx, owner_pk)?);
     let new_spend = datastore_spend(ctx, &src_datastore_info, inner_datastore_spend)?;
     ctx.insert_coin_spend(new_spend.clone());
+
+    print_spend_bundle(vec![new_spend.clone()], Signature::default()); // todo: debug
 
     let dst_datastore_info = DataStoreInfo::from_spend(
       ctx.allocator_mut(),
