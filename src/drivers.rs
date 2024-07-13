@@ -1044,6 +1044,7 @@ mod tests {
 
     assert_eq!(dst_datastore_info.delegated_puzzles, dst_delegated_puzzles);
 
+    assert_eq!(src_datastore_info.owner_puzzle_hash, owner_puzzle_hash);
     assert_eq!(src_datastore_info.metadata.root_hash, src_meta.0);
     assert_eq!(src_datastore_info.metadata.label, src_meta.1);
     assert_eq!(src_datastore_info.metadata.description, src_meta.2);
@@ -1080,6 +1081,7 @@ mod tests {
       assert!(!oracle_found);
     }
 
+    assert_eq!(dst_datastore_info.owner_puzzle_hash, owner_puzzle_hash);
     assert_eq!(dst_datastore_info.metadata.root_hash, dst_meta.0);
     assert_eq!(dst_datastore_info.metadata.label, dst_meta.1);
     assert_eq!(dst_datastore_info.metadata.description, dst_meta.2);
@@ -1171,7 +1173,7 @@ mod tests {
     also_change_owner => [true, false],
   )]
   #[tokio::test]
-  async fn test_datastore_ownership_transition_by_owner(
+  async fn test_datastore_transition_by_owner(
     src_meta: (Bytes32, String, String),
     src_with_admin: bool,
     src_with_writer: bool,
@@ -1272,8 +1274,8 @@ mod tests {
     if src_meta.0 != dst_meta.0 || src_meta.1 != dst_meta.1 || src_meta.2 != dst_meta.2 {
       let new_metadata = DataStoreMetadata {
         root_hash: dst_meta.0,
-        label: dst_meta.1,
-        description: dst_meta.2,
+        label: dst_meta.1.clone(),
+        description: dst_meta.2.clone(),
       };
       let new_metadata_condition = NewMetadataCondition::<i32, DataStoreMetadata, Bytes32, i32> {
         metadata_updater_reveal: 11,
@@ -1310,6 +1312,86 @@ mod tests {
       assert_eq!(dst_datastore_info.delegated_puzzles, dst_delegated_puzzles);
     } else {
       assert_eq!(dst_datastore_info.delegated_puzzles.len(), 0);
+    }
+
+    assert_eq!(src_datastore_info.owner_puzzle_hash, owner_puzzle_hash);
+    assert_eq!(src_datastore_info.metadata.root_hash, src_meta.0);
+    assert_eq!(src_datastore_info.metadata.label, src_meta.1);
+    assert_eq!(src_datastore_info.metadata.description, src_meta.2);
+
+    let admin_found = src_datastore_info
+      .delegated_puzzles
+      .clone()
+      .into_iter()
+      .any(|dp| dp.puzzle_hash == admin_delegated_puzzle.puzzle_hash);
+    if src_with_admin {
+      assert!(admin_found);
+    } else {
+      assert!(!admin_found);
+    }
+
+    let writer_found = src_datastore_info
+      .delegated_puzzles
+      .clone()
+      .into_iter()
+      .any(|dp| dp.puzzle_hash == writer_delegated_puzzle.puzzle_hash);
+    if src_with_writer {
+      assert!(writer_found);
+    } else {
+      assert!(!writer_found);
+    }
+
+    let oracle_found = src_datastore_info
+      .delegated_puzzles
+      .clone()
+      .into_iter()
+      .any(|dp| dp.puzzle_hash == oracle_delegated_puzzle.puzzle_hash);
+    if src_with_oracle {
+      assert!(oracle_found);
+    } else {
+      assert!(!oracle_found);
+    }
+
+    if also_change_owner {
+      assert_eq!(dst_datastore_info.owner_puzzle_hash, owner2_puzzle_hash);
+    } else {
+      assert_eq!(dst_datastore_info.owner_puzzle_hash, owner_puzzle_hash);
+    }
+    assert_eq!(dst_datastore_info.metadata.root_hash, dst_meta.0);
+    assert_eq!(dst_datastore_info.metadata.label, dst_meta.1);
+    assert_eq!(dst_datastore_info.metadata.description, dst_meta.2);
+
+    let admin_found = dst_datastore_info
+      .delegated_puzzles
+      .clone()
+      .into_iter()
+      .any(|dp| dp.puzzle_hash == admin_delegated_puzzle.puzzle_hash);
+    if dst_with_admin {
+      assert!(admin_found);
+    } else {
+      assert!(!admin_found);
+    }
+
+    let writer_found = dst_datastore_info
+      .delegated_puzzles
+      .clone()
+      .into_iter()
+      .any(|dp| dp.puzzle_hash == writer_delegated_puzzle.puzzle_hash);
+    if dst_with_writer {
+      assert!(writer_found);
+    } else {
+      assert!(!writer_found);
+    }
+
+    let oracle_found = dst_datastore_info
+      .delegated_puzzles
+      .clone()
+      .into_iter()
+      .any(|dp| dp.puzzle_hash == oracle_delegated_puzzle.puzzle_hash);
+    if dst_with_oracle {
+      assert!(oracle_found);
+    } else {
+      assert!(!oracle_found);
     }
 
     test_transaction(
