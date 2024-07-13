@@ -16,6 +16,7 @@ use chia_puzzles::standard::StandardArgs;
 use chia_puzzles::DeriveSynthetic;
 use chia_sdk_driver::Conditions;
 use chia_sdk_driver::Launcher;
+use chia_sdk_driver::Spend;
 use chia_sdk_driver::SpendContext;
 use chia_sdk_driver::SpendError;
 use chia_sdk_types::conditions::AssertConcurrentSpend;
@@ -290,15 +291,12 @@ fn update_store_with_conditions(
         return Err(Error::Permission());
       }
 
-      let (dp, inner_puzzle_ptr) =
-        DelegatedPuzzle::from_admin_pk(ctx, pk).map_err(|err| Error::Spend(err))?;
+      let (dp, _) = DelegatedPuzzle::from_admin_pk(ctx, pk).map_err(|err| Error::Spend(err))?;
       DatastoreInnerSpend::DelegatedPuzzleSpend(
         dp,
-        inner_puzzle_ptr,
         conditions
           .p2_spend(ctx, pk)
-          .map_err(|err| Error::Spend(err))?
-          .solution(),
+          .map_err(|err| Error::Spend(err))?,
       )
     }
     DataStoreInnerSpendInfo::Writer(pk) => {
@@ -306,15 +304,12 @@ fn update_store_with_conditions(
         return Err(Error::Permission());
       }
 
-      let (dp, inner_puzzle_ptr) =
-        DelegatedPuzzle::from_writer_pk(ctx, pk).map_err(|err| Error::Spend(err))?;
+      let (dp, _) = DelegatedPuzzle::from_writer_pk(ctx, pk).map_err(|err| Error::Spend(err))?;
       DatastoreInnerSpend::DelegatedPuzzleSpend(
         dp,
-        inner_puzzle_ptr,
         conditions
           .p2_spend(ctx, pk)
-          .map_err(|err| Error::Spend(err))?
-          .solution(),
+          .map_err(|err| Error::Spend(err))?,
       )
     }
   };
@@ -516,8 +511,10 @@ pub async fn oracle_spend(
       .map_err(|err| Error::ToClvm(err))?;
   let inner_datastore_spend = DatastoreInnerSpend::DelegatedPuzzleSpend(
     *oracle_delegated_puzzle,
-    oracle_puzzle_ptr, // oracle puzzle always available
-    ctx.allocator().nil(),
+    Spend::new(
+      oracle_puzzle_ptr, // oracle puzzle always available
+      ctx.allocator().nil(),
+    ),
   );
 
   let new_spend = datastore_spend(&mut ctx, store_info, inner_datastore_spend)?;

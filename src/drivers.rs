@@ -37,8 +37,8 @@ impl SpendContextExt for SpendContext {
 }
 
 pub enum DatastoreInnerSpend {
-  OwnerPuzzleSpend(Spend),                                 // owner puzzle spend
-  DelegatedPuzzleSpend(DelegatedPuzzle, NodePtr, NodePtr), // delegated puzzle info + inner puzzle reveal + solution
+  OwnerPuzzleSpend(Spend),                      // owner puzzle spend
+  DelegatedPuzzleSpend(DelegatedPuzzle, Spend), // delegated puzzle info + (inner) puzzle spend
 }
 
 pub fn spend_delegation_layer(
@@ -49,12 +49,10 @@ pub fn spend_delegation_layer(
   if datastore_info.delegated_puzzles.len() == 0 {
     return match inner_datastore_spend {
       DatastoreInnerSpend::OwnerPuzzleSpend(inner_spend) => Ok(inner_spend),
-      DatastoreInnerSpend::DelegatedPuzzleSpend(_, __, inner_spend) => {
-        Err(SpendError::Eval(EvalErr(
-          inner_spend,
-          String::from("data store does not have a delegation layer"),
-        )))
-      }
+      DatastoreInnerSpend::DelegatedPuzzleSpend(_, inner_spend) => Err(SpendError::Eval(EvalErr(
+        inner_spend.solution(),
+        String::from("data store does not have a delegation layer"),
+      ))),
     };
   }
 
@@ -82,13 +80,9 @@ pub fn spend_delegation_layer(
         new_inner_solution.to_clvm(ctx.allocator_mut())?,
       ));
     }
-    DatastoreInnerSpend::DelegatedPuzzleSpend(
-      delegated_puzzle,
-      delegated_inner_puzzle_reveal,
-      delegated_puzzle_solution,
-    ) => {
+    DatastoreInnerSpend::DelegatedPuzzleSpend(delegated_puzzle, delegated_inner_spend) => {
       let full_puzzle = delegated_puzzle
-        .get_full_puzzle(ctx.allocator_mut(), delegated_inner_puzzle_reveal)
+        .get_full_puzzle(ctx.allocator_mut(), delegated_inner_spend.puzzle())
         .map_err(|_| {
           SpendError::FromClvm(FromClvmError::Custom(
             "could not build datastore full puzzle".to_string(),
@@ -104,7 +98,7 @@ pub fn spend_delegation_layer(
 
       println!("merkle_proof: {:?}", merkle_proof); // todo: debug
 
-      let solution: Vec<NodePtr> = vec![delegated_puzzle_solution];
+      let solution: Vec<NodePtr> = vec![delegated_inner_spend.solution()];
       let new_inner_solution = DelegationLayerSolution::<NodePtr, NodePtr> {
         merkle_proof: Some(merkle_proof),
         puzzle_reveal: full_puzzle,
@@ -637,8 +631,7 @@ mod tests {
     // delegated puzzle info + inner puzzle reveal + solution
     let inner_datastore_spend = DatastoreInnerSpend::DelegatedPuzzleSpend(
       writer_delegated_puzzle,
-      writer_puzzle,
-      new_metadata_inner_spend.solution(),
+      Spend::new(writer_puzzle, new_metadata_inner_spend.solution()),
     );
     let new_spend = datastore_spend(ctx, &datastore_info, inner_datastore_spend)?;
     ctx.insert_coin_spend(new_spend.clone());
@@ -677,8 +670,7 @@ mod tests {
     // delegated puzzle info + inner puzzle reveal + solution
     let inner_datastore_spend = DatastoreInnerSpend::DelegatedPuzzleSpend(
       admin_delegated_puzzle,
-      admin_puzzle,
-      inner_spend.solution(),
+      Spend::new(admin_puzzle, inner_spend.solution()),
     );
     let new_spend = datastore_spend(ctx, &datastore_info, inner_datastore_spend)?;
     ctx.insert_coin_spend(new_spend.clone());
@@ -704,13 +696,15 @@ mod tests {
 
     let inner_datastore_spend = DatastoreInnerSpend::DelegatedPuzzleSpend(
       oracle_delegated_puzzle,
-      DelegatedPuzzle::oracle_layer_full_puzzle(
-        ctx.allocator_mut(),
-        oracle_puzzle_hash,
-        oracle_fee,
-      )
-      .unwrap(),
-      ctx.allocator().nil(),
+      Spend::new(
+        DelegatedPuzzle::oracle_layer_full_puzzle(
+          ctx.allocator_mut(),
+          oracle_puzzle_hash,
+          oracle_fee,
+        )
+        .unwrap(),
+        ctx.allocator().nil(),
+      ),
     );
     let new_spend = datastore_spend(ctx, &datastore_info, inner_datastore_spend)?;
     ctx.insert_coin_spend(new_spend.clone());
@@ -1029,8 +1023,10 @@ mod tests {
     // delegated puzzle info + inner puzzle reveal + solution
     let inner_datastore_spend = DatastoreInnerSpend::DelegatedPuzzleSpend(
       admin_delegated_puzzle,
-      admin_inner_puzzle_reveal,
-      admin_inner_spend.p2_spend(ctx, admin_pk)?.solution(),
+      Spend::new(
+        admin_inner_puzzle_reveal,
+        admin_inner_spend.p2_spend(ctx, admin_pk)?.solution(),
+      ),
     );
     let new_spend = datastore_spend(ctx, &src_datastore_info, inner_datastore_spend)?;
     ctx.insert_coin_spend(new_spend.clone());
@@ -1533,8 +1529,10 @@ mod tests {
     // delegated puzzle info
     let inner_datastore_spend = DatastoreInnerSpend::DelegatedPuzzleSpend(
       writer_delegated_puzzle,
-      writer_inner_puzzle_ptr,
-      writer_conds.p2_spend(ctx, writer_pk)?.solution(),
+      Spend::new(
+        writer_inner_puzzle_ptr,
+        writer_conds.p2_spend(ctx, writer_pk)?.solution(),
+      ),
     );
     let new_spend = datastore_spend(ctx, &src_datastore_info, inner_datastore_spend)?;
     ctx.insert_coin_spend(new_spend.clone());
@@ -1720,13 +1718,15 @@ mod tests {
     // 'dude' spends oracle
     let inner_datastore_spend = DatastoreInnerSpend::DelegatedPuzzleSpend(
       oracle_delegated_puzzle,
-      DelegatedPuzzle::oracle_layer_full_puzzle(
-        ctx.allocator_mut(),
-        oracle_puzzle_hash,
-        oracle_fee,
-      )
-      .unwrap(),
-      ctx.allocator().nil(),
+      Spend::new(
+        DelegatedPuzzle::oracle_layer_full_puzzle(
+          ctx.allocator_mut(),
+          oracle_puzzle_hash,
+          oracle_fee,
+        )
+        .unwrap(),
+        ctx.allocator().nil(),
+      ),
     );
     let new_spend = datastore_spend(ctx, &src_datastore_info, inner_datastore_spend)?;
     ctx.insert_coin_spend(new_spend.clone());
