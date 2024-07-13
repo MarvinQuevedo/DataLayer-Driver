@@ -21,6 +21,10 @@ pub enum BinaryTree<T> {
 
 impl MerkleTree {
     pub fn new(leaves: &[Bytes32]) -> Self {
+        if leaves.len() == 0 {
+            return Self { root: Bytes32::default(), proofs: HashMap::new() };
+        }
+
         let (root, proofs) = MerkleTree::build_merkle_tree(leaves);
         Self { root, proofs }
     }

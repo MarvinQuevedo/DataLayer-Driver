@@ -1041,7 +1041,6 @@ mod tests {
       &src_datastore_info.delegated_puzzles,
     )
     .unwrap();
-    assert!(dst_datastore_info.delegated_puzzles.len() > 0);
 
     assert_eq!(dst_datastore_info.delegated_puzzles, dst_delegated_puzzles);
 
