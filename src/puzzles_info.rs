@@ -478,7 +478,7 @@ impl DataStoreInfo {
   pub fn from_spend(
     allocator: &mut Allocator,
     cs: &CoinSpend,
-    prev_delegated_puzzles: Vec<DelegatedPuzzle>,
+    prev_delegated_puzzles: &Vec<DelegatedPuzzle>,
   ) -> Result<DataStoreInfo, ParseError>
   where
     // DLLauncherKVList<NodePtr>: FromClvm<NodePtr>, // todo: debug
@@ -725,7 +725,7 @@ impl DataStoreInfo {
           proof: Proof::Lineage(singleton_puzzle.lineage_proof(cs.coin)),
           metadata: new_metadata,
           owner_puzzle_hash: deleg_puzzle_hash.inner_puzzle_hash,
-          delegated_puzzles: prev_delegated_puzzles,
+          delegated_puzzles: prev_delegated_puzzles.clone(),
         }); // get most info from parent spend :)
       }
 

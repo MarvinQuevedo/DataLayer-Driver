@@ -209,12 +209,9 @@ pub async fn sync_store(
       solution: puzzle_and_solution_req.solution,
     };
 
-    let new_info = DataStoreInfo::from_spend(
-      ctx.allocator_mut(),
-      &cs,
-      latest_info.delegated_puzzles.clone(),
-    )
-    .map_err(|_| Error::Parse())?;
+    let new_info =
+      DataStoreInfo::from_spend(ctx.allocator_mut(), &cs, &latest_info.delegated_puzzles)
+        .map_err(|_| Error::Parse())?;
 
     coin_states = peer
       .register_for_coin_updates(vec![new_info.coin.coin_id()], min_height)
@@ -261,7 +258,7 @@ pub async fn sync_store_using_launcher_id(
   };
 
   let first_info =
-    DataStoreInfo::from_spend(ctx.allocator_mut(), &cs, vec![]).map_err(|_| Error::Parse())?;
+    DataStoreInfo::from_spend(ctx.allocator_mut(), &cs, &vec![]).map_err(|_| Error::Parse())?;
 
   return sync_store(peer, &first_info, min_height).await;
 }
@@ -331,7 +328,7 @@ fn update_store_with_conditions(
   let new_info = DataStoreInfo::from_spend(
     ctx.allocator_mut(),
     &new_spend,
-    store_info.delegated_puzzles.clone(),
+    &store_info.delegated_puzzles.clone(),
   )
   .map_err(|_| Error::Parse())?;
 
@@ -529,7 +526,7 @@ pub async fn oracle_spend(
   let new_datastore_info = DataStoreInfo::from_spend(
     ctx.allocator_mut(),
     &new_spend,
-    store_info.delegated_puzzles.clone(),
+    &store_info.delegated_puzzles.clone(),
   )
   .map_err(|_| Error::Parse())?;
 
