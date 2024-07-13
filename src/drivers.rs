@@ -1125,14 +1125,15 @@ mod tests {
           memos: get_memos(owner_puzzle_hash.into(), dst_delegated_puzzles.clone()),
         }));
       } else if dst_delegated_puzzles.len() > 0 {
-        // but src_delegated_puzzles.len() < 0 -> this is an upgrade
-        // upgrade from vanilla to delegated
-        // owner_output_conds = owner_output_conds.condition(Condition::CreateCoin(CreateCoin {
-        //   amount: 1,
-        //   puzzle_hash: owner_puzzle_hash.into(),
-        //   memos: vec![],
-        // }));
-        todo!();
+        // but stc_delegated_puzzles.len() < 0 -> this is an upgrade
+        let merkle_root = merkle_root_for_delegated_puzzles(&dst_delegated_puzzles);
+        let new_inner_ph =
+          DelegationLayerArgs::curry_tree_hash(merkle_root, owner_puzzle_hash).into();
+        owner_output_conds = owner_output_conds.condition(Condition::CreateCoin(CreateCoin {
+          amount: 1,
+          puzzle_hash: new_inner_ph,
+          memos: get_memos(owner_puzzle_hash.into(), dst_delegated_puzzles.clone()),
+        }));
       } else {
         // this is just a normal transition (vanilla -> vanilla)
         owner_output_conds = owner_output_conds.condition(Condition::CreateCoin(CreateCoin {
