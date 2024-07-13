@@ -115,6 +115,10 @@ mod tests {
     (<bytes32: 00f2e7e0bc3ee77f0b5aa330406f69bfbd5c2e3b8a4338dba49f64bb3f0247c4>, {<bytes32: 0101010101010101010101010101010101010101010101010101010101010101>: (0, [<bytes32: f1386fff8b06ac98d347997ff5d0abad3b977514b1b7cfe0689f45f3f1393497>]), <bytes32: 0202020202020202020202020202020202020202020202020202020202020202>: (1, [<bytes32: ce041765675ad4d93378e20bd3a7d0d97ddcf3385fb6341581b21d4bc9e3e69e>])})
     */
     #[rstest]
+    #[case(&[], 
+           Bytes32::default(), 
+           vec![]
+    )]
     #[case(&[Bytes32::from([1; 32])], 
            Bytes32::from(hex!("ce041765675ad4d93378e20bd3a7d0d97ddcf3385fb6341581b21d4bc9e3e69e")), 
            vec![(Bytes32::from([1; 32]), 0, vec![])]
