@@ -902,7 +902,7 @@ mod tests {
     ]
   )]
   #[tokio::test]
-  async fn test_datastore_transition_by_admin(
+  async fn test_datastore_admin_transition(
     src_meta: (Bytes32, String, String),
     src_with_writer: bool,
     // src must have admin layer in this scenario
@@ -1042,9 +1042,9 @@ mod tests {
     )
     .unwrap();
 
-    assert_eq!(dst_datastore_info.delegated_puzzles, dst_delegated_puzzles);
-
+    assert_eq!(src_datastore_info.delegated_puzzles, src_delegated_puzzles);
     assert_eq!(src_datastore_info.owner_puzzle_hash, owner_puzzle_hash);
+
     assert_eq!(src_datastore_info.metadata.root_hash, src_meta.0);
     assert_eq!(src_datastore_info.metadata.label, src_meta.1);
     assert_eq!(src_datastore_info.metadata.description, src_meta.2);
@@ -1081,7 +1081,9 @@ mod tests {
       assert!(!oracle_found);
     }
 
+    assert_eq!(dst_datastore_info.delegated_puzzles, dst_delegated_puzzles);
     assert_eq!(dst_datastore_info.owner_puzzle_hash, owner_puzzle_hash);
+
     assert_eq!(dst_datastore_info.metadata.root_hash, dst_meta.0);
     assert_eq!(dst_datastore_info.metadata.label, dst_meta.1);
     assert_eq!(dst_datastore_info.metadata.description, dst_meta.2);
@@ -1173,7 +1175,7 @@ mod tests {
     also_change_owner => [true, false],
   )]
   #[tokio::test]
-  async fn test_datastore_transition_by_owner(
+  async fn test_datastore_owner_transition(
     src_meta: (Bytes32, String, String),
     src_with_admin: bool,
     src_with_writer: bool,
@@ -1308,13 +1310,13 @@ mod tests {
     )
     .unwrap();
 
-    if dst_datastore_info.delegated_puzzles.len() > 0 {
-      assert_eq!(dst_datastore_info.delegated_puzzles, dst_delegated_puzzles);
+    if src_datastore_info.delegated_puzzles.len() > 0 {
+      assert_eq!(src_datastore_info.delegated_puzzles, src_delegated_puzzles);
     } else {
-      assert_eq!(dst_datastore_info.delegated_puzzles.len(), 0);
+      assert_eq!(src_datastore_info.delegated_puzzles.len(), 0);
     }
-
     assert_eq!(src_datastore_info.owner_puzzle_hash, owner_puzzle_hash);
+
     assert_eq!(src_datastore_info.metadata.root_hash, src_meta.0);
     assert_eq!(src_datastore_info.metadata.label, src_meta.1);
     assert_eq!(src_datastore_info.metadata.description, src_meta.2);
@@ -1352,11 +1354,17 @@ mod tests {
       assert!(!oracle_found);
     }
 
+    if dst_datastore_info.delegated_puzzles.len() > 0 {
+      assert_eq!(dst_datastore_info.delegated_puzzles, dst_delegated_puzzles);
+    } else {
+      assert_eq!(dst_datastore_info.delegated_puzzles.len(), 0);
+    }
     if also_change_owner {
       assert_eq!(dst_datastore_info.owner_puzzle_hash, owner2_puzzle_hash);
     } else {
       assert_eq!(dst_datastore_info.owner_puzzle_hash, owner_puzzle_hash);
     }
+
     assert_eq!(dst_datastore_info.metadata.root_hash, dst_meta.0);
     assert_eq!(dst_datastore_info.metadata.label, dst_meta.1);
     assert_eq!(dst_datastore_info.metadata.description, dst_meta.2);
@@ -1389,6 +1397,230 @@ mod tests {
       .into_iter()
       .any(|dp| dp.puzzle_hash == oracle_delegated_puzzle.puzzle_hash);
     if dst_with_oracle {
+      assert!(oracle_found);
+    } else {
+      assert!(!oracle_found);
+    }
+
+    test_transaction(
+      &peer,
+      ctx.take_spends(),
+      &[owner_sk, admin_sk, writer_sk],
+      sim.config().genesis_challenge,
+    )
+    .await;
+
+    let src_coin_state = sim
+      .coin_state(src_datastore_info.coin.coin_id())
+      .await
+      .expect("expected datastore coin");
+    assert_eq!(src_coin_state.coin, src_datastore_info.coin);
+    assert!(src_coin_state.spent_height.is_some());
+    let dst_coin_state = sim
+      .coin_state(dst_datastore_info.coin.coin_id())
+      .await
+      .expect("expected datastore coin");
+    assert_eq!(dst_coin_state.coin, dst_datastore_info.coin);
+    assert!(dst_coin_state.created_height.is_some());
+
+    Ok(())
+  }
+
+  #[rstest(
+    with_admin_layer => [true, false],
+    with_oracle_layer => [true, false],
+    meta_transition => [
+      (
+        (Bytes32::from([0; 32]), Bytes32::from([0; 32])),
+        ("".to_string(), "label".to_string()),
+        ("".to_string(), "description".to_string())
+      ),
+      (
+        (Bytes32::from([0; 32]), Bytes32::from([1; 32])),
+        ("".to_string(), "".to_string()),
+        ("".to_string(), "".to_string())
+      ),
+      (
+        (Bytes32::from([0; 32]), Bytes32::from([1; 32])),
+        ("label".to_string(), "label".to_string()),
+        ("description".to_string(), "description".to_string())
+      ),
+      (
+        (Bytes32::from([0; 32]), Bytes32::from([0; 32])),
+        ("label".to_string(), "new_label".to_string()),
+        ("description".to_string(), "new_description".to_string())
+      ),
+    ],
+  )]
+  #[tokio::test]
+  async fn test_datastore_writer_transition(
+    with_admin_layer: bool,
+    with_oracle_layer: bool,
+    meta_transition: ((Bytes32, Bytes32), (String, String), (String, String)),
+  ) -> anyhow::Result<()> {
+    let sim = Simulator::new().await?;
+    let peer = sim.connect().await?;
+
+    let [owner_sk, admin_sk, writer_sk]: [SecretKey; 3] =
+      secret_keys(3).unwrap().try_into().unwrap();
+
+    let owner_pk = owner_sk.public_key();
+    let admin_pk = admin_sk.public_key();
+    let writer_pk = writer_sk.public_key();
+
+    let oracle_puzzle_hash: Bytes32 = [7; 32].into();
+    let oracle_fee = 1000;
+
+    let owner_puzzle_hash = StandardArgs::curry_tree_hash(owner_pk).into();
+    let coin = sim.mint_coin(owner_puzzle_hash, 1).await;
+
+    let ctx = &mut SpendContext::new();
+
+    let (admin_delegated_puzzle, _) = DelegatedPuzzle::from_admin_pk(ctx, admin_pk).unwrap();
+
+    let (writer_delegated_puzzle, writer_inner_puzzle_ptr) =
+      DelegatedPuzzle::from_writer_pk(ctx, writer_pk).unwrap();
+
+    let oracle_delegated_puzzle =
+      DelegatedPuzzle::new_oracle(ctx.allocator_mut(), oracle_puzzle_hash, oracle_fee).unwrap();
+
+    let mut delegated_puzzles: Vec<DelegatedPuzzle> = vec![];
+    delegated_puzzles.push(writer_delegated_puzzle);
+
+    if with_admin_layer {
+      delegated_puzzles.push(admin_delegated_puzzle);
+    }
+    if with_oracle_layer {
+      delegated_puzzles.push(oracle_delegated_puzzle);
+    }
+
+    let (launch_singleton, src_datastore_info) = Launcher::new(coin.coin_id(), 1).mint_datastore(
+      ctx,
+      DataStoreMintInfo {
+        metadata: DataStoreMetadata {
+          root_hash: meta_transition.0 .0,
+          label: meta_transition.1 .0.clone(),
+          description: meta_transition.2 .0.clone(),
+        },
+        owner_puzzle_hash: owner_puzzle_hash.into(),
+        delegated_puzzles: delegated_puzzles.clone(),
+      },
+    )?;
+
+    ctx.spend_p2_coin(coin, owner_pk, launch_singleton)?;
+
+    // transition from src to dst using writer (update metadata)
+    let new_metadata = DataStoreMetadata {
+      root_hash: meta_transition.0 .1,
+      label: meta_transition.1 .1.clone(),
+      description: meta_transition.2 .1.clone(),
+    };
+    let new_metadata_condition = NewMetadataCondition::<i32, DataStoreMetadata, Bytes32, i32> {
+      metadata_updater_reveal: 11,
+      metadata_updater_solution: DefaultMetadataSolution {
+        metadata_part: DefaultMetadataSolutionMetadataList {
+          new_metadata: new_metadata,
+          new_metadata_updater_ph: DL_METADATA_UPDATER_PUZZLE_HASH.into(),
+        },
+        conditions: 0,
+      },
+    }
+    .to_clvm(ctx.allocator_mut())
+    .unwrap();
+
+    let writer_conds = Conditions::new().condition(Condition::Other(new_metadata_condition));
+
+    // delegated puzzle info
+    let inner_datastore_spend = DatastoreInnerSpend::DelegatedPuzzleSpend(
+      writer_delegated_puzzle,
+      writer_inner_puzzle_ptr,
+      writer_conds.p2_spend(ctx, writer_pk)?.solution(),
+    );
+    let new_spend = datastore_spend(ctx, &src_datastore_info, inner_datastore_spend)?;
+    ctx.insert_coin_spend(new_spend.clone());
+
+    // print_spend_bundle(vec![new_spend.clone()], Signature::default()); // todo: debug
+
+    let dst_datastore_info = DataStoreInfo::from_spend(
+      ctx.allocator_mut(),
+      &new_spend,
+      &src_datastore_info.delegated_puzzles,
+    )
+    .unwrap();
+
+    assert_eq!(dst_datastore_info.delegated_puzzles, delegated_puzzles);
+    assert_eq!(src_datastore_info.owner_puzzle_hash, owner_puzzle_hash);
+
+    assert_eq!(src_datastore_info.metadata.root_hash, meta_transition.0 .0);
+    assert_eq!(src_datastore_info.metadata.label, meta_transition.1 .0);
+    assert_eq!(
+      src_datastore_info.metadata.description,
+      meta_transition.2 .0
+    );
+
+    let admin_found = src_datastore_info
+      .delegated_puzzles
+      .clone()
+      .into_iter()
+      .any(|dp| dp.puzzle_hash == admin_delegated_puzzle.puzzle_hash);
+    if with_admin_layer {
+      assert!(admin_found);
+    } else {
+      assert!(!admin_found);
+    }
+
+    let writer_found = src_datastore_info
+      .delegated_puzzles
+      .clone()
+      .into_iter()
+      .any(|dp| dp.puzzle_hash == writer_delegated_puzzle.puzzle_hash);
+    assert!(writer_found);
+
+    let oracle_found = src_datastore_info
+      .delegated_puzzles
+      .clone()
+      .into_iter()
+      .any(|dp| dp.puzzle_hash == oracle_delegated_puzzle.puzzle_hash);
+    if with_oracle_layer {
+      assert!(oracle_found);
+    } else {
+      assert!(!oracle_found);
+    }
+
+    assert_eq!(dst_datastore_info.owner_puzzle_hash, owner_puzzle_hash);
+    assert_eq!(dst_datastore_info.delegated_puzzles, delegated_puzzles);
+
+    assert_eq!(dst_datastore_info.metadata.root_hash, meta_transition.0 .1);
+    assert_eq!(dst_datastore_info.metadata.label, meta_transition.1 .1);
+    assert_eq!(
+      dst_datastore_info.metadata.description,
+      meta_transition.2 .1
+    );
+
+    let admin_found = dst_datastore_info
+      .delegated_puzzles
+      .clone()
+      .into_iter()
+      .any(|dp| dp.puzzle_hash == admin_delegated_puzzle.puzzle_hash);
+    if with_admin_layer {
+      assert!(admin_found);
+    } else {
+      assert!(!admin_found);
+    }
+
+    let writer_found = dst_datastore_info
+      .delegated_puzzles
+      .clone()
+      .into_iter()
+      .any(|dp| dp.puzzle_hash == writer_delegated_puzzle.puzzle_hash);
+    assert!(writer_found);
+
+    let oracle_found = dst_datastore_info
+      .delegated_puzzles
+      .clone()
+      .into_iter()
+      .any(|dp| dp.puzzle_hash == oracle_delegated_puzzle.puzzle_hash);
+    if with_oracle_layer {
       assert!(oracle_found);
     } else {
       assert!(!oracle_found);
