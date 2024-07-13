@@ -266,6 +266,22 @@ dependencies = [
 ]
 
 [[package]]
+name = "chia-bls"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "725b43b268cb81f014559eed11a74d0e5b9dd55282cae272ff509796099ab0b9"
+dependencies = [
+ "anyhow",
+ "blst",
+ "chia-traits 0.10.0",
+ "hex",
+ "hkdf",
+ "lru",
+ "sha2",
+ "thiserror",
+]
+
+[[package]]
 name = "chia-client"
 version = "0.9.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -496,6 +512,17 @@ dependencies = [
 ]
 
 [[package]]
+name = "chia-traits"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "1fb786114e5c748fe0af3ba1e95840fa1910b28f7300c05184506045aff60bb6"
+dependencies = [
+ "chia_streamable_macro 0.10.0",
+ "sha2",
+ "thiserror",
+]
+
+[[package]]
 name = "chia-wallet-sdk"
 version = "0.11.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -534,6 +561,18 @@ name = "chia_streamable_macro"
 version = "0.8.0"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "a1e2025e62defea0c0bb0912e15091e632cdad892986563e179ce9ad3d2c7d0b"
+dependencies = [
+ "proc-macro-crate 1.3.1",
+ "proc-macro2",
+ "quote",
+ "syn 2.0.68",
+]
+
+[[package]]
+name = "chia_streamable_macro"
+version = "0.10.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "43975e01fb4293021af4950366a6f80c45d7301d499622359c7533bd7af19592"
 dependencies = [
  "proc-macro-crate 1.3.1",
  "proc-macro2",
@@ -686,7 +725,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "bech32",
+ "bip39",
  "chia",
+ "chia-bls 0.10.0",
  "chia-protocol",
  "chia-puzzles",
  "chia-sdk-driver",
@@ -707,6 +748,8 @@ dependencies = [
  "num-bigint",
  "openssl",
  "openssl-sys",
+ "rand",
+ "rand_chacha",
  "rstest",
  "serde",
  "serde_json",

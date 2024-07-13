@@ -382,13 +382,33 @@ mod tests {
 
   use super::*;
 
-  use chia::bls::Signature;
+  use chia::bls::{SecretKey, Signature};
   use chia_protocol::Bytes32;
   use chia_puzzles::standard::StandardArgs;
   use chia_sdk_driver::Launcher;
-  use chia_sdk_test::{secret_key, test_transaction, Simulator};
+  use chia_sdk_test::{test_transaction, Simulator};
   use chia_sdk_types::conditions::Condition;
   use rstest::rstest;
+
+  use bip39::Mnemonic;
+  use rand::{Rng, SeedableRng};
+  use rand_chacha::ChaCha8Rng;
+
+  fn secret_keys(no_keys: usize) -> Result<Vec<SecretKey>, bip39::Error> {
+    let mut rng = ChaCha8Rng::seed_from_u64(0);
+
+    let mut keys = Vec::with_capacity(no_keys);
+
+    for _ in 0..no_keys {
+      let entropy: [u8; 32] = rng.gen();
+      let mnemonic = Mnemonic::from_entropy(&entropy)?;
+      let seed = mnemonic.to_seed("");
+      let sk = SecretKey::from_seed(&seed);
+      keys.push(sk);
+    }
+
+    Ok(keys)
+  }
 
   fn assert_datastore_info_eq(
     ctx: &mut SpendContext,
@@ -445,7 +465,7 @@ mod tests {
     let sim = Simulator::new().await?;
     let peer = sim.connect().await?;
 
-    let sk = secret_key()?;
+    let [sk]: [SecretKey; 1] = secret_keys(1).unwrap().try_into().unwrap();
     let pk = sk.public_key();
 
     let puzzle_hash = StandardArgs::curry_tree_hash(pk).into();
@@ -511,13 +531,11 @@ mod tests {
     let sim = Simulator::new().await?;
     let peer = sim.connect().await?;
 
-    let owner_sk = secret_key()?;
+    let [owner_sk, admin_sk, writer_sk]: [SecretKey; 3] =
+      secret_keys(3).unwrap().try_into().unwrap();
+
     let owner_pk = owner_sk.public_key();
-
-    let admin_sk = secret_key()?;
     let admin_pk = admin_sk.public_key();
-
-    let writer_sk = secret_key()?;
     let writer_pk = writer_sk.public_key();
 
     let oracle_puzzle_hash: Bytes32 = [1; 32].into();
@@ -761,13 +779,11 @@ mod tests {
     let sim = Simulator::new().await?;
     let peer = sim.connect().await?;
 
-    let owner_sk = secret_key()?;
+    let [owner_sk, admin_sk, writer_sk]: [SecretKey; 3] =
+      secret_keys(3).unwrap().try_into().unwrap();
+
     let owner_pk = owner_sk.public_key();
-
-    let admin_sk = secret_key()?;
     let admin_pk = admin_sk.public_key();
-
-    let writer_sk = secret_key()?;
     let writer_pk = writer_sk.public_key();
 
     let oracle_puzzle_hash: Bytes32 = [7; 32].into();
@@ -887,13 +903,11 @@ mod tests {
     let sim = Simulator::new().await?;
     let peer = sim.connect().await?;
 
-    let owner_sk = secret_key()?;
+    let [owner_sk, admin_sk, writer_sk]: [SecretKey; 3] =
+      secret_keys(3).unwrap().try_into().unwrap();
+
     let owner_pk = owner_sk.public_key();
-
-    let admin_sk = secret_key()?;
     let admin_pk = admin_sk.public_key();
-
-    let writer_sk = secret_key()?;
     let writer_pk = writer_sk.public_key();
 
     let oracle_puzzle_hash: Bytes32 = [7; 32].into();
@@ -1044,6 +1058,7 @@ mod tests {
       (Bytes32::from([0; 32]), "label".to_string(), "description".to_string()),
       (Bytes32::from([0; 32]), "new_label".to_string(), "new_description".to_string()),
     ],
+    also_change_owner => [true, false],
   )]
   #[tokio::test]
   async fn test_datastore_ownership_transition_by_owner(
@@ -1055,17 +1070,17 @@ mod tests {
     dst_with_writer: bool,
     dst_with_oracle: bool,
     dst_meta: (Bytes32, String, String),
+    also_change_owner: bool,
   ) -> anyhow::Result<()> {
     let sim = Simulator::new().await?;
     let peer = sim.connect().await?;
 
-    let owner_sk = secret_key()?;
+    let [owner_sk, owner2_sk, admin_sk, writer_sk]: [SecretKey; 4] =
+      secret_keys(4).unwrap().try_into().unwrap();
+
     let owner_pk = owner_sk.public_key();
-
-    let admin_sk = secret_key()?;
+    let owner2_pk = owner2_sk.public_key();
     let admin_pk = admin_sk.public_key();
-
-    let writer_sk = secret_key()?;
     let writer_pk = writer_sk.public_key();
 
     let oracle_puzzle_hash: Bytes32 = [7; 32].into();
@@ -1073,6 +1088,9 @@ mod tests {
 
     let owner_puzzle_hash = StandardArgs::curry_tree_hash(owner_pk).into();
     let coin = sim.mint_coin(owner_puzzle_hash, 1).await;
+
+    let owner2_puzzle_hash = StandardArgs::curry_tree_hash(owner2_pk).into();
+    assert_ne!(owner_puzzle_hash, owner2_puzzle_hash);
 
     let ctx = &mut SpendContext::new();
 
@@ -1117,6 +1135,7 @@ mod tests {
       || src_with_writer != dst_with_writer
       || src_with_oracle != dst_with_oracle
       || dst_delegated_puzzles.len() == 0
+      || also_change_owner
     {
       dst_delegated_puzzles.clear();
 
@@ -1131,7 +1150,11 @@ mod tests {
       }
 
       owner_output_conds = owner_output_conds.condition(get_new_ownership_inner_condition(
-        &owner_puzzle_hash,
+        if also_change_owner {
+          &owner_puzzle_hash
+        } else {
+          &owner2_puzzle_hash
+        },
         &dst_delegated_puzzles,
       ));
     }
