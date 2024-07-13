@@ -11,6 +11,7 @@ use chia_puzzles::{
   EveProof, Proof,
 };
 use chia_sdk_driver::{spend_singleton, Conditions, Launcher, Spend, SpendContext, SpendError};
+use chia_sdk_types::conditions::{Condition, CreateCoin};
 use clvm_traits::{simplify_int_bytes, FromClvmError, ToClvm};
 use clvm_utils::{CurriedProgram, ToTreeHash, TreeHash};
 use clvmr::{reduction::EvalErr, NodePtr};
@@ -347,6 +348,31 @@ impl LauncherExt for Launcher {
   }
 }
 
+// Always use CREATE_COIN + hints to change ownership
+// Since new merkle root might end up costing a lil' bit more
+pub fn get_new_ownership_inner_condition(
+  new_inner_puzzle_hash: &Bytes32,
+  new_delegated_puzzles: &Vec<DelegatedPuzzle>,
+) -> Condition {
+  let memos = get_memos(
+    new_inner_puzzle_hash.clone().into(),
+    new_delegated_puzzles.clone(),
+  );
+
+  let new_puzzle_hash = if new_delegated_puzzles.len() > 0 {
+    let new_merkle_root = merkle_root_for_delegated_puzzles(&new_delegated_puzzles);
+    DelegationLayerArgs::curry_tree_hash(new_inner_puzzle_hash.clone(), new_merkle_root).into()
+  } else {
+    new_inner_puzzle_hash.clone()
+  };
+
+  Condition::CreateCoin(CreateCoin {
+    amount: 1,
+    puzzle_hash: new_puzzle_hash,
+    memos,
+  })
+}
+
 #[cfg(test)]
 mod tests {
   use crate::{
@@ -361,7 +387,7 @@ mod tests {
   use chia_puzzles::standard::StandardArgs;
   use chia_sdk_driver::Launcher;
   use chia_sdk_test::{secret_key, test_transaction, Simulator};
-  use chia_sdk_types::conditions::{Condition, CreateCoin};
+  use chia_sdk_types::conditions::Condition;
   use rstest::rstest;
 
   fn assert_datastore_info_eq(
@@ -1104,44 +1130,10 @@ mod tests {
         dst_delegated_puzzles.push(oracle_delegated_puzzle);
       }
 
-      // YAK TODO: get this to a function
-      if dst_delegated_puzzles.len() > 0 && src_delegated_puzzles.len() > 0 {
-        let new_merkle_root = merkle_root_for_delegated_puzzles(&dst_delegated_puzzles);
-
-        let new_merkle_root_condition = NewMerkleRootCondition {
-          new_merkle_root,
-          memos: get_memos(owner_puzzle_hash.into(), dst_delegated_puzzles.clone()),
-        }
-        .to_clvm(ctx.allocator_mut())
-        .unwrap();
-
-        owner_output_conds =
-          owner_output_conds.condition(Condition::Other(new_merkle_root_condition));
-      } else if src_delegated_puzzles.len() > 0 {
-        // but dst_delegated_puzzles.len() < 0 -> this is a downgrade
-        owner_output_conds = owner_output_conds.condition(Condition::CreateCoin(CreateCoin {
-          amount: 1,
-          puzzle_hash: owner_puzzle_hash.into(),
-          memos: get_memos(owner_puzzle_hash.into(), dst_delegated_puzzles.clone()),
-        }));
-      } else if dst_delegated_puzzles.len() > 0 {
-        // but stc_delegated_puzzles.len() < 0 -> this is an upgrade
-        let merkle_root = merkle_root_for_delegated_puzzles(&dst_delegated_puzzles);
-        let new_inner_ph =
-          DelegationLayerArgs::curry_tree_hash(merkle_root, owner_puzzle_hash).into();
-        owner_output_conds = owner_output_conds.condition(Condition::CreateCoin(CreateCoin {
-          amount: 1,
-          puzzle_hash: new_inner_ph,
-          memos: get_memos(owner_puzzle_hash.into(), dst_delegated_puzzles.clone()),
-        }));
-      } else {
-        // this is just a normal transition (vanilla -> vanilla)
-        owner_output_conds = owner_output_conds.condition(Condition::CreateCoin(CreateCoin {
-          amount: 1,
-          puzzle_hash: owner_puzzle_hash.into(),
-          memos: get_memos(owner_puzzle_hash.into(), dst_delegated_puzzles.clone()),
-        }));
-      }
+      owner_output_conds = owner_output_conds.condition(get_new_ownership_inner_condition(
+        &owner_puzzle_hash,
+        &dst_delegated_puzzles,
+      ));
     }
 
     if src_meta.0 != dst_meta.0 || src_meta.1 != dst_meta.1 || src_meta.2 != dst_meta.2 {
