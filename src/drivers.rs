@@ -369,6 +369,11 @@ pub fn get_new_ownership_inner_condition(
 
 #[cfg(test)]
 mod tests {
+  use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Mutex,
+  };
+
   use crate::{
     DefaultMetadataSolution, DefaultMetadataSolutionMetadataList, NewMerkleRootCondition,
     NewMetadataCondition,
@@ -376,12 +381,20 @@ mod tests {
 
   use super::*;
 
-  use chia::bls::SecretKey;
+  use chia::{
+    bls::SecretKey,
+    consensus::gen::{
+      conditions::EmptyVisitor, flags::MEMPOOL_MODE, owned_conditions::OwnedSpendBundleConditions,
+      run_block_generator::run_block_generator, solution_generator::solution_generator,
+    },
+  };
   use chia_protocol::{Bytes32, Coin};
   use chia_puzzles::standard::StandardArgs;
   use chia_sdk_driver::Launcher;
   use chia_sdk_test::{test_transaction, Simulator};
   use chia_sdk_types::conditions::{Condition, MeltSingleton};
+  use clvmr::Allocator;
+  use once_cell::sync::Lazy;
   use rstest::rstest;
 
   use bip39::Mnemonic;
@@ -402,6 +415,125 @@ mod tests {
     }
 
     Ok(keys)
+  }
+
+  struct TestStats {
+    launcher_tx_costs: Vec<u64>,
+    normal_spend_tx_costs: Vec<u64>,
+  }
+
+  impl TestStats {
+    pub fn new() -> Self {
+      Self {
+        launcher_tx_costs: Vec::new(),
+        normal_spend_tx_costs: Vec::new(),
+      }
+    }
+
+    pub fn add_launcher_tx_cost(&mut self, cost: u64) {
+      self.launcher_tx_costs.push(cost);
+    }
+
+    pub fn add_normal_spend_tx_cost(&mut self, cost: u64) {
+      self.normal_spend_tx_costs.push(cost);
+    }
+
+    pub fn add_launcher_tx(&mut self, cs: &CoinSpend) {
+      self.add_launcher_tx_cost(Self::get_cost(cs));
+    }
+
+    pub fn add_normal_spend_tx(&mut self, cs: &CoinSpend) {
+      self.add_normal_spend_tx_cost(Self::get_cost(cs));
+    }
+
+    // special thanks to Rigidity16 for this :green_heart:
+    fn get_cost(cs: &CoinSpend) -> u64 {
+      let mut alloc = Allocator::new();
+
+      let generator = solution_generator([(
+        cs.coin.clone(),
+        cs.puzzle_reveal.clone(),
+        cs.solution.clone(),
+      )])
+      .expect("failed to build solution generator for spend");
+
+      let conds = run_block_generator::<&[u8], EmptyVisitor>(
+        &mut alloc,
+        &generator,
+        &[],
+        u64::MAX,
+        MEMPOOL_MODE,
+      )
+      .expect("failed to run block generator for spend");
+
+      let conds = OwnedSpendBundleConditions::from(&alloc, conds)
+        .expect("failed to parse owned spend bundle conditions");
+
+      conds.cost
+    }
+
+    pub fn print_stats(&self) {
+      println!(
+        "Launcher TX Cost - Cnt: {}, Min: {}, Max: {}, Avg: {}, Median: {}",
+        self.cnt(&self.launcher_tx_costs),
+        self.min(&self.launcher_tx_costs),
+        self.max(&self.launcher_tx_costs),
+        self.avg(&self.launcher_tx_costs),
+        self.median(&self.launcher_tx_costs),
+      );
+
+      println!(
+        "Normal Spend TX Cost - Cnt: {}, Min: {}, Max: {}, Avg: {}, Median: {}",
+        self.cnt(&self.normal_spend_tx_costs),
+        self.min(&self.normal_spend_tx_costs),
+        self.max(&self.normal_spend_tx_costs),
+        self.avg(&self.normal_spend_tx_costs),
+        self.median(&self.normal_spend_tx_costs),
+      );
+    }
+
+    fn cnt(&self, data: &[u64]) -> usize {
+      data.len()
+    }
+
+    fn min(&self, data: &[u64]) -> u64 {
+      *data.iter().min().unwrap_or(&0)
+    }
+
+    fn max(&self, data: &[u64]) -> u64 {
+      *data.iter().max().unwrap_or(&0)
+    }
+
+    fn avg(&self, data: &[u64]) -> u64 {
+      if data.is_empty() {
+        0
+      } else {
+        data.iter().sum::<u64>() / data.len() as u64
+      }
+    }
+
+    fn median(&self, data: &[u64]) -> u64 {
+      let mut sorted = data.to_vec();
+      sorted.sort_unstable();
+      let len = sorted.len();
+      if len == 0 {
+        0
+      } else if len % 2 == 0 {
+        (sorted[len / 2 - 1] + sorted[len / 2]) / 2
+      } else {
+        sorted[len / 2]
+      }
+    }
+  }
+
+  static TEST_STATS: Lazy<Mutex<TestStats>> = Lazy::new(|| Mutex::new(TestStats::new()));
+  static PRINTED: AtomicBool = AtomicBool::new(false);
+
+  #[ctor::dtor]
+  fn finish() {
+    if !PRINTED.swap(true, Ordering::SeqCst) {
+      TEST_STATS.lock().unwrap().print_stats();
+    }
   }
 
   fn assert_datastore_info_eq(
@@ -489,6 +621,11 @@ mod tests {
           DataStoreInfo::from_spend(ctx.allocator_mut(), &spend, &vec![]).unwrap();
 
         assert_datastore_info_eq(ctx, &datastore_info, &new_datastore_info, true);
+
+        {
+          let mut stats = TEST_STATS.lock().unwrap();
+          stats.add_launcher_tx(&spend);
+        }
       }
 
       ctx.insert_coin_spend(spend);
@@ -499,6 +636,11 @@ mod tests {
       .p2_spend(ctx, pk)?;
     let inner_datastore_spend = DatastoreInnerSpend::OwnerPuzzleSpend(datastore_inner_spend);
     let new_spend = datastore_spend(ctx, &datastore_info, inner_datastore_spend)?;
+    {
+      let mut stats = TEST_STATS.lock().unwrap();
+      stats.add_normal_spend_tx(&new_spend);
+    }
+
     ctx.insert_coin_spend(new_spend);
 
     test_transaction(
@@ -594,6 +736,11 @@ mod tests {
         let new_datastore_info =
           DataStoreInfo::from_spend(ctx.allocator_mut(), &spend, &vec![]).unwrap();
 
+        {
+          let mut stats = TEST_STATS.lock().unwrap();
+          stats.add_launcher_tx(&spend);
+        }
+
         assert_datastore_info_eq(ctx, &datastore_info, &new_datastore_info, true);
       }
 
@@ -634,6 +781,10 @@ mod tests {
       Spend::new(writer_puzzle, new_metadata_inner_spend.solution()),
     );
     let new_spend = datastore_spend(ctx, &datastore_info, inner_datastore_spend)?;
+    {
+      let mut stats = TEST_STATS.lock().unwrap();
+      stats.add_normal_spend_tx(&new_spend);
+    }
     ctx.insert_coin_spend(new_spend.clone());
 
     let datastore_info = DataStoreInfo::from_spend(
@@ -673,6 +824,10 @@ mod tests {
       Spend::new(admin_puzzle, inner_spend.solution()),
     );
     let new_spend = datastore_spend(ctx, &datastore_info, inner_datastore_spend)?;
+    {
+      let mut stats = TEST_STATS.lock().unwrap();
+      stats.add_normal_spend_tx(&new_spend);
+    }
     ctx.insert_coin_spend(new_spend.clone());
 
     let datastore_info = DataStoreInfo::from_spend(
@@ -734,6 +889,10 @@ mod tests {
     let inner_datastore_spend =
       DatastoreInnerSpend::OwnerPuzzleSpend(datastore_remove_delegation_layer_inner_spend);
     let new_spend = datastore_spend(ctx, &datastore_info, inner_datastore_spend)?;
+    {
+      let mut stats = TEST_STATS.lock().unwrap();
+      stats.add_normal_spend_tx(&new_spend);
+    }
     ctx.insert_coin_spend(new_spend.clone());
 
     let new_datastore_info =
@@ -838,6 +997,10 @@ mod tests {
       if spend.coin.coin_id() == datastore_info.launcher_id {
         let new_datastore_info =
           DataStoreInfo::from_spend(ctx.allocator_mut(), &spend, &vec![]).unwrap();
+        {
+          let mut stats = TEST_STATS.lock().unwrap();
+          stats.add_launcher_tx(&spend);
+        }
 
         assert_datastore_info_eq(ctx, &datastore_info, &new_datastore_info, true);
       }
@@ -958,6 +1121,17 @@ mod tests {
     )?;
 
     ctx.spend_p2_coin(coin, owner_pk, launch_singleton)?;
+    let spends = ctx.take_spends();
+    for spend in spends.clone() {
+      if spend.coin.coin_id() == src_datastore_info.launcher_id {
+        {
+          let mut stats = TEST_STATS.lock().unwrap();
+          stats.add_launcher_tx(&spend);
+        }
+      }
+
+      ctx.insert_coin_spend(spend);
+    }
 
     // transition from src to dst
     let mut admin_inner_spend = Conditions::new();
@@ -1029,6 +1203,11 @@ mod tests {
       ),
     );
     let new_spend = datastore_spend(ctx, &src_datastore_info, inner_datastore_spend)?;
+
+    {
+      let mut stats = TEST_STATS.lock().unwrap();
+      stats.add_normal_spend_tx(&new_spend);
+    }
     ctx.insert_coin_spend(new_spend.clone());
 
     let dst_datastore_info = DataStoreInfo::from_spend(
@@ -1234,8 +1413,19 @@ mod tests {
         delegated_puzzles: src_delegated_puzzles.clone(),
       },
     )?;
-
     ctx.spend_p2_coin(coin, owner_pk, launch_singleton)?;
+
+    let spends = ctx.take_spends();
+    for spend in spends.clone() {
+      if spend.coin.coin_id() == src_datastore_info.launcher_id {
+        {
+          let mut stats = TEST_STATS.lock().unwrap();
+          stats.add_launcher_tx(&spend);
+        }
+      }
+
+      ctx.insert_coin_spend(spend);
+    }
 
     // transition from src to dst using owner puzzle
     let mut owner_output_conds = Conditions::new();
@@ -1295,6 +1485,11 @@ mod tests {
     let inner_datastore_spend =
       DatastoreInnerSpend::OwnerPuzzleSpend(owner_output_conds.p2_spend(ctx, owner_pk)?);
     let new_spend = datastore_spend(ctx, &src_datastore_info, inner_datastore_spend)?;
+
+    {
+      let mut stats = TEST_STATS.lock().unwrap();
+      stats.add_normal_spend_tx(&new_spend);
+    }
     ctx.insert_coin_spend(new_spend.clone());
 
     // print_spend_bundle(vec![new_spend.clone()], Signature::default()); // todo: debug
@@ -1505,6 +1700,18 @@ mod tests {
 
     ctx.spend_p2_coin(coin, owner_pk, launch_singleton)?;
 
+    let spends = ctx.take_spends();
+    for spend in spends.clone() {
+      if spend.coin.coin_id() == src_datastore_info.launcher_id {
+        {
+          let mut stats = TEST_STATS.lock().unwrap();
+          stats.add_launcher_tx(&spend);
+        }
+      }
+
+      ctx.insert_coin_spend(spend);
+    }
+
     // transition from src to dst using writer (update metadata)
     let new_metadata = DataStoreMetadata {
       root_hash: meta_transition.0 .1,
@@ -1535,6 +1742,11 @@ mod tests {
       ),
     );
     let new_spend = datastore_spend(ctx, &src_datastore_info, inner_datastore_spend)?;
+
+    {
+      let mut stats = TEST_STATS.lock().unwrap();
+      stats.add_normal_spend_tx(&new_spend);
+    }
     ctx.insert_coin_spend(new_spend.clone());
 
     // print_spend_bundle(vec![new_spend.clone()], Signature::default()); // todo: debug
@@ -1714,6 +1926,18 @@ mod tests {
     )?;
 
     ctx.spend_p2_coin(coin, owner_pk, launch_singleton)?;
+
+    let spends = ctx.take_spends();
+    for spend in spends.clone() {
+      if spend.coin.coin_id() == src_datastore_info.launcher_id {
+        {
+          let mut stats = TEST_STATS.lock().unwrap();
+          stats.add_launcher_tx(&spend);
+        }
+      }
+
+      ctx.insert_coin_spend(spend);
+    }
 
     // 'dude' spends oracle
     let inner_datastore_spend = DatastoreInnerSpend::DelegatedPuzzleSpend(
@@ -1924,6 +2148,18 @@ mod tests {
     )?;
 
     ctx.spend_p2_coin(coin, owner_pk, launch_singleton)?;
+
+    let spends = ctx.take_spends();
+    for spend in spends.clone() {
+      if spend.coin.coin_id() == src_datastore_info.launcher_id {
+        {
+          let mut stats = TEST_STATS.lock().unwrap();
+          stats.add_launcher_tx(&spend);
+        }
+      }
+
+      ctx.insert_coin_spend(spend);
+    }
 
     // owner melts
     let inner_datastore_spend = DatastoreInnerSpend::OwnerPuzzleSpend(
