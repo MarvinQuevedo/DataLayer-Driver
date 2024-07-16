@@ -597,9 +597,9 @@ mod tests {
       ctx,
       DataStoreMintInfo {
         metadata: DataStoreMetadata {
-          root_hash: Bytes32::new([0; 32]),
-          label: String::default(),
-          description: String::default(),
+          root_hash: Hash::ZERO.value(),
+          label: Label::EMPTY.value(),
+          description: Description::EMPTY.value(),
         },
         owner_puzzle_hash: puzzle_hash.into(),
         delegated_puzzles: vec![],
@@ -656,6 +656,55 @@ mod tests {
     Ok(())
   }
 
+  #[derive(PartialEq)]
+  enum Label {
+    EMPTY,
+    SOME,
+    NEW,
+  }
+
+  impl Label {
+    fn value(&self) -> String {
+      match self {
+        Label::EMPTY => String::new(),
+        Label::SOME => String::from("label"),
+        Label::NEW => String::from("new_label"),
+      }
+    }
+  }
+
+  #[derive(PartialEq)]
+  enum Description {
+    EMPTY,
+    SOME,
+    NEW,
+  }
+
+  impl Description {
+    fn value(&self) -> String {
+      match self {
+        Description::EMPTY => String::new(),
+        Description::SOME => String::from("description"),
+        Description::NEW => String::from("new_description"),
+      }
+    }
+  }
+
+  #[derive(PartialEq)]
+  enum Hash {
+    ZERO,
+    SOME,
+  }
+
+  impl Hash {
+    fn value(&self) -> Bytes32 {
+      match self {
+        Hash::ZERO => Bytes32::from([0; 32]),
+        Hash::SOME => Bytes32::from([1; 32]),
+      }
+    }
+  }
+
   #[tokio::test]
   async fn test_datastore_with_delegation_layer() -> anyhow::Result<()> {
     let sim = Simulator::new().await?;
@@ -709,9 +758,9 @@ mod tests {
       ctx,
       DataStoreMintInfo {
         metadata: DataStoreMetadata {
-          root_hash: Bytes32::new([0; 32]),
-          label: String::default(),
-          description: String::default(),
+          root_hash: Hash::ZERO.value(),
+          label: Label::EMPTY.value(),
+          description: Description::EMPTY.value(),
         },
         owner_puzzle_hash: owner_puzzle_hash.into(),
         delegated_puzzles: vec![
@@ -748,9 +797,9 @@ mod tests {
 
     // writer: update metadata
     let new_metadata = DataStoreMetadata {
-      root_hash: Bytes32::new([1; 32]),
-      label: String::from("label"),
-      description: String::from("description"),
+      root_hash: Hash::SOME.value(),
+      label: Label::SOME.value(),
+      description: Description::SOME.value(),
     };
     let new_metadata_condition = NewMetadataCondition::<i32, DataStoreMetadata, Bytes32, i32> {
       metadata_updater_reveal: 11,
@@ -791,10 +840,10 @@ mod tests {
       encode(datastore_info.metadata.root_hash),
       "0101010101010101010101010101010101010101010101010101010101010101" // serializing to bytes prepends a0 = len
     );
-    assert_eq!(datastore_info.metadata.label, String::from("label"));
+    assert_eq!(datastore_info.metadata.label, Label::SOME.value());
     assert_eq!(
       datastore_info.metadata.description,
-      String::from("description")
+      Description::SOME.value()
     );
 
     // admin: remove writer from delegated puzzles
@@ -960,22 +1009,22 @@ mod tests {
     }
 
     let label = if use_label_and_desc {
-      "label".to_string()
+      Label::SOME.value()
     } else {
-      String::default()
+      Label::EMPTY.value()
     };
 
     let description = if use_label_and_desc {
-      "description".to_string()
+      Description::SOME.value()
     } else {
-      String::default()
+      Label::EMPTY.value()
     };
 
     let (launch_singleton, datastore_info) = Launcher::new(coin.coin_id(), 1).mint_datastore(
       ctx,
       DataStoreMintInfo {
         metadata: DataStoreMetadata {
-          root_hash: Bytes32::new([0; 32]),
+          root_hash: Hash::ZERO.value(),
           label: label,
           description: description,
         },
@@ -1027,7 +1076,7 @@ mod tests {
   }
 
   #[derive(PartialEq, Debug)]
-  enum AdminTransitionDstAdminLayerOption {
+  enum DstAdmin {
     None,
     Same,
     New,
@@ -1038,30 +1087,30 @@ mod tests {
     dst_with_writer => [true, false],
     dst_with_oracle => [true, false],
     src_meta => [
-      (Bytes32::from([0; 32]), "".to_string(), "".to_string()),
-      (Bytes32::from([0; 32]), "label".to_string(), "description".to_string()),
+      (Hash::ZERO, Label::EMPTY, Description::EMPTY),
+      (Hash::SOME, Label::SOME, Description::SOME),
     ],
     dst_meta => [
-      (Bytes32::from([0; 32]), "".to_string(), "".to_string()),
-      (Bytes32::from([0; 32]), "label".to_string(), "description".to_string()),
-      (Bytes32::from([0; 32]), "new_label".to_string(), "new_description".to_string()),
+      (Hash::ZERO, Label::EMPTY, Description::EMPTY),
+      (Hash::ZERO, Label::SOME, Description::SOME),
+      (Hash::ZERO, Label::NEW, Description::NEW),
     ],
     dst_admin => [
-      AdminTransitionDstAdminLayerOption::None,
-      AdminTransitionDstAdminLayerOption::Same,
-      AdminTransitionDstAdminLayerOption::New,
+      DstAdmin::None,
+      DstAdmin::Same,
+      DstAdmin::New,
     ]
   )]
   #[tokio::test]
   async fn test_datastore_admin_transition(
-    src_meta: (Bytes32, String, String),
+    src_meta: (Hash, Label, Description),
     src_with_writer: bool,
     // src must have admin layer in this scenario
     src_with_oracle: bool,
     dst_with_writer: bool,
     dst_with_oracle: bool,
-    dst_admin: AdminTransitionDstAdminLayerOption,
-    dst_meta: (Bytes32, String, String),
+    dst_admin: DstAdmin,
+    dst_meta: (Hash, Label, Description),
   ) -> anyhow::Result<()> {
     let sim = Simulator::new().await?;
     let peer = sim.connect().await?;
@@ -1105,9 +1154,9 @@ mod tests {
       ctx,
       DataStoreMintInfo {
         metadata: DataStoreMetadata {
-          root_hash: src_meta.0,
-          label: src_meta.1.clone(),
-          description: src_meta.2.clone(),
+          root_hash: src_meta.0.value(),
+          label: src_meta.1.value(),
+          description: src_meta.2.value(),
         },
         owner_puzzle_hash: owner_puzzle_hash.into(),
         delegated_puzzles: src_delegated_puzzles.clone(),
@@ -1133,7 +1182,7 @@ mod tests {
     let mut dst_delegated_puzzles: Vec<DelegatedPuzzle> = src_delegated_puzzles.clone();
     if src_with_writer != dst_with_writer
       || src_with_oracle != dst_with_oracle
-      || dst_admin != AdminTransitionDstAdminLayerOption::Same
+      || dst_admin != DstAdmin::Same
     {
       dst_delegated_puzzles.clear();
 
@@ -1145,11 +1194,11 @@ mod tests {
       }
 
       match dst_admin {
-        AdminTransitionDstAdminLayerOption::None => {}
-        AdminTransitionDstAdminLayerOption::Same => {
+        DstAdmin::None => {}
+        DstAdmin::Same => {
           dst_delegated_puzzles.push(admin_delegated_puzzle);
         }
-        AdminTransitionDstAdminLayerOption::New => {
+        DstAdmin::New => {
           dst_delegated_puzzles.push(admin2_delegated_puzzle);
         }
       }
@@ -1168,9 +1217,9 @@ mod tests {
 
     if src_meta.0 != dst_meta.0 || src_meta.1 != dst_meta.1 || src_meta.2 != dst_meta.2 {
       let new_metadata = DataStoreMetadata {
-        root_hash: dst_meta.0,
-        label: dst_meta.1.clone(),
-        description: dst_meta.2.clone(),
+        root_hash: dst_meta.0.value(),
+        label: dst_meta.1.value(),
+        description: dst_meta.2.value(),
       };
       let new_metadata_condition = NewMetadataCondition::<i32, DataStoreMetadata, Bytes32, i32> {
         metadata_updater_reveal: 11,
@@ -1214,9 +1263,9 @@ mod tests {
     assert_eq!(src_datastore_info.delegated_puzzles, src_delegated_puzzles);
     assert_eq!(src_datastore_info.owner_puzzle_hash, owner_puzzle_hash);
 
-    assert_eq!(src_datastore_info.metadata.root_hash, src_meta.0);
-    assert_eq!(src_datastore_info.metadata.label, src_meta.1);
-    assert_eq!(src_datastore_info.metadata.description, src_meta.2);
+    assert_eq!(src_datastore_info.metadata.root_hash, src_meta.0.value());
+    assert_eq!(src_datastore_info.metadata.label, src_meta.1.value());
+    assert_eq!(src_datastore_info.metadata.description, src_meta.2.value());
 
     assert!(!src_datastore_info
       .delegated_puzzles
@@ -1253,9 +1302,9 @@ mod tests {
     assert_eq!(dst_datastore_info.delegated_puzzles, dst_delegated_puzzles);
     assert_eq!(dst_datastore_info.owner_puzzle_hash, owner_puzzle_hash);
 
-    assert_eq!(dst_datastore_info.metadata.root_hash, dst_meta.0);
-    assert_eq!(dst_datastore_info.metadata.label, dst_meta.1);
-    assert_eq!(dst_datastore_info.metadata.description, dst_meta.2);
+    assert_eq!(dst_datastore_info.metadata.root_hash, dst_meta.0.value());
+    assert_eq!(dst_datastore_info.metadata.label, dst_meta.1.value());
+    assert_eq!(dst_datastore_info.metadata.description, dst_meta.2.value());
 
     let admin_found = dst_datastore_info
       .delegated_puzzles
@@ -1268,13 +1317,13 @@ mod tests {
       .into_iter()
       .any(|dp| dp.puzzle_hash == admin2_delegated_puzzle.puzzle_hash);
     match dst_admin {
-      AdminTransitionDstAdminLayerOption::None => {
+      DstAdmin::None => {
         assert!(!admin_found && !admin2_found);
       }
-      AdminTransitionDstAdminLayerOption::Same => {
+      DstAdmin::Same => {
         assert!(admin_found && !admin2_found);
       }
-      AdminTransitionDstAdminLayerOption::New => {
+      DstAdmin::New => {
         assert!(!admin_found && admin2_found);
       }
     };
@@ -1333,26 +1382,26 @@ mod tests {
     dst_with_writer => [true, false],
     dst_with_oracle => [true, false],
     src_meta => [
-      (Bytes32::from([0; 32]), "".to_string(), "".to_string()),
-      (Bytes32::from([0; 32]), "label".to_string(), "description".to_string()),
+      (Hash::ZERO, Label::EMPTY, Description::EMPTY),
+      (Hash::SOME, Label::SOME, Description::SOME),
     ],
     dst_meta => [
-      (Bytes32::from([0; 32]), "".to_string(), "".to_string()),
-      (Bytes32::from([0; 32]), "label".to_string(), "description".to_string()),
-      (Bytes32::from([0; 32]), "new_label".to_string(), "new_description".to_string()),
+      (Hash::ZERO, Label::EMPTY, Description::EMPTY),
+      (Hash::ZERO, Label::SOME, Description::SOME),
+      (Hash::ZERO, Label::NEW, Description::NEW),
     ],
     also_change_owner => [true, false],
   )]
   #[tokio::test]
   async fn test_datastore_owner_transition(
-    src_meta: (Bytes32, String, String),
+    src_meta: (Hash, Label, Description),
     src_with_admin: bool,
     src_with_writer: bool,
     src_with_oracle: bool,
     dst_with_admin: bool,
     dst_with_writer: bool,
     dst_with_oracle: bool,
-    dst_meta: (Bytes32, String, String),
+    dst_meta: (Hash, Label, Description),
     also_change_owner: bool,
   ) -> anyhow::Result<()> {
     let sim = Simulator::new().await?;
@@ -1399,9 +1448,9 @@ mod tests {
       ctx,
       DataStoreMintInfo {
         metadata: DataStoreMetadata {
-          root_hash: src_meta.0,
-          label: src_meta.1.clone(),
-          description: src_meta.2.clone(),
+          root_hash: src_meta.0.value(),
+          label: src_meta.1.value(),
+          description: src_meta.2.value(),
         },
         owner_puzzle_hash: owner_puzzle_hash.into(),
         delegated_puzzles: src_delegated_puzzles.clone(),
@@ -1455,9 +1504,9 @@ mod tests {
 
     if src_meta.0 != dst_meta.0 || src_meta.1 != dst_meta.1 || src_meta.2 != dst_meta.2 {
       let new_metadata = DataStoreMetadata {
-        root_hash: dst_meta.0,
-        label: dst_meta.1.clone(),
-        description: dst_meta.2.clone(),
+        root_hash: dst_meta.0.value(),
+        label: dst_meta.1.value(),
+        description: dst_meta.2.value(),
       };
       let new_metadata_condition = NewMetadataCondition::<i32, DataStoreMetadata, Bytes32, i32> {
         metadata_updater_reveal: 11,
@@ -1502,9 +1551,9 @@ mod tests {
     }
     assert_eq!(src_datastore_info.owner_puzzle_hash, owner_puzzle_hash);
 
-    assert_eq!(src_datastore_info.metadata.root_hash, src_meta.0);
-    assert_eq!(src_datastore_info.metadata.label, src_meta.1);
-    assert_eq!(src_datastore_info.metadata.description, src_meta.2);
+    assert_eq!(src_datastore_info.metadata.root_hash, src_meta.0.value());
+    assert_eq!(src_datastore_info.metadata.label, src_meta.1.value());
+    assert_eq!(src_datastore_info.metadata.description, src_meta.2.value());
 
     let admin_found = src_datastore_info
       .delegated_puzzles
@@ -1550,9 +1599,9 @@ mod tests {
       assert_eq!(dst_datastore_info.owner_puzzle_hash, owner_puzzle_hash);
     }
 
-    assert_eq!(dst_datastore_info.metadata.root_hash, dst_meta.0);
-    assert_eq!(dst_datastore_info.metadata.label, dst_meta.1);
-    assert_eq!(dst_datastore_info.metadata.description, dst_meta.2);
+    assert_eq!(dst_datastore_info.metadata.root_hash, dst_meta.0.value());
+    assert_eq!(dst_datastore_info.metadata.label, dst_meta.1.value());
+    assert_eq!(dst_datastore_info.metadata.description, dst_meta.2.value());
 
     let admin_found = dst_datastore_info
       .delegated_puzzles
@@ -1616,24 +1665,24 @@ mod tests {
     with_oracle_layer => [true, false],
     meta_transition => [
       (
-        (Bytes32::from([0; 32]), Bytes32::from([0; 32])),
-        ("".to_string(), "label".to_string()),
-        ("".to_string(), "description".to_string())
+        (Hash::ZERO, Hash::ZERO),
+        (Label::EMPTY, Label::SOME),
+        (Description::EMPTY, Description::SOME)
       ),
       (
-        (Bytes32::from([0; 32]), Bytes32::from([1; 32])),
-        ("".to_string(), "".to_string()),
-        ("".to_string(), "".to_string())
+        (Hash::ZERO, Hash::SOME),
+        (Label::EMPTY, Label::EMPTY),
+        (Description::EMPTY, Description::EMPTY)
       ),
       (
-        (Bytes32::from([0; 32]), Bytes32::from([1; 32])),
-        ("label".to_string(), "label".to_string()),
-        ("description".to_string(), "description".to_string())
+        (Hash::ZERO, Hash::SOME),
+        (Label::SOME, Label::SOME),
+        (Description::SOME, Description::SOME)
       ),
       (
-        (Bytes32::from([0; 32]), Bytes32::from([0; 32])),
-        ("label".to_string(), "new_label".to_string()),
-        ("description".to_string(), "new_description".to_string())
+        (Hash::ZERO, Hash::ZERO),
+        (Label::SOME, Label::NEW),
+        (Description::SOME, Description::NEW)
       ),
     ],
   )]
@@ -1641,7 +1690,7 @@ mod tests {
   async fn test_datastore_writer_transition(
     with_admin_layer: bool,
     with_oracle_layer: bool,
-    meta_transition: ((Bytes32, Bytes32), (String, String), (String, String)),
+    meta_transition: ((Hash, Hash), (Label, Label), (Description, Description)),
   ) -> anyhow::Result<()> {
     let sim = Simulator::new().await?;
     let peer = sim.connect().await?;
@@ -1683,9 +1732,9 @@ mod tests {
       ctx,
       DataStoreMintInfo {
         metadata: DataStoreMetadata {
-          root_hash: meta_transition.0 .0,
-          label: meta_transition.1 .0.clone(),
-          description: meta_transition.2 .0.clone(),
+          root_hash: meta_transition.0 .0.value(),
+          label: meta_transition.1 .0.value(),
+          description: meta_transition.2 .0.value(),
         },
         owner_puzzle_hash: owner_puzzle_hash.into(),
         delegated_puzzles: delegated_puzzles.clone(),
@@ -1708,9 +1757,9 @@ mod tests {
 
     // transition from src to dst using writer (update metadata)
     let new_metadata = DataStoreMetadata {
-      root_hash: meta_transition.0 .1,
-      label: meta_transition.1 .1.clone(),
-      description: meta_transition.2 .1.clone(),
+      root_hash: meta_transition.0 .1.value(),
+      label: meta_transition.1 .1.value(),
+      description: meta_transition.2 .1.value(),
     };
     let new_metadata_condition = NewMetadataCondition::<i32, DataStoreMetadata, Bytes32, i32> {
       metadata_updater_reveal: 11,
@@ -1755,11 +1804,17 @@ mod tests {
     assert_eq!(dst_datastore_info.delegated_puzzles, delegated_puzzles);
     assert_eq!(src_datastore_info.owner_puzzle_hash, owner_puzzle_hash);
 
-    assert_eq!(src_datastore_info.metadata.root_hash, meta_transition.0 .0);
-    assert_eq!(src_datastore_info.metadata.label, meta_transition.1 .0);
+    assert_eq!(
+      src_datastore_info.metadata.root_hash,
+      meta_transition.0 .0.value()
+    );
+    assert_eq!(
+      src_datastore_info.metadata.label,
+      meta_transition.1 .0.value()
+    );
     assert_eq!(
       src_datastore_info.metadata.description,
-      meta_transition.2 .0
+      meta_transition.2 .0.value()
     );
 
     let admin_found = src_datastore_info
@@ -1794,11 +1849,17 @@ mod tests {
     assert_eq!(dst_datastore_info.owner_puzzle_hash, owner_puzzle_hash);
     assert_eq!(dst_datastore_info.delegated_puzzles, delegated_puzzles);
 
-    assert_eq!(dst_datastore_info.metadata.root_hash, meta_transition.0 .1);
-    assert_eq!(dst_datastore_info.metadata.label, meta_transition.1 .1);
+    assert_eq!(
+      dst_datastore_info.metadata.root_hash,
+      meta_transition.0 .1.value()
+    );
+    assert_eq!(
+      dst_datastore_info.metadata.label,
+      meta_transition.1 .1.value()
+    );
     assert_eq!(
       dst_datastore_info.metadata.description,
-      meta_transition.2 .1
+      meta_transition.2 .1.value()
     );
 
     let admin_found = dst_datastore_info
@@ -1858,15 +1919,15 @@ mod tests {
     with_admin_layer => [true, false],
     with_writer_layer => [true, false],
     meta => [
-      (Bytes32::from([0; 32]), "".to_string(), "".to_string()),
-      (Bytes32::from([0; 32]), "label".to_string(), "description".to_string()),
+      (Hash::ZERO, Label::EMPTY, Description::EMPTY),
+      (Hash::ZERO, Label::SOME, Description::SOME),
     ],
   )]
   #[tokio::test]
   async fn test_datastore_oracle_transition(
     with_admin_layer: bool,
     with_writer_layer: bool,
-    meta: (Bytes32, String, String),
+    meta: (Hash, Label, Description),
   ) -> anyhow::Result<()> {
     let sim = Simulator::new().await?;
     let peer = sim.connect().await?;
@@ -1910,9 +1971,9 @@ mod tests {
       ctx,
       DataStoreMintInfo {
         metadata: DataStoreMetadata {
-          root_hash: meta.0,
-          label: meta.1.clone(),
-          description: meta.2.clone(),
+          root_hash: meta.0.value(),
+          label: meta.1.value(),
+          description: meta.2.value(),
         },
         owner_puzzle_hash: owner_puzzle_hash.into(),
         delegated_puzzles: delegated_puzzles.clone(),
@@ -1973,9 +2034,9 @@ mod tests {
     assert_eq!(dst_datastore_info.delegated_puzzles, delegated_puzzles);
     assert_eq!(src_datastore_info.owner_puzzle_hash, owner_puzzle_hash);
 
-    assert_eq!(src_datastore_info.metadata.root_hash, meta.0);
-    assert_eq!(src_datastore_info.metadata.label, meta.1);
-    assert_eq!(src_datastore_info.metadata.description, meta.2);
+    assert_eq!(src_datastore_info.metadata.root_hash, meta.0.value());
+    assert_eq!(src_datastore_info.metadata.label, meta.1.value());
+    assert_eq!(src_datastore_info.metadata.description, meta.2.value());
 
     let admin_found = src_datastore_info
       .delegated_puzzles
@@ -2009,9 +2070,9 @@ mod tests {
     assert_eq!(dst_datastore_info.owner_puzzle_hash, owner_puzzle_hash);
     assert_eq!(dst_datastore_info.delegated_puzzles, delegated_puzzles);
 
-    assert_eq!(dst_datastore_info.metadata.root_hash, meta.0);
-    assert_eq!(dst_datastore_info.metadata.label, meta.1);
-    assert_eq!(dst_datastore_info.metadata.description, meta.2);
+    assert_eq!(dst_datastore_info.metadata.root_hash, meta.0.value());
+    assert_eq!(dst_datastore_info.metadata.label, meta.1.value());
+    assert_eq!(dst_datastore_info.metadata.description, meta.2.value());
 
     let admin_found = dst_datastore_info
       .delegated_puzzles
@@ -2080,8 +2141,8 @@ mod tests {
     with_writer_layer => [true, false],
     with_oracle_layer => [true, false],
     meta => [
-      (Bytes32::from([0; 32]), "".to_string(), "".to_string()),
-      (Bytes32::from([0; 32]), "label".to_string(), "description".to_string()),
+      (Hash::ZERO, Label::EMPTY, Description::EMPTY),
+      (Hash::ZERO, Label::SOME, Description::SOME),
     ],
   )]
   #[tokio::test]
@@ -2089,7 +2150,7 @@ mod tests {
     with_admin_layer: bool,
     with_writer_layer: bool,
     with_oracle_layer: bool,
-    meta: (Bytes32, String, String),
+    meta: (Hash, Label, Description),
   ) -> anyhow::Result<()> {
     let sim = Simulator::new().await?;
     let peer = sim.connect().await?;
@@ -2132,9 +2193,9 @@ mod tests {
       ctx,
       DataStoreMintInfo {
         metadata: DataStoreMetadata {
-          root_hash: meta.0,
-          label: meta.1.clone(),
-          description: meta.2.clone(),
+          root_hash: meta.0.value(),
+          label: meta.1.value(),
+          description: meta.2.value(),
         },
         owner_puzzle_hash: owner_puzzle_hash.into(),
         delegated_puzzles: delegated_puzzles.clone(),
@@ -2170,9 +2231,9 @@ mod tests {
 
     assert_eq!(src_datastore_info.owner_puzzle_hash, owner_puzzle_hash);
 
-    assert_eq!(src_datastore_info.metadata.root_hash, meta.0);
-    assert_eq!(src_datastore_info.metadata.label, meta.1);
-    assert_eq!(src_datastore_info.metadata.description, meta.2);
+    assert_eq!(src_datastore_info.metadata.root_hash, meta.0.value());
+    assert_eq!(src_datastore_info.metadata.label, meta.1.value());
+    assert_eq!(src_datastore_info.metadata.description, meta.2.value());
 
     let admin_found = src_datastore_info
       .delegated_puzzles
