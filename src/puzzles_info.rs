@@ -331,8 +331,8 @@ impl DelegatedPuzzle {
 
 #[derive(ToClvm, FromClvm, Debug, Clone, PartialEq, Eq)]
 #[clvm(list)]
-pub struct DLLauncherKVList<T = NodePtr> {
-  pub root_hash: Bytes32,
+pub struct DLLauncherKVList<M = DataStoreMetadata, T = NodePtr> {
+  pub metadata: M,
   pub state_layer_inner_puzzle_hash: Bytes32,
   #[clvm(rest)]
   pub memos: Vec<T>,
@@ -437,24 +437,24 @@ impl DataStoreInfo {
     proof: Proof,
     metadata: DataStoreMetadata,
     fallback_owner_ph: Bytes32,
-    hints: &Vec<Bytes>,
+    memos: &Vec<Bytes>,
   ) -> Result<DataStoreInfo, ParseError> {
-    let mut hints = hints.clone();
-    println!("hints clone: {:?}", hints); // todo: debug
+    let mut memos = memos.clone();
+    println!("memos clone: {:?}", memos); // todo: debug
 
-    let owner_puzzle_hash: Bytes32 = if hints.len() < 1 {
+    let owner_puzzle_hash: Bytes32 = if memos.len() < 1 {
       fallback_owner_ph
     } else {
-      Bytes32::from_bytes(&hints.drain(0..1).next().unwrap())
+      Bytes32::from_bytes(&memos.drain(0..1).next().unwrap())
         .map_err(|_| ParseError::MissingHint)?
     };
 
     let delegated_puzzles = {
-      println!("moar hints: {:?}", hints); // todo: debug
+      println!("moar memos: {:?}", memos); // todo: debug
       let mut d_puzz: Vec<DelegatedPuzzle> = vec![];
 
-      while hints.len() > 1 {
-        d_puzz.push(DelegatedPuzzle::from_hint(allocator, &mut hints)?);
+      while memos.len() > 1 {
+        d_puzz.push(DelegatedPuzzle::from_hint(allocator, &mut memos)?);
       }
 
       Ok(d_puzz)
@@ -494,36 +494,16 @@ impl DataStoreInfo {
     if cs.coin.puzzle_hash == SINGLETON_LAUNCHER_PUZZLE_HASH.into() {
       // we're just launching this singleton :)
       // solution is (singleton_full_puzzle_hash amount key_value_list)
-      let solution =
-        LauncherSolution::<DLLauncherKVList<Bytes>>::from_clvm(allocator, solution_node_ptr)
-          .map_err(|_| ParseError::NonStandardLayer)?;
-
-      let metadata_info = solution.key_value_list;
-      let label: String = if metadata_info.memos.len() >= 1 {
-        String::from_utf8(metadata_info.memos[0].to_vec())
-          .map_err(|err| {
-            println!("err 1023948"); // todo: debug
-            println!("metadata_info: {:?}", metadata_info); // todo: debug
-            println!("err: {:?}", err); // todo: debug
-            return ParseError::MissingHint;
-          })
-          .unwrap_or_default()
-      } else {
-        String::default()
-      };
-      let description: String = if metadata_info.memos.len() >= 2 {
-        String::from_utf8(metadata_info.memos[1].to_vec()).unwrap_or_default()
-      } else {
-        String::default()
-      };
+      // kv_list is (metadata state_layer_hash)
+      let solution = LauncherSolution::<DLLauncherKVList<DataStoreMetadata, Bytes>>::from_clvm(
+        allocator,
+        solution_node_ptr,
+      )
+      .map_err(|_| ParseError::NonStandardLayer)?;
 
       println!("converting metadata..."); // todo: debug
-      println!("metadata_info: {:?}", metadata_info); // todo: debug
-      let metadata = DataStoreMetadata {
-        root_hash: metadata_info.root_hash,
-        label,
-        description,
-      };
+      let metadata = solution.key_value_list.metadata;
+      println!("metadata: {:?}", metadata); // todo: debug
 
       let launcher_id = cs.coin.coin_id();
       let new_coin = Coin {
@@ -538,11 +518,8 @@ impl DataStoreInfo {
       });
 
       println!("building datastore info..."); // todo: debug
-      println!(
-        "hints (first 3 = label/description/inner ph): {:?}",
-        metadata_info.memos
-      ); // todo: debug
-      let hints: Vec<Bytes> = metadata_info.memos.iter().skip(2).cloned().collect();
+      println!("memos: {:?}", solution.key_value_list.memos); // todo: debug
+      let memos: Vec<Bytes> = solution.key_value_list.memos.clone();
       println!("calling build_datastore_info..."); // todo: debug
       return match DataStoreInfo::build_datastore_info(
         allocator,
@@ -550,8 +527,8 @@ impl DataStoreInfo {
         launcher_id,
         proof,
         metadata,
-        metadata_info.state_layer_inner_puzzle_hash,
-        &hints,
+        solution.key_value_list.state_layer_inner_puzzle_hash,
+        &memos,
       ) {
         Ok(info) => Ok(info),
         Err(err) => Err(err),

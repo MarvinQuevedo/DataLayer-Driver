@@ -306,17 +306,11 @@ impl LauncherExt for Launcher {
     .tree_hash();
 
     let mut memos = get_memos(info.owner_puzzle_hash, info.delegated_puzzles.clone());
-    if info.delegated_puzzles.len() == 0 && info.metadata.description.len() == 0 {
+    if info.delegated_puzzles.len() == 0 {
       memos = vec![];
-    } else {
-      memos.insert(
-        0,
-        Bytes::from(info.metadata.description.clone().into_bytes()),
-      );
-      memos.insert(0, Bytes::from(info.metadata.label.clone().into_bytes()));
     }
     let kv_list = DLLauncherKVList {
-      root_hash: info.metadata.root_hash,
+      metadata: info.metadata.clone(),
       state_layer_inner_puzzle_hash: inner_puzzle_hash.into(),
       memos,
     };
@@ -333,7 +327,7 @@ impl LauncherExt for Launcher {
       launcher_id: launcher_coin.coin_id(),
       coin: eve_coin,
       proof,
-      metadata: info.metadata.clone(),
+      metadata: info.metadata,
       owner_puzzle_hash: info.owner_puzzle_hash.into(),
       delegated_puzzles: info.delegated_puzzles.clone(),
     };
