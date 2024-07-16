@@ -8,6 +8,7 @@ use crate::{
 use chia_protocol::{Bytes, Bytes32, CoinSpend};
 use chia_puzzles::{
   nft::{NftStateLayerArgs, NftStateLayerSolution, NFT_STATE_LAYER_PUZZLE_HASH},
+  singleton::SingletonArgs,
   EveProof, Proof,
 };
 use chia_sdk_driver::{spend_singleton, Conditions, Launcher, Spend, SpendContext, SpendError};
@@ -47,12 +48,40 @@ pub fn spend_delegation_layer(
   inner_datastore_spend: DatastoreInnerSpend,
 ) -> Result<Spend, SpendError> {
   if datastore_info.delegated_puzzles.len() == 0 {
-    return match inner_datastore_spend {
-      DatastoreInnerSpend::OwnerPuzzleSpend(inner_spend) => Ok(inner_spend),
-      DatastoreInnerSpend::DelegatedPuzzleSpend(_, inner_spend) => Err(SpendError::Eval(EvalErr(
-        inner_spend.solution(),
-        String::from("data store does not have a delegation layer"),
-      ))),
+    match inner_datastore_spend {
+      DatastoreInnerSpend::OwnerPuzzleSpend(inner_spend) => {
+        // no delegated puzzles, so there are two possible puzzles:
+        // a) only owner puzzle
+        // b) delegation layer with an empty root + owner puzzle
+        // assume a, compute full puzzle hash, compare with the coin's to see which option is true
+
+        let inner_ph = ctx.tree_hash(inner_spend.puzzle());
+
+        let metadata_ptr = datastore_info
+          .metadata
+          .to_clvm(ctx.allocator_mut())
+          .map_err(|err| SpendError::ToClvm(err))?;
+        let nft_layer_hash =
+          NftStateLayerArgs::curry_tree_hash(ctx.tree_hash(metadata_ptr), inner_ph);
+
+        let full_ph_if_a =
+          SingletonArgs::curry_tree_hash(datastore_info.owner_puzzle_hash, nft_layer_hash);
+
+        if datastore_info.coin.puzzle_hash == full_ph_if_a.into() {
+          return Ok(inner_spend);
+        }
+
+        println!("that pesky admin!") // todo: debug
+                                      // turns out the admin left delegated_puzzles=[]... (option b)
+                                      // no problem; let the function continue execution as if delegated_puzzles!=[]
+                                      // since merkle_root_for_delegated_puzzles will recognize [] and return the proper root
+      }
+      DatastoreInnerSpend::DelegatedPuzzleSpend(_, inner_spend) => {
+        return Err(SpendError::Eval(EvalErr(
+          inner_spend.solution(),
+          String::from("data store does not have a delegation layer"),
+        )))
+      }
     };
   }
 
@@ -362,7 +391,7 @@ pub fn get_new_ownership_inner_condition(
 }
 
 #[cfg(test)]
-mod tests {
+pub mod tests {
   use std::sync::{
     atomic::{AtomicBool, Ordering},
     Mutex,
@@ -395,7 +424,7 @@ mod tests {
   use rand::{Rng, SeedableRng};
   use rand_chacha::ChaCha8Rng;
 
-  fn secret_keys(no_keys: usize) -> Result<Vec<SecretKey>, bip39::Error> {
+  pub fn secret_keys(no_keys: usize) -> Result<Vec<SecretKey>, bip39::Error> {
     let mut rng = ChaCha8Rng::seed_from_u64(0);
 
     let mut keys = Vec::with_capacity(no_keys);
@@ -657,14 +686,14 @@ mod tests {
   }
 
   #[derive(PartialEq)]
-  enum Label {
+  pub enum Label {
     EMPTY,
     SOME,
     NEW,
   }
 
   impl Label {
-    fn value(&self) -> String {
+    pub fn value(&self) -> String {
       match self {
         Label::EMPTY => String::new(),
         Label::SOME => String::from("label"),
@@ -674,14 +703,14 @@ mod tests {
   }
 
   #[derive(PartialEq)]
-  enum Description {
+  pub enum Description {
     EMPTY,
     SOME,
     NEW,
   }
 
   impl Description {
-    fn value(&self) -> String {
+    pub fn value(&self) -> String {
       match self {
         Description::EMPTY => String::new(),
         Description::SOME => String::from("description"),
@@ -691,13 +720,13 @@ mod tests {
   }
 
   #[derive(PartialEq)]
-  enum Hash {
+  pub enum Hash {
     ZERO,
     SOME,
   }
 
   impl Hash {
-    fn value(&self) -> Bytes32 {
+    pub fn value(&self) -> Bytes32 {
       match self {
         Hash::ZERO => Bytes32::from([0; 32]),
         Hash::SOME => Bytes32::from([1; 32]),
