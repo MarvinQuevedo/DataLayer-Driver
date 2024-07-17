@@ -1188,17 +1188,19 @@ mod tests {
     let mut inner_spend_conditions = Conditions::new();
 
     let second_root_hash: Hash = transition.1;
+
+    let new_metadata = DataStoreMetadata {
+      root_hash: second_root_hash.value(),
+      label: Label::EMPTY.value(),
+      description: Description::EMPTY.value(),
+    };
     if second_root_hash != first_root_hash {
       inner_spend_conditions = inner_spend_conditions.condition(Condition::Other(
         NewMetadataCondition::<i32, DataStoreMetadata, Bytes32, i32> {
           metadata_updater_reveal: 11,
           metadata_updater_solution: DefaultMetadataSolution {
             metadata_part: DefaultMetadataSolutionMetadataList {
-              new_metadata: DataStoreMetadata {
-                root_hash: second_root_hash.value(),
-                label: Label::EMPTY.value(),
-                description: Description::EMPTY.value(),
-              },
+              new_metadata: new_metadata.clone(),
               new_metadata_updater_ph: DL_METADATA_UPDATER_PUZZLE_HASH.into(),
             },
             conditions: 0,
@@ -1265,14 +1267,22 @@ mod tests {
       new_info.coin.parent_coin_info,
       info_from_launcher.coin.coin_id()
     );
-
-    let full_computed_puzzle_ptr = full_spend
-      .puzzle_reveal
-      .to_node_ptr(ctx.allocator_mut())
-      .unwrap();
     assert_eq!(
       new_info.coin.puzzle_hash,
-      ctx.tree_hash(full_computed_puzzle_ptr).into()
+      SingletonArgs::curry_tree_hash(
+        info_from_launcher.launcher_id,
+        CurriedProgram {
+          program: NFT_STATE_LAYER_PUZZLE_HASH,
+          args: NftStateLayerArgs::<TreeHash, DataStoreMetadata> {
+            mod_hash: NFT_STATE_LAYER_PUZZLE_HASH.into(),
+            metadata: new_metadata,
+            metadata_updater_puzzle_hash: DL_METADATA_UPDATER_PUZZLE_HASH.into(),
+            inner_puzzle: new_inner_ph.into(),
+          },
+        }
+        .tree_hash()
+      )
+      .into()
     );
     assert_eq!(new_info.coin.amount, 1);
 
@@ -1280,7 +1290,20 @@ mod tests {
       Proof::Lineage(proof) => {
         assert_eq!(proof.parent_parent_coin_id, eve_coin.parent_coin_info);
         assert_eq!(proof.parent_amount, eve_coin.amount);
-        assert_eq!(proof.parent_inner_puzzle_hash, owner_puzzle_hash.into());
+        assert_eq!(
+          proof.parent_inner_puzzle_hash,
+          CurriedProgram {
+            program: NFT_STATE_LAYER_PUZZLE_HASH,
+            args: NftStateLayerArgs::<TreeHash, DataStoreMetadata> {
+              mod_hash: NFT_STATE_LAYER_PUZZLE_HASH.into(),
+              metadata: info_from_launcher.metadata,
+              metadata_updater_puzzle_hash: DL_METADATA_UPDATER_PUZZLE_HASH.into(),
+              inner_puzzle: owner_puzzle_hash,
+            },
+          }
+          .tree_hash()
+          .into()
+        );
       }
       _ => panic!("expected lineage proof for new_info"),
     }
