@@ -74,7 +74,7 @@
     (if (= puzzle_hash INNER_PUZZLE_HASH)
       ()
       ; else
-      (if (= MERKLE_ROOT (simplify_merkle_proof puzzle_hash merkle_proof)) () (x "invalid ph")) 
+      (if (= MERKLE_ROOT (simplify_merkle_proof puzzle_hash merkle_proof)) () (x)) 
     )
   )
 

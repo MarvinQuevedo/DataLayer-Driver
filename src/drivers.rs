@@ -55,26 +55,29 @@ pub fn spend_delegation_layer(
         // b) delegation layer with an empty root + owner puzzle
         // assume a, compute full puzzle hash, compare with the coin's to see which option is true
 
-        let inner_ph = ctx.tree_hash(inner_spend.puzzle());
-
         let metadata_ptr = datastore_info
           .metadata
           .to_clvm(ctx.allocator_mut())
           .map_err(|err| SpendError::ToClvm(err))?;
-        let nft_layer_hash =
-          NftStateLayerArgs::curry_tree_hash(ctx.tree_hash(metadata_ptr), inner_ph);
+        let nft_layer_hash = NftStateLayerArgs::curry_tree_hash(
+          ctx.tree_hash(metadata_ptr),
+          datastore_info.owner_puzzle_hash.into(),
+        );
 
         let full_ph_if_a =
-          SingletonArgs::curry_tree_hash(datastore_info.owner_puzzle_hash, nft_layer_hash);
+          SingletonArgs::curry_tree_hash(datastore_info.launcher_id, nft_layer_hash);
 
         if datastore_info.coin.puzzle_hash == full_ph_if_a.into() {
           return Ok(inner_spend);
         }
 
-        println!("that pesky admin!") // todo: debug
-                                      // turns out the admin left delegated_puzzles=[]... (option b)
-                                      // no problem; let the function continue execution as if delegated_puzzles!=[]
-                                      // since merkle_root_for_delegated_puzzles will recognize [] and return the proper root
+        println!(
+          "that pesky admin! {:?} {:?}",
+          datastore_info.coin.puzzle_hash, full_ph_if_a
+        ) // todo: debug
+          // turns out the admin left delegated_puzzles=[]... (option b)
+          // no problem; let the function continue execution as if delegated_puzzles!=[]
+          // since merkle_root_for_delegated_puzzles will recognize [] and return the proper root
       }
       DatastoreInnerSpend::DelegatedPuzzleSpend(_, inner_spend) => {
         return Err(SpendError::Eval(EvalErr(
@@ -398,14 +401,14 @@ pub mod tests {
   };
 
   use crate::{
-    DefaultMetadataSolution, DefaultMetadataSolutionMetadataList, NewMerkleRootCondition,
-    NewMetadataCondition,
+    print_spend_bundle_to_file, DefaultMetadataSolution, DefaultMetadataSolutionMetadataList,
+    NewMerkleRootCondition, NewMetadataCondition,
   };
 
   use super::*;
 
   use chia::{
-    bls::SecretKey,
+    bls::{SecretKey, Signature},
     consensus::gen::{
       conditions::EmptyVisitor, flags::MEMPOOL_MODE, owned_conditions::OwnedSpendBundleConditions,
       run_block_generator::run_block_generator, solution_generator::solution_generator,
@@ -666,13 +669,9 @@ pub mod tests {
 
     ctx.insert_coin_spend(new_spend);
 
-    test_transaction(
-      &peer,
-      ctx.take_spends(),
-      &[sk],
-      sim.config().genesis_challenge,
-    )
-    .await;
+    let spends = ctx.take_spends();
+    print_spend_bundle_to_file(spends.clone(), Signature::default(), "sb.debug");
+    test_transaction(&peer, spends, &[sk], sim.config().genesis_challenge).await;
 
     // Make sure the datastore was created.
     let coin_state = sim

@@ -756,7 +756,7 @@ pub fn merkle_root_for_delegated_puzzles(delegated_puzzles: &Vec<DelegatedPuzzle
 
 #[cfg(test)]
 mod tests {
-  use chia::bls::{SecretKey, Signature};
+  use chia::bls::SecretKey;
   use chia_protocol::Bytes32;
   use chia_puzzles::standard::StandardArgs;
   use chia_sdk_driver::{Conditions, Launcher, Spend, SpendContext};
@@ -764,7 +764,7 @@ mod tests {
   use rstest::rstest;
 
   use crate::{
-    datastore_spend, get_memos, print_spend_bundle_to_file,
+    datastore_spend, get_memos,
     tests::{secret_keys, Description, Hash, Label},
     DataStoreMintInfo, DatastoreInnerSpend, LauncherExt,
   };
@@ -942,11 +942,9 @@ mod tests {
     )
     .unwrap();
 
-    let spends = ctx.take_spends();
-    print_spend_bundle_to_file(spends.clone(), Signature::default(), "sb.debug");
     test_transaction(
       &peer,
-      spends,
+      ctx.take_spends(),
       &[owner_sk, admin_sk, writer_sk],
       sim.config().genesis_challenge,
     )
