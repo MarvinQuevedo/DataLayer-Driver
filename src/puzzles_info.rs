@@ -1039,4 +1039,106 @@ mod tests {
 
     Ok(())
   }
+
+  #[rstest(
+    root_hash => [Hash::ZERO, Hash::SOME],
+  )]
+  #[tokio::test]
+  async fn test_old_memo_format(root_hash: Hash) -> anyhow::Result<()> {
+    let sim = Simulator::new().await?;
+    let peer = sim.connect().await?;
+
+    let [owner_sk, owner2_sk]: [SecretKey; 2] = secret_keys(2).unwrap().try_into().unwrap();
+
+    let owner_pk = owner_sk.public_key();
+    let owner2_pk = owner2_sk.public_key();
+
+    let owner_puzzle_hash = StandardArgs::curry_tree_hash(owner_pk);
+    let coin = sim.mint_coin(owner_puzzle_hash.into(), 1).await;
+
+    let owner2_puzzle_hash = StandardArgs::curry_tree_hash(owner2_pk);
+
+    let ctx = &mut SpendContext::new();
+
+    // todo: launch using old memos scheme
+    let launcher = Launcher::new(coin.coin_id(), 1);
+    let inner_puzzle_hash: TreeHash = owner_puzzle_hash.clone();
+
+    let metadata_ptr = ctx.alloc(&vec![root_hash.value()])?;
+    let metadata_hash = ctx.tree_hash(metadata_ptr);
+    let state_layer_hash = CurriedProgram {
+      program: NFT_STATE_LAYER_PUZZLE_HASH,
+      args: NftStateLayerArgs::<TreeHash, TreeHash> {
+        mod_hash: NFT_STATE_LAYER_PUZZLE_HASH.into(),
+        metadata: metadata_hash,
+        metadata_updater_puzzle_hash: DL_METADATA_UPDATER_PUZZLE_HASH.into(),
+        inner_puzzle: inner_puzzle_hash,
+      },
+    }
+    .tree_hash();
+
+    // https://github.com/Chia-Network/chia-blockchain/blob/4ffb6dfa6f53f6cd1920bcc775e27377a771fbec/chia/wallet/db_wallet/db_wallet_puzzles.py#L59
+    // kv_list = 'memos': (root_hash inner_puzzle_hash)
+    let kv_list = vec![root_hash.value(), owner_puzzle_hash.into()];
+
+    let launcher_coin = launcher.coin();
+    let (launcher_conds, eve_coin) = launcher.spend(ctx, state_layer_hash.into(), kv_list)?;
+
+    ctx.spend_p2_coin(coin, owner_pk, launcher_conds)?;
+
+    let spends = ctx.take_spends();
+    spends
+      .clone()
+      .into_iter()
+      .for_each(|spend| ctx.insert_coin_spend(spend));
+
+    let info_from_launcher = spends
+      .into_iter()
+      .find(|spend| spend.coin.coin_id() == eve_coin.parent_coin_info)
+      .map(|spend| {
+        DataStoreInfo::from_spend(ctx.allocator_mut(), &spend, &vec![])
+          .expect("Could not get info from launcher spend")
+      })
+      .expect("expected launcher spend");
+
+    assert_eq!(info_from_launcher.metadata.root_hash, root_hash.value());
+    assert_eq!(info_from_launcher.metadata.label, Label::EMPTY.value());
+    assert_eq!(
+      info_from_launcher.metadata.description,
+      Description::EMPTY.value()
+    );
+
+    assert_eq!(
+      info_from_launcher.owner_puzzle_hash,
+      owner_puzzle_hash.into()
+    );
+    assert!(info_from_launcher.delegated_puzzles.is_empty());
+
+    assert_eq!(info_from_launcher.launcher_id, eve_coin.parent_coin_info);
+    assert_eq!(info_from_launcher.coin.coin_id(), eve_coin.coin_id());
+
+    match info_from_launcher.proof {
+      Proof::Eve(proof) => {
+        assert_eq!(proof.parent_coin_info, launcher_coin.parent_coin_info);
+        assert_eq!(proof.amount, launcher_coin.amount);
+      }
+      _ => panic!("expected eve proof for info_from_launcher"),
+    }
+
+    test_transaction(
+      &peer,
+      ctx.take_spends(),
+      &[owner_sk, owner2_sk],
+      sim.config().genesis_challenge,
+    )
+    .await;
+
+    let eve_coin_state = sim
+      .coin_state(eve_coin.coin_id())
+      .await
+      .expect("expected eve coin");
+    assert!(eve_coin_state.created_height.is_some());
+
+    Ok(())
+  }
 }
