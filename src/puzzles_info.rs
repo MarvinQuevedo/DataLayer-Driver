@@ -793,12 +793,13 @@ mod tests {
   use chia::bls::SecretKey;
   use chia_protocol::Bytes32;
   use chia_puzzles::standard::StandardArgs;
-  use chia_sdk_driver::{Conditions, Launcher, Spend, SpendContext};
+  use chia_sdk_driver::{spend_singleton, Conditions, Launcher, Spend, SpendContext};
   use chia_sdk_test::{test_transaction, Simulator};
   use rstest::rstest;
 
   use crate::{
     datastore_spend, get_memos, get_new_ownership_inner_condition,
+    spend_nft_state_layer_custom_metadata_updated,
     tests::{secret_keys, Description, Hash, Label},
     DataStoreMintInfo, DatastoreInnerSpend, LauncherExt,
   };
@@ -1075,10 +1076,17 @@ mod tests {
   }
 
   #[rstest(
-    root_hash => [Hash::ZERO, Hash::SOME],
+    transition => [
+      (Hash::ZERO, Hash::ZERO, true),
+      (Hash::ZERO, Hash::SOME, false),
+      (Hash::ZERO, Hash::SOME, true),
+      (Hash::SOME, Hash::SOME, true),
+      (Hash::SOME, Hash::ZERO, false),
+      (Hash::SOME, Hash::ZERO, true),
+    ]
   )]
   #[tokio::test]
-  async fn test_old_memo_format(root_hash: Hash) -> anyhow::Result<()> {
+  async fn test_old_memo_format(transition: (Hash, Hash, bool)) -> anyhow::Result<()> {
     let sim = Simulator::new().await?;
     let peer = sim.connect().await?;
 
@@ -1098,7 +1106,8 @@ mod tests {
     let launcher = Launcher::new(coin.coin_id(), 1);
     let inner_puzzle_hash: TreeHash = owner_puzzle_hash.clone();
 
-    let metadata_ptr = ctx.alloc(&vec![root_hash.value()])?;
+    let first_root_hash: Hash = transition.0;
+    let metadata_ptr = ctx.alloc(&vec![first_root_hash.value()])?;
     let metadata_hash = ctx.tree_hash(metadata_ptr);
     let state_layer_hash = CurriedProgram {
       program: NFT_STATE_LAYER_PUZZLE_HASH,
@@ -1113,7 +1122,7 @@ mod tests {
 
     // https://github.com/Chia-Network/chia-blockchain/blob/4ffb6dfa6f53f6cd1920bcc775e27377a771fbec/chia/wallet/db_wallet/db_wallet_puzzles.py#L59
     // kv_list = 'memos': (root_hash inner_puzzle_hash)
-    let kv_list = vec![root_hash.value(), owner_puzzle_hash.into()];
+    let kv_list = vec![first_root_hash.value(), owner_puzzle_hash.into()];
 
     let launcher_coin = launcher.coin();
     let (launcher_conds, eve_coin) = launcher.spend(ctx, state_layer_hash.into(), kv_list)?;
@@ -1135,7 +1144,10 @@ mod tests {
       })
       .expect("expected launcher spend");
 
-    assert_eq!(info_from_launcher.metadata.root_hash, root_hash.value());
+    assert_eq!(
+      info_from_launcher.metadata.root_hash,
+      first_root_hash.value()
+    );
     assert_eq!(info_from_launcher.metadata.label, Label::EMPTY.value());
     assert_eq!(
       info_from_launcher.metadata.description,
@@ -1158,6 +1170,110 @@ mod tests {
       }
       _ => panic!("expected eve proof for info_from_launcher"),
     }
+
+    // now spend the signleton using old memo format and check that info is parsed correctly
+
+    let mut inner_spend_conditions = Conditions::new();
+
+    let second_root_hash: Hash = transition.1;
+    if second_root_hash != first_root_hash {
+      inner_spend_conditions = inner_spend_conditions.condition(Condition::Other(
+        NewMetadataCondition::<i32, DataStoreMetadata, Bytes32, i32> {
+          metadata_updater_reveal: 11,
+          metadata_updater_solution: DefaultMetadataSolution {
+            metadata_part: DefaultMetadataSolutionMetadataList {
+              new_metadata: DataStoreMetadata {
+                root_hash: second_root_hash.value(),
+                label: Label::EMPTY.value(),
+                description: Description::EMPTY.value(),
+              },
+              new_metadata_updater_ph: DL_METADATA_UPDATER_PUZZLE_HASH.into(),
+            },
+            conditions: 0,
+          },
+        }
+        .to_clvm(ctx.allocator_mut())
+        .unwrap(),
+      ));
+    }
+
+    let new_owner: bool = transition.2;
+    let new_inner_ph: Bytes32 = if new_owner {
+      owner2_puzzle_hash.into()
+    } else {
+      owner_puzzle_hash.into()
+    };
+
+    // https://github.com/Chia-Network/chia-blockchain/blob/4ffb6dfa6f53f6cd1920bcc775e27377a771fbec/chia/data_layer/data_layer_wallet.py#L526
+    // memos are (launcher_id root_hash inner_puzzle_hash)
+    inner_spend_conditions = inner_spend_conditions.condition(Condition::CreateCoin(CreateCoin {
+      puzzle_hash: new_inner_ph.clone(),
+      amount: 1,
+      memos: vec![
+        launcher_coin.coin_id().into(),
+        second_root_hash.value().into(),
+        new_inner_ph.into(),
+      ],
+    }));
+
+    let inner_spend = inner_spend_conditions.p2_spend(ctx, owner_pk)?;
+
+    let state_layer_spend = spend_nft_state_layer_custom_metadata_updated(
+      ctx,
+      &info_from_launcher.metadata,
+      inner_spend,
+    )?;
+
+    let full_spend = spend_singleton(
+      ctx,
+      info_from_launcher.coin,
+      info_from_launcher.launcher_id,
+      info_from_launcher.proof,
+      state_layer_spend,
+    )
+    .unwrap();
+
+    let new_info = DataStoreInfo::from_spend(
+      ctx.allocator_mut(),
+      &full_spend,
+      &info_from_launcher.delegated_puzzles,
+    )
+    .unwrap();
+
+    assert_eq!(new_info.metadata.root_hash, second_root_hash.value());
+    assert_eq!(new_info.metadata.label, Label::EMPTY.value());
+    assert_eq!(new_info.metadata.description, Description::EMPTY.value());
+
+    assert_eq!(new_info.owner_puzzle_hash, new_inner_ph);
+    assert!(new_info.delegated_puzzles.is_empty());
+
+    assert_eq!(new_info.launcher_id, eve_coin.parent_coin_info);
+
+    assert_eq!(
+      new_info.coin.parent_coin_info,
+      info_from_launcher.coin.coin_id()
+    );
+
+    let full_computed_puzzle_ptr = full_spend
+      .puzzle_reveal
+      .to_node_ptr(ctx.allocator_mut())
+      .unwrap();
+    assert_eq!(
+      new_info.coin.puzzle_hash,
+      ctx.tree_hash(full_computed_puzzle_ptr).into()
+    );
+    assert_eq!(new_info.coin.amount, 1);
+
+    match new_info.proof {
+      Proof::Lineage(proof) => {
+        assert_eq!(proof.parent_parent_coin_id, eve_coin.parent_coin_info);
+        assert_eq!(proof.parent_amount, eve_coin.amount);
+        assert_eq!(proof.parent_inner_puzzle_hash, owner_puzzle_hash.into());
+      }
+      _ => panic!("expected lineage proof for new_info"),
+    }
+
+    ctx.insert_coin_spend(full_spend);
 
     test_transaction(
       &peer,
