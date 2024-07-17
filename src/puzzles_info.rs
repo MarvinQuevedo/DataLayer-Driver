@@ -1326,4 +1326,12 @@ mod tests {
 
     Ok(())
   }
+
+  #[rstest]
+  fn test_1337() {
+    let hex_value: u32 = 0x31333337;
+    let bytes = hex_value.to_be_bytes();
+    let ascii_str = String::from_utf8(bytes.to_vec()).unwrap();
+    assert_eq!(ascii_str, "1337");
+  }
 }
