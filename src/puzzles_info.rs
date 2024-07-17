@@ -340,9 +340,11 @@ pub struct DLLauncherKVList<M = DataStoreMetadata, T = NodePtr> {
 
 #[derive(ToClvm, FromClvm, Debug, Clone, PartialEq, Eq)]
 #[clvm(list)]
-pub struct OldDLLauncherKVList {
+pub struct OldDLLauncherKVList<T = NodePtr> {
   pub root_hash: Bytes32,
   pub state_layer_inner_puzzle_hash: Bytes32,
+  #[clvm(rest)]
+  pub memos: Vec<T>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ToClvm, FromClvm)]
@@ -529,7 +531,6 @@ impl DataStoreInfo {
 
           println!("building datastore info..."); // todo: debug
           println!("memos: {:?}", solution.key_value_list.memos); // todo: debug
-          let memos: Vec<Bytes> = solution.key_value_list.memos.clone();
           println!("calling build_datastore_info..."); // todo: debug
           match DataStoreInfo::build_datastore_info(
             allocator,
@@ -538,7 +539,7 @@ impl DataStoreInfo {
             proof,
             metadata,
             solution.key_value_list.state_layer_inner_puzzle_hash,
-            &memos,
+            &solution.key_value_list.memos,
           ) {
             Ok(info) => Ok(info),
             Err(err) => Err(err),
@@ -547,8 +548,10 @@ impl DataStoreInfo {
         Err(err) => match err {
           FromClvmError::ExpectedPair => {
             println!("expected pair error; datastore might've been launched using old memo format"); // todo: debug
-            let solution =
-              LauncherSolution::<OldDLLauncherKVList>::from_clvm(allocator, solution_node_ptr)?;
+            let solution = LauncherSolution::<OldDLLauncherKVList<Bytes>>::from_clvm(
+              allocator,
+              solution_node_ptr,
+            )?;
 
             let coin = Coin {
               parent_coin_info: launcher_id,
@@ -556,18 +559,19 @@ impl DataStoreInfo {
               amount: solution.amount,
             };
 
-            Ok(DataStoreInfo {
+            Ok(DataStoreInfo::build_datastore_info(
+              allocator,
               coin,
               launcher_id,
               proof,
-              metadata: DataStoreMetadata {
+              DataStoreMetadata {
                 root_hash: solution.key_value_list.root_hash,
                 label: String::default(),
                 description: String::default(),
               },
-              owner_puzzle_hash: solution.key_value_list.state_layer_inner_puzzle_hash,
-              delegated_puzzles: vec![],
-            })
+              solution.key_value_list.state_layer_inner_puzzle_hash,
+              &solution.key_value_list.memos,
+            )?)
           }
           _ => Err(ParseError::FromClvm(err)),
         },
