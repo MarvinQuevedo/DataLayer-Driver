@@ -59,13 +59,26 @@ pub fn spend_delegation_layer(
           .metadata
           .to_clvm(ctx.allocator_mut())
           .map_err(|err| SpendError::ToClvm(err))?;
-        let nft_layer_hash = NftStateLayerArgs::curry_tree_hash(
-          ctx.tree_hash(metadata_ptr),
-          datastore_info.owner_puzzle_hash.into(),
-        );
+        let nft_state_layer_inner_puzzle_hash: TreeHash = datastore_info.owner_puzzle_hash.into();
+
+        let nft_layer_hash = CurriedProgram {
+          program: NFT_STATE_LAYER_PUZZLE_HASH,
+          args: NftStateLayerArgs {
+            mod_hash: NFT_STATE_LAYER_PUZZLE_HASH.into(),
+            metadata: ctx.tree_hash(metadata_ptr),
+            metadata_updater_puzzle_hash: DL_METADATA_UPDATER_PUZZLE_HASH.into(),
+            inner_puzzle: nft_state_layer_inner_puzzle_hash,
+          },
+        }
+        .tree_hash();
+
+        println!("owner puzzle hash: {:?}", datastore_info.owner_puzzle_hash); // todo: debug
+        println!("nft layer hash: {:?}", nft_layer_hash); // todo: debug
 
         let full_ph_if_a =
           SingletonArgs::curry_tree_hash(datastore_info.launcher_id, nft_layer_hash);
+
+        println!("full_ph_if_a: {:?}", full_ph_if_a); // todo: debug
 
         if datastore_info.coin.puzzle_hash == full_ph_if_a.into() {
           return Ok(inner_spend);
