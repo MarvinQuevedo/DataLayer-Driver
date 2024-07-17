@@ -451,6 +451,18 @@ impl DataStoreInfo {
     let mut memos = memos.clone();
     println!("memos clone: {:?}", memos); // todo: debug
 
+    if memos.len() == 3 && memos[0] == launcher_id.into() && memos[1] == metadata.root_hash.into() {
+      println!("vanilla store using old memo format detected"); // todo: debug
+      return Ok(DataStoreInfo {
+        coin,
+        launcher_id,
+        proof,
+        metadata,
+        owner_puzzle_hash: Bytes32::from_bytes(&memos[2]).map_err(|_| ParseError::MissingHint)?,
+        delegated_puzzles: vec![],
+      });
+    }
+
     let owner_puzzle_hash: Bytes32 = if memos.len() < 1 {
       fallback_owner_ph
     } else {
