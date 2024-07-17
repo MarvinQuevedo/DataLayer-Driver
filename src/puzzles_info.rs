@@ -764,7 +764,7 @@ mod tests {
   use rstest::rstest;
 
   use crate::{
-    datastore_spend, get_memos,
+    datastore_spend, get_memos, get_new_ownership_inner_condition,
     tests::{secret_keys, Description, Hash, Label},
     DataStoreMintInfo, DatastoreInnerSpend, LauncherExt,
   };
@@ -772,26 +772,53 @@ mod tests {
   use super::*;
 
   #[rstest(
+    meta_transition => [
+      (
+        (Hash::ZERO, Hash::ZERO, Hash::ZERO),
+        (Label::EMPTY, Label::EMPTY, Label::EMPTY),
+        (Description::EMPTY, Description::EMPTY, Description::EMPTY)
+      ),
+      (
+        (Hash::ZERO, Hash::ZERO, Hash::SOME),
+        (Label::EMPTY, Label::EMPTY, Label::SOME),
+        (Description::EMPTY, Description::EMPTY, Description::SOME)
+      ),
+      (
+        (Hash::ZERO, Hash::SOME, Hash::SOME),
+        (Label::EMPTY, Label::SOME, Label::SOME),
+        (Description::EMPTY, Description::SOME, Description::SOME)
+      ),
+      (
+        (Hash::SOME, Hash::ZERO, Hash::ZERO),
+        (Label::SOME, Label::EMPTY, Label::EMPTY),
+        (Description::SOME, Description::EMPTY, Description::EMPTY)
+      ),
+      (
+        (Hash::SOME, Hash::SOME, Hash::ZERO),
+        (Label::SOME, Label::SOME, Label::EMPTY),
+        (Description::SOME, Description::SOME, Description::EMPTY)
+      ),
+    ],
     src_with_writer => [true, false],
     src_with_oracle => [true, false],
-    src_meta => [
-      (Hash::ZERO, Label::EMPTY, Description::EMPTY),
-      (Hash::SOME, Label::SOME, Description::SOME),
-    ],
-    dst_meta => [
-      (Hash::ZERO, Label::EMPTY, Description::EMPTY),
-      (Hash::ZERO, Label::SOME, Description::SOME),
-      (Hash::ZERO, Label::NEW, Description::NEW),
-    ],
+    dst_with_admin => [true, false],
+    dst_with_writer => [true, false],
+    dst_with_oracle => [true, false],
   )]
   #[tokio::test]
   async fn test_datastore_admin_empty_root_transition(
-    src_meta: (Hash, Label, Description),
+    meta_transition: (
+      (Hash, Hash, Hash),
+      (Label, Label, Label),
+      (Description, Description, Description),
+    ),
     src_with_writer: bool,
     // src must have admin layer in this scenario
     // and dst does not have any layer
     src_with_oracle: bool,
-    dst_meta: (Hash, Label, Description),
+    dst_with_admin: bool,
+    dst_with_writer: bool,
+    dst_with_oracle: bool,
   ) -> anyhow::Result<()> {
     let sim = Simulator::new().await?;
     let peer = sim.connect().await?;
@@ -832,9 +859,9 @@ mod tests {
       ctx,
       DataStoreMintInfo {
         metadata: DataStoreMetadata {
-          root_hash: src_meta.0.value(),
-          label: src_meta.1.value(),
-          description: src_meta.2.value(),
+          root_hash: meta_transition.0 .0.value(),
+          label: meta_transition.1 .0.value(),
+          description: meta_transition.2 .0.value(),
         },
         owner_puzzle_hash: owner_puzzle_hash.into(),
         delegated_puzzles: src_delegated_puzzles.clone(),
@@ -843,8 +870,7 @@ mod tests {
 
     ctx.spend_p2_coin(coin, owner_pk, launch_singleton)?;
 
-    // transition from src to dst
-
+    // admin: remove all delegated puzzles
     let new_merkle_root = merkle_root_for_delegated_puzzles(&vec![]);
 
     let new_merkle_root_condition = NewMerkleRootCondition {
@@ -857,11 +883,14 @@ mod tests {
     let mut admin_inner_spend =
       Conditions::new().condition(Condition::Other(new_merkle_root_condition));
 
-    if src_meta.0 != dst_meta.0 || src_meta.1 != dst_meta.1 || src_meta.2 != dst_meta.2 {
+    if meta_transition.0 .0 != meta_transition.0 .1
+      || meta_transition.1 .0 != meta_transition.1 .1
+      || meta_transition.2 .0 != meta_transition.2 .1
+    {
       let new_metadata = DataStoreMetadata {
-        root_hash: dst_meta.0.value(),
-        label: dst_meta.1.value(),
-        description: dst_meta.2.value(),
+        root_hash: meta_transition.0 .1.value(),
+        label: meta_transition.1 .1.value(),
+        description: meta_transition.2 .1.value(),
       };
       let new_metadata_condition = NewMetadataCondition::<i32, DataStoreMetadata, Bytes32, i32> {
         metadata_updater_reveal: 11,
@@ -879,7 +908,7 @@ mod tests {
       admin_inner_spend = admin_inner_spend.condition(Condition::Other(new_metadata_condition));
     }
 
-    // delegated puzzle info + inner puzzle reveal + solution
+    // delegated puzzle info + inner spend
     let inner_datastore_spend = DatastoreInnerSpend::DelegatedPuzzleSpend(
       admin_delegated_puzzle,
       Spend::new(
@@ -899,36 +928,63 @@ mod tests {
     .unwrap();
 
     assert!(dst_datastore_info.delegated_puzzles.is_empty());
+    assert_eq!(
+      dst_datastore_info.metadata.root_hash,
+      meta_transition.0 .1.value()
+    );
+    assert_eq!(
+      dst_datastore_info.metadata.label,
+      meta_transition.1 .1.value()
+    );
+    assert_eq!(
+      dst_datastore_info.metadata.description,
+      meta_transition.2 .1.value()
+    );
 
     // admin left store with []; owner should now re-create the store
     let src_datastore_info = dst_datastore_info;
 
-    let new_metadata = DataStoreMetadata {
-      root_hash: dst_meta.0.value(),
-      label: dst_meta.1.value(),
-      description: dst_meta.2.value(),
-    };
-    let new_metadata_condition = NewMetadataCondition::<i32, DataStoreMetadata, Bytes32, i32> {
-      metadata_updater_reveal: 11,
-      metadata_updater_solution: DefaultMetadataSolution {
-        metadata_part: DefaultMetadataSolutionMetadataList {
-          new_metadata: new_metadata,
-          new_metadata_updater_ph: DL_METADATA_UPDATER_PUZZLE_HASH.into(),
-        },
-        conditions: 0,
-      },
+    let mut dst_delegated_puzzles: Vec<DelegatedPuzzle> = vec![];
+    if dst_with_admin {
+      dst_delegated_puzzles.push(admin_delegated_puzzle);
     }
-    .to_clvm(ctx.allocator_mut())
-    .unwrap();
+    if dst_with_writer {
+      dst_delegated_puzzles.push(writer_delegated_puzzle);
+    }
+    if dst_with_oracle {
+      dst_delegated_puzzles.push(oracle_delegated_puzzle);
+    }
 
-    let owner_output_conds = Conditions::new().conditions(&vec![
-      Condition::Other(new_metadata_condition),
-      Condition::CreateCoin(CreateCoin {
-        puzzle_hash: src_datastore_info.owner_puzzle_hash.clone(),
-        amount: src_datastore_info.coin.amount,
-        memos: get_memos(src_datastore_info.owner_puzzle_hash.into(), vec![]),
-      }),
-    ]);
+    let mut owner_output_conds = Conditions::new().condition(get_new_ownership_inner_condition(
+      &src_datastore_info.owner_puzzle_hash,
+      &dst_delegated_puzzles,
+    ));
+
+    if meta_transition.0 .1 != meta_transition.0 .2
+      || meta_transition.1 .1 != meta_transition.1 .2
+      || meta_transition.2 .1 != meta_transition.2 .2
+    {
+      let new_metadata = DataStoreMetadata {
+        root_hash: meta_transition.0 .2.value(),
+        label: meta_transition.1 .2.value(),
+        description: meta_transition.2 .2.value(),
+      };
+
+      let new_metadata_condition = NewMetadataCondition::<i32, DataStoreMetadata, Bytes32, i32> {
+        metadata_updater_reveal: 11,
+        metadata_updater_solution: DefaultMetadataSolution {
+          metadata_part: DefaultMetadataSolutionMetadataList {
+            new_metadata: new_metadata,
+            new_metadata_updater_ph: DL_METADATA_UPDATER_PUZZLE_HASH.into(),
+          },
+          conditions: 0,
+        },
+      }
+      .to_clvm(ctx.allocator_mut())
+      .unwrap();
+
+      owner_output_conds = owner_output_conds.condition(Condition::Other(new_metadata_condition));
+    }
 
     let inner_datastore_spend =
       DatastoreInnerSpend::OwnerPuzzleSpend(owner_output_conds.p2_spend(ctx, owner_pk)?);
@@ -941,6 +997,24 @@ mod tests {
       &src_datastore_info.delegated_puzzles,
     )
     .unwrap();
+
+    assert_eq!(
+      dst_datastore_info.delegated_puzzles.len(),
+      dst_delegated_puzzles.len()
+    );
+    assert_eq!(dst_datastore_info.delegated_puzzles, dst_delegated_puzzles);
+    assert_eq!(
+      dst_datastore_info.metadata.root_hash,
+      meta_transition.0 .2.value()
+    );
+    assert_eq!(
+      dst_datastore_info.metadata.label,
+      meta_transition.1 .2.value()
+    );
+    assert_eq!(
+      dst_datastore_info.metadata.description,
+      meta_transition.2 .2.value()
+    );
 
     test_transaction(
       &peer,
