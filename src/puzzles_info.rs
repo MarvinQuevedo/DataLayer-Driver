@@ -338,6 +338,13 @@ pub struct DLLauncherKVList<M = DataStoreMetadata, T = NodePtr> {
   pub memos: Vec<T>,
 }
 
+#[derive(ToClvm, FromClvm, Debug, Clone, PartialEq, Eq)]
+#[clvm(list)]
+pub struct OldDLLauncherKVList {
+  pub root_hash: Bytes32,
+  pub state_layer_inner_puzzle_hash: Bytes32,
+}
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, ToClvm, FromClvm)]
 #[clvm(list)]
 pub struct DataStoreMetadataRootHashOnly {
@@ -495,6 +502,13 @@ impl DataStoreInfo {
       // we're just launching this singleton :)
       // solution is (singleton_full_puzzle_hash amount key_value_list)
       // kv_list is (metadata state_layer_hash)
+      let launcher_id = cs.coin.coin_id();
+
+      let proof = Proof::Eve(EveProof {
+        parent_coin_info: cs.coin.parent_coin_info,
+        amount: cs.coin.amount,
+      });
+
       println!("converting metadata..."); // todo: debug
       let solution = LauncherSolution::<DLLauncherKVList<DataStoreMetadata, Bytes>>::from_clvm(
         allocator,
@@ -507,17 +521,11 @@ impl DataStoreInfo {
           let metadata = solution.key_value_list.metadata;
           println!("metadata: {:?}", metadata); // todo: debug
 
-          let launcher_id = cs.coin.coin_id();
           let new_coin = Coin {
             parent_coin_info: launcher_id,
             puzzle_hash: solution.singleton_puzzle_hash,
             amount: solution.amount,
           };
-
-          let proof = Proof::Eve(EveProof {
-            parent_coin_info: cs.coin.parent_coin_info,
-            amount: cs.coin.amount,
-          });
 
           println!("building datastore info..."); // todo: debug
           println!("memos: {:?}", solution.key_value_list.memos); // todo: debug
@@ -536,11 +544,33 @@ impl DataStoreInfo {
             Err(err) => Err(err),
           }
         }
-        Err(err) => {
-          println!("error when parsing solution: {:?}", err); // todo: debug
-          Err(ParseError::FromClvm(err)) // todo: debug
-                                         // YAK
-        }
+        Err(err) => match err {
+          FromClvmError::ExpectedPair => {
+            println!("expected pair error; datastore might've been launched using old memo format"); // todo: debug
+            let solution =
+              LauncherSolution::<OldDLLauncherKVList>::from_clvm(allocator, solution_node_ptr)?;
+
+            let coin = Coin {
+              parent_coin_info: launcher_id,
+              puzzle_hash: solution.singleton_puzzle_hash,
+              amount: solution.amount,
+            };
+
+            Ok(DataStoreInfo {
+              coin,
+              launcher_id,
+              proof,
+              metadata: DataStoreMetadata {
+                root_hash: solution.key_value_list.root_hash,
+                label: String::default(),
+                description: String::default(),
+              },
+              owner_puzzle_hash: solution.key_value_list.state_layer_inner_puzzle_hash,
+              delegated_puzzles: vec![],
+            })
+          }
+          _ => Err(ParseError::FromClvm(err)),
+        },
       };
     }
 
