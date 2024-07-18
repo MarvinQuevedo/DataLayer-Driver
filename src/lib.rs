@@ -684,7 +684,7 @@ pub fn select_coins(all_coins: Vec<Coin>, total_amount: BigInt) -> napi::Result<
 }
 
 #[napi]
-pub async fn mint_store(
+pub fn mint_store(
   minter_synthetic_key: Buffer,
   selected_coins: Vec<Coin>,
   root_hash: Buffer,
@@ -710,14 +710,13 @@ pub async fn mint_store(
       .collect(),
     u64::from_js(fee),
   )
-  .await
   .map_err(js)?;
 
   Ok(response.to_js())
 }
 
 #[napi]
-pub async fn oracle_spend(
+pub fn oracle_spend(
   spender_synthetic_key: Buffer,
   selected_coins: Vec<Coin>,
   store_info: DataStoreInfo,
@@ -732,14 +731,13 @@ pub async fn oracle_spend(
     &RustDataStoreInfo::from_js(store_info),
     u64::from_js(fee),
   )
-  .await
   .map_err(js)?;
 
   Ok(response.to_js())
 }
 
 #[napi]
-pub async fn add_fee(
+pub fn add_fee(
   spender_synthetic_key: Buffer,
   selected_coins: Vec<Coin>,
   assert_coin_ids: Vec<Buffer>,
@@ -757,7 +755,6 @@ pub async fn add_fee(
       .collect(),
     u64::from_js(fee),
   )
-  .await
   .map_err(js)?;
 
   Ok(response.into_iter().map(|cs| cs.to_js()).collect())

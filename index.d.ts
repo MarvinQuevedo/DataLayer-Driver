@@ -59,6 +59,15 @@ export interface SyncStoreResponse {
   latestInfo: DataStoreInfo
   latestHeight: number
 }
+export interface UnspentCoinsResponse {
+  coins: Array<Coin>
+  lastHeight: number
+  lastHeaderHash: Buffer
+}
+export declare function selectCoins(allCoins: Array<Coin>, totalAmount: bigint): Array<Coin>
+export declare function mintStore(minterSyntheticKey: Buffer, selectedCoins: Array<Coin>, rootHash: Buffer, label: string, description: string, ownerPuzzleHash: Buffer, delegatedPuzzles: Array<DelegatedPuzzle>, fee: bigint): Promise<SuccessResponse>
+export declare function oracleSpend(spenderSyntheticKey: Buffer, selectedCoins: Array<Coin>, storeInfo: DataStoreInfo, fee: bigint): Promise<SuccessResponse>
+export declare function addFee(spenderSyntheticKey: Buffer, selectedCoins: Array<Coin>, assertCoinIds: Array<Buffer>, fee: bigint): Promise<Array<CoinSpend>>
 export declare function masterPublicKeyToWalletSyntheticKey(publicKey: Buffer): Buffer
 export declare function masterPublicKeyToFirstPuzzleHash(publicKey: Buffer): Buffer
 export declare function masterSecretKeyToWalletSyntheticSecretKey(secretKey: Buffer): Buffer
@@ -71,18 +80,13 @@ export declare function oracleDelegatedPuzzle(oraclePuzzleHash: Buffer, oracleFe
 export declare function signCoinSpends(coinSpends: Array<CoinSpend>, privateKeys: Array<Buffer>, aggSigData: Buffer): Buffer
 export declare function getCoinId(coin: Coin): Buffer
 export declare function updateStoreMetadata(storeInfo: DataStoreInfo, newRootHash: Buffer, newLabel: string, newDescription: string, ownerPublicKey?: Buffer | undefined | null, adminPublicKey?: Buffer | undefined | null, writerPublicKey?: Buffer | undefined | null): SuccessResponse
-export declare function updateStoreOwnership(storeInfo: DataStoreInfo, newOwnerPuzzleHash: Buffer, newDelegatedPuzzles: Array<DelegatedPuzzle>, ownerPublicKey?: Buffer | undefined | null, adminPublicKey?: Buffer | undefined | null): SuccessResponse
+export declare function updateStoreOwnership(storeInfo: DataStoreInfo, newOwnerPuzzleHash: Buffer | undefined | null, newDelegatedPuzzles: Array<DelegatedPuzzle>, ownerPublicKey?: Buffer | undefined | null, adminPublicKey?: Buffer | undefined | null): SuccessResponse
 export declare function meltStore(storeInfo: DataStoreInfo, ownerPublicKey: Buffer): Array<CoinSpend>
-export declare class Tls {
-  constructor(certPath: string, keyPath: string)
-}
 export declare class Peer {
-  static new(nodeUri: string, networkId: string, tls: Tls): Promise<Peer>
-  getCoins(puzzleHash: Buffer, minHeight: number): Promise<Array<Coin>>
-  mintStore(minterSyntheticKey: Buffer, minterPhMinHeight: number, rootHash: Buffer, label: string, description: string, ownerPuzzleHash: Buffer, delegatedPuzzles: Array<DelegatedPuzzle>, fee: bigint): Promise<SuccessResponse>
-  syncStore(storeInfo: DataStoreInfo, minHeight: number): Promise<SyncStoreResponse>
+  static new(nodeUri: string, networkId: string, certPath: string, keyPath: string): Promise<Peer>
+  getAllUnspentCoins(puzzleHash: Buffer, previousHeight: number | undefined | null, previousHeaderHash: Buffer): Promise<UnspentCoinsResponse>
+  syncStore(storeInfo: DataStoreInfo, lastHeight: number | undefined | null, lastHeaderHash: Buffer): Promise<SyncStoreResponse>
+  syncStoreFromLauncherId(launcherId: Buffer, lastHeight: number | undefined | null, lastHeaderHash: Buffer): Promise<SyncStoreResponse>
   broadcastSpend(coinSpends: Array<CoinSpend>, sigs: Array<Buffer>): Promise<string>
-  isCoinSpent(coinId: Buffer): Promise<boolean>
-  oracleSpend(spenderSyntheticKey: Buffer, spenderPhMinHeight: number, storeInfo: DataStoreInfo, fee: bigint): Promise<SuccessResponse>
-  addFee(spenderSyntheticKey: Buffer, spenderPhMinHeight: number, coinIds: Array<Buffer>, fee: bigint): Promise<Array<CoinSpend>>
+  isCoinSpent(coinId: Buffer, lastHeight: number | undefined | null, headerHash: Buffer): Promise<boolean>
 }

@@ -149,7 +149,7 @@ pub fn select_coins(coins: Vec<Coin>, total_amount: u64) -> Result<Vec<Coin>, Co
   select_coins_algo(coins.into_iter().collect(), total_amount.into())
 }
 
-pub async fn mint_store(
+pub fn mint_store(
   minter_synthetic_key: PublicKey,
   selected_coins: Vec<Coin>,
   root_hash: Bytes32,
@@ -505,7 +505,7 @@ pub fn melt_store(
   Ok(ctx.take_spends())
 }
 
-pub async fn oracle_spend(
+pub fn oracle_spend(
   spender_synthetic_key: PublicKey,
   selected_coins: Vec<Coin>,
   store_info: &DataStoreInfo,
@@ -585,7 +585,7 @@ pub async fn oracle_spend(
   })
 }
 
-pub async fn add_fee(
+pub fn add_fee(
   spender_synthetic_key: PublicKey,
   selected_coins: Vec<Coin>,
   coin_ids: Vec<Bytes32>,

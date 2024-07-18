@@ -310,12 +310,15 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { newLineageProof, newEveProof, Tls, Peer, masterPublicKeyToWalletSyntheticKey, masterPublicKeyToFirstPuzzleHash, masterSecretKeyToWalletSyntheticSecretKey, secretKeyToPublicKey, puzzleHashToAddress, addressToPuzzleHash, adminDelegatedPuzzleFromKey, writerDelegatedPuzzleFromKey, oracleDelegatedPuzzle, signCoinSpends, getCoinId, updateStoreMetadata, updateStoreOwnership, meltStore } = nativeBinding
+const { newLineageProof, newEveProof, Peer, selectCoins, mintStore, oracleSpend, addFee, masterPublicKeyToWalletSyntheticKey, masterPublicKeyToFirstPuzzleHash, masterSecretKeyToWalletSyntheticSecretKey, secretKeyToPublicKey, puzzleHashToAddress, addressToPuzzleHash, adminDelegatedPuzzleFromKey, writerDelegatedPuzzleFromKey, oracleDelegatedPuzzle, signCoinSpends, getCoinId, updateStoreMetadata, updateStoreOwnership, meltStore } = nativeBinding
 
 module.exports.newLineageProof = newLineageProof
 module.exports.newEveProof = newEveProof
-module.exports.Tls = Tls
 module.exports.Peer = Peer
+module.exports.selectCoins = selectCoins
+module.exports.mintStore = mintStore
+module.exports.oracleSpend = oracleSpend
+module.exports.addFee = addFee
 module.exports.masterPublicKeyToWalletSyntheticKey = masterPublicKeyToWalletSyntheticKey
 module.exports.masterPublicKeyToFirstPuzzleHash = masterPublicKeyToFirstPuzzleHash
 module.exports.masterSecretKeyToWalletSyntheticSecretKey = masterSecretKeyToWalletSyntheticSecretKey
