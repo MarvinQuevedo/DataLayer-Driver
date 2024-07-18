@@ -65,9 +65,9 @@ export interface UnspentCoinsResponse {
   lastHeaderHash: Buffer
 }
 export declare function selectCoins(allCoins: Array<Coin>, totalAmount: bigint): Array<Coin>
-export declare function mintStore(minterSyntheticKey: Buffer, selectedCoins: Array<Coin>, rootHash: Buffer, label: string, description: string, ownerPuzzleHash: Buffer, delegatedPuzzles: Array<DelegatedPuzzle>, fee: bigint): Promise<SuccessResponse>
-export declare function oracleSpend(spenderSyntheticKey: Buffer, selectedCoins: Array<Coin>, storeInfo: DataStoreInfo, fee: bigint): Promise<SuccessResponse>
-export declare function addFee(spenderSyntheticKey: Buffer, selectedCoins: Array<Coin>, assertCoinIds: Array<Buffer>, fee: bigint): Promise<Array<CoinSpend>>
+export declare function mintStore(minterSyntheticKey: Buffer, selectedCoins: Array<Coin>, rootHash: Buffer, label: string, description: string, ownerPuzzleHash: Buffer, delegatedPuzzles: Array<DelegatedPuzzle>, fee: bigint): SuccessResponse
+export declare function oracleSpend(spenderSyntheticKey: Buffer, selectedCoins: Array<Coin>, storeInfo: DataStoreInfo, fee: bigint): SuccessResponse
+export declare function addFee(spenderSyntheticKey: Buffer, selectedCoins: Array<Coin>, assertCoinIds: Array<Buffer>, fee: bigint): Array<CoinSpend>
 export declare function masterPublicKeyToWalletSyntheticKey(publicKey: Buffer): Buffer
 export declare function masterPublicKeyToFirstPuzzleHash(publicKey: Buffer): Buffer
 export declare function masterSecretKeyToWalletSyntheticSecretKey(secretKey: Buffer): Buffer
