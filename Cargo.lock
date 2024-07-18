@@ -728,6 +728,7 @@ dependencies = [
  "bip39",
  "chia",
  "chia-bls 0.10.0",
+ "chia-client",
  "chia-protocol",
  "chia-puzzles",
  "chia-sdk-driver",

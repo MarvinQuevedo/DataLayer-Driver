@@ -8,7 +8,12 @@ use chia::client::Error as ClientError;
 use chia::client::Peer;
 use chia_protocol::Bytes;
 use chia_protocol::Coin;
+use chia_protocol::CoinStateFilters;
 use chia_protocol::RejectPuzzleSolution;
+use chia_protocol::RequestCoinState;
+use chia_protocol::RequestPuzzleState;
+use chia_protocol::RespondCoinState;
+use chia_protocol::RespondPuzzleState;
 use chia_protocol::SpendBundle;
 use chia_protocol::TransactionAck;
 use chia_protocol::{Bytes32, CoinSpend};
@@ -22,7 +27,7 @@ use chia_sdk_driver::SpendError;
 use chia_sdk_types::conditions::AssertConcurrentSpend;
 use chia_sdk_types::conditions::Condition;
 use chia_sdk_types::conditions::ReserveFee;
-use chia_wallet_sdk::select_coins;
+use chia_wallet_sdk::select_coins as select_coins_algo;
 use chia_wallet_sdk::CoinSelectionError;
 use chia_wallet_sdk::RequiredSignature;
 use chia_wallet_sdk::SignerError;
@@ -34,7 +39,7 @@ use thiserror::Error;
 
 use crate::datastore_spend;
 use crate::get_memos;
-use crate::print_spend_bundle_to_file;
+use crate::get_new_ownership_inner_condition;
 use crate::puzzles_info::DataStoreInfo;
 use crate::puzzles_info::DataStoreMetadata;
 use crate::puzzles_info::DelegatedPuzzle;
@@ -63,9 +68,6 @@ pub enum Error {
   Wallet(#[from] ClientError<()>),
 
   #[error("{0:?}")]
-  CoinSelection(#[from] CoinSelectionError),
-
-  #[error("{0:?}")]
   RejectPuzzleSolution(#[from] ClientError<RejectPuzzleSolution>),
 
   #[error("{0:?}")]
@@ -87,29 +89,69 @@ pub enum Error {
   Permission(),
 }
 
-pub async fn get_coins(
+struct UnspentCoinResponse {
+  coins: Vec<Coin>,
+  last_height: u32,
+  last_header_hash: Bytes32,
+}
+
+pub async fn get_unspent_coins(
   peer: &Peer,
   puzzle_hash: Bytes32,
-  min_height: u32,
-) -> Result<Vec<Coin>, Error> {
-  let coin_states = peer
-    .register_for_ph_updates(vec![puzzle_hash], min_height)
-    .await
-    .map_err(|e| Error::Wallet(e))?;
+  previous_height: Option<u32>,
+  previous_header_hash: Bytes32,
+) -> Result<UnspentCoinResponse, chia_client::Error<()>> {
+  let mut coins: Vec<Coin> = vec![];
+  let mut last_height: u32 = if previous_height.is_some() {
+    previous_height.unwrap()
+  } else {
+    0
+  };
+  let mut last_header_hash: Bytes32 = previous_header_hash;
 
-  Ok(
-    coin_states
-      .iter()
-      .filter(|cs| cs.spent_height.is_none())
-      .map(|cs| cs.coin)
-      .collect(),
-  )
+  loop {
+    let response = peer
+      .request::<RespondPuzzleState, RequestPuzzleState>(RequestPuzzleState::new(
+        vec![puzzle_hash],
+        if last_height == 0 {
+          None
+        } else {
+          Some(last_height)
+        },
+        last_header_hash,
+        CoinStateFilters {
+          include_spent: false,
+          include_unspent: true,
+          include_hinted: false,
+          min_amount: 1,
+        },
+        false,
+      ))
+      .await?;
+
+    last_height = response.height;
+    last_header_hash = response.header_hash;
+    coins.extend(response.coin_states.into_iter().map(|cs| cs.coin));
+
+    if response.is_finished {
+      break;
+    }
+  }
+
+  Ok(UnspentCoinResponse {
+    coins,
+    last_height,
+    last_header_hash,
+  })
+}
+
+pub fn select_coins(coins: Vec<Coin>, total_amount: u64) -> Result<Vec<Coin>, CoinSelectionError> {
+  select_coins_algo(coins.into_iter().collect(), total_amount.into())
 }
 
 pub async fn mint_store(
-  peer: &Peer,
   minter_synthetic_key: PublicKey,
-  minter_ph_min_height: u32,
+  selected_coins: Vec<Coin>,
   root_hash: Bytes32,
   label: String,
   description: String,
@@ -118,27 +160,14 @@ pub async fn mint_store(
   fee: u64,
 ) -> Result<SuccessResponse, Error> {
   let minter_puzzle_hash: Bytes32 = StandardArgs::curry_tree_hash(minter_synthetic_key).into();
-  let coin_states = peer
-    .register_for_ph_updates(vec![minter_puzzle_hash], minter_ph_min_height)
-    .await
-    .map_err(|e| Error::Wallet(e))?;
 
   let total_amount = fee + 1;
-  let coins: Vec<Coin> = select_coins(
-    coin_states
-      .iter()
-      .filter(|cs| cs.spent_height.is_none())
-      .map(|coin_state| coin_state.coin)
-      .collect(),
-    total_amount.into(),
-  )
-  .map_err(|cserr| Error::CoinSelection(cserr))?;
 
   let mut ctx = SpendContext::new();
 
-  let lead_coin = coins[0].clone();
+  let lead_coin = selected_coins[0].clone();
   let lead_coin_name = lead_coin.coin_id();
-  for coin in coins.iter().skip(1) {
+  for coin in selected_coins.iter().skip(1) {
     ctx
       .spend_p2_coin(
         *coin,
@@ -161,7 +190,7 @@ pub async fn mint_store(
     },
   )?;
 
-  let total_amount_from_coins = coins.iter().map(|c| c.amount).sum::<u64>();
+  let total_amount_from_coins = selected_coins.iter().map(|c| c.amount).sum::<u64>();
   let lead_coin_conditions = if total_amount_from_coins > total_amount {
     launch_singleton.create_coin(minter_puzzle_hash, total_amount_from_coins - total_amount)
   } else {
@@ -183,15 +212,25 @@ pub struct SyncStoreResponse {
 pub async fn sync_store(
   peer: &Peer,
   store_info: &DataStoreInfo,
-  min_height: u32,
+  last_height: Option<u32>,
+  last_header_hash: Bytes32,
 ) -> Result<SyncStoreResponse, Error> {
   let mut latest_info = store_info.clone();
 
-  let mut coin_states = peer
-    .register_for_coin_updates(vec![latest_info.coin.coin_id()], min_height)
-    .await
-    .map_err(|e| Error::Wallet(e))?;
-  let mut last_coin_record = coin_states.iter().next().ok_or(Error::UnknwonCoin())?;
+  let response = peer
+    .request::<RespondCoinState, RequestCoinState>(RequestCoinState::new(
+      vec![store_info.coin.coin_id()],
+      last_height,
+      last_header_hash,
+      false,
+    ))
+    .await?;
+  let mut last_coin_record = response
+    .coin_states
+    .into_iter()
+    .next()
+    .ok_or(Error::UnknwonCoin())?
+    .clone();
 
   let mut ctx = SpendContext::new(); // just to run puzzles more easily
 
@@ -214,12 +253,21 @@ pub async fn sync_store(
       DataStoreInfo::from_spend(ctx.allocator_mut(), &cs, &latest_info.delegated_puzzles)
         .map_err(|_| Error::Parse())?;
 
-    coin_states = peer
-      .register_for_coin_updates(vec![new_info.coin.coin_id()], min_height)
-      .await
-      .map_err(|e| Error::Wallet(e))?;
+    let response = peer
+      .request::<RespondCoinState, RequestCoinState>(RequestCoinState::new(
+        vec![store_info.coin.coin_id()],
+        last_height,
+        last_header_hash,
+        false,
+      ))
+      .await?;
 
-    last_coin_record = coin_states.iter().next().ok_or(Error::UnknwonCoin())?;
+    last_coin_record = response
+      .coin_states
+      .into_iter()
+      .next()
+      .ok_or(Error::UnknwonCoin())?
+      .clone();
     latest_info = new_info;
   }
 
@@ -234,13 +282,23 @@ pub async fn sync_store(
 pub async fn sync_store_using_launcher_id(
   peer: &Peer,
   launcher_id: Bytes32,
-  min_height: u32,
+  last_height: Option<u32>,
+  last_header_hash: Bytes32,
 ) -> Result<SyncStoreResponse, Error> {
-  let coin_states = peer
-    .register_for_coin_updates(vec![launcher_id], min_height)
-    .await
-    .map_err(|e| Error::Wallet(e))?;
-  let last_coin_record = coin_states.iter().next().ok_or(Error::UnknwonCoin())?;
+  let response = peer
+    .request::<RespondCoinState, RequestCoinState>(RequestCoinState::new(
+      vec![launcher_id],
+      last_height,
+      last_header_hash,
+      false,
+    ))
+    .await?;
+  let mut last_coin_record = response
+    .coin_states
+    .into_iter()
+    .next()
+    .ok_or(Error::UnknwonCoin())?
+    .clone();
 
   let mut ctx = SpendContext::new(); // just to run puzzles more easily
 
@@ -261,7 +319,7 @@ pub async fn sync_store_using_launcher_id(
   let first_info =
     DataStoreInfo::from_spend(ctx.allocator_mut(), &cs, &vec![]).map_err(|_| Error::Parse())?;
 
-  return sync_store(peer, &first_info, min_height).await;
+  return sync_store(peer, &first_info, last_height, last_header_hash).await;
 }
 
 pub enum DataStoreInnerSpendInfo {
@@ -318,7 +376,7 @@ fn update_store_with_conditions(
     datastore_spend(ctx, &store_info, inner_datastore_spend).map_err(|err| Error::Spend(err))?;
   ctx.insert_coin_spend(new_spend.clone());
 
-  print_spend_bundle_to_file(vec![new_spend.clone()], Signature::default(), "sb.debug"); // todo: debug
+  // print_spend_bundle_to_file(vec![new_spend.clone()], Signature::default(), "sb.debug"); // todo: debug
 
   let new_info = DataStoreInfo::from_spend(
     ctx.allocator_mut(),
@@ -341,26 +399,36 @@ pub fn update_store_ownership(
 ) -> Result<SuccessResponse, Error> {
   let mut ctx = SpendContext::new();
 
-  let leaves: Vec<Bytes32> = new_delegated_puzzles
-    .clone()
-    .iter()
-    .map(|dp| dp.puzzle_hash)
-    .collect();
-  let merkle_tree = MerkleTree::new(&leaves);
-  let new_merkle_root = merkle_tree.get_root();
+  let update_condition: Condition = match inner_spend_info {
+    DataStoreInnerSpendInfo::Owner(_) => {
+      get_new_ownership_inner_condition(&new_owner_puzzle_hash, &new_delegated_puzzles)
+    }
+    DataStoreInnerSpendInfo::Admin(_) => {
+      let leaves: Vec<Bytes32> = new_delegated_puzzles
+        .clone()
+        .iter()
+        .map(|dp| dp.puzzle_hash)
+        .collect();
+      let merkle_tree = MerkleTree::new(&leaves);
+      let new_merkle_root = merkle_tree.get_root();
 
-  let new_merkle_root_condition = NewMerkleRootCondition {
-    new_merkle_root,
-    memos: get_memos(new_owner_puzzle_hash.into(), new_delegated_puzzles),
-  }
-  .to_clvm(ctx.allocator_mut())
-  .map_err(|err| Error::ToClvm(err))?;
-  let new_merkle_root_condition =
-    Conditions::new().condition(Condition::Other(new_merkle_root_condition));
+      let new_merkle_root_condition = NewMerkleRootCondition {
+        new_merkle_root,
+        memos: get_memos(new_owner_puzzle_hash.into(), new_delegated_puzzles),
+      }
+      .to_clvm(ctx.allocator_mut())
+      .map_err(|err| Error::ToClvm(err))?;
+
+      Condition::Other(new_merkle_root_condition)
+    }
+    _ => return Err(Error::Permission()),
+  };
+
+  let update_conditions = Conditions::new().condition(update_condition);
 
   update_store_with_conditions(
     &mut ctx,
-    new_merkle_root_condition,
+    update_conditions,
     store_info,
     inner_spend_info,
     true,
@@ -396,8 +464,6 @@ pub fn update_store_metadata(
   .map_err(|err| Error::ToClvm(err))?;
   let new_metadata_condition =
     Conditions::new().condition(Condition::Other(new_metadata_condition));
-
-  // todo: if owner, re-create store
 
   update_store_with_conditions(
     &mut ctx,
@@ -440,9 +506,8 @@ pub fn melt_store(
 }
 
 pub async fn oracle_spend(
-  peer: &Peer,
   spender_synthetic_key: PublicKey,
-  spender_ph_min_height: u32,
+  selected_coins: Vec<Coin>,
   store_info: &DataStoreInfo,
   fee: u64,
 ) -> Result<SuccessResponse, Error> {
@@ -461,27 +526,14 @@ pub async fn oracle_spend(
   };
 
   let spender_puzzle_hash: Bytes32 = StandardArgs::curry_tree_hash(spender_synthetic_key).into();
-  let coin_states = peer
-    .register_for_ph_updates(vec![spender_puzzle_hash], spender_ph_min_height)
-    .await
-    .map_err(|e| Error::Wallet(e))?;
 
   let total_amount = oracle_fee + fee;
-  let coins: Vec<Coin> = select_coins(
-    coin_states
-      .iter()
-      .filter(|cs| cs.spent_height.is_none())
-      .map(|coin_state| coin_state.coin)
-      .collect(),
-    total_amount.into(),
-  )
-  .map_err(|cserr| Error::CoinSelection(cserr))?;
 
   let mut ctx = SpendContext::new();
 
-  let lead_coin = coins[0].clone();
+  let lead_coin = selected_coins[0].clone();
   let lead_coin_name = lead_coin.coin_id();
-  for coin in coins.iter().skip(1) {
+  for coin in selected_coins.iter().skip(1) {
     ctx
       .spend_p2_coin(
         *coin,
@@ -494,7 +546,7 @@ pub async fn oracle_spend(
   let assert_oracle_conds = Conditions::new()
     .assert_puzzle_announcement(store_info.coin.puzzle_hash, &Bytes::new("$".into()));
 
-  let total_amount_from_coins = coins.iter().map(|c| c.amount).sum::<u64>();
+  let total_amount_from_coins = selected_coins.iter().map(|c| c.amount).sum::<u64>();
 
   let mut lead_coin_conditions = assert_oracle_conds;
   if total_amount_from_coins > total_amount {
@@ -534,34 +586,18 @@ pub async fn oracle_spend(
 }
 
 pub async fn add_fee(
-  peer: &Peer,
   spender_synthetic_key: PublicKey,
-  spender_ph_min_height: u32,
+  selected_coins: Vec<Coin>,
   coin_ids: Vec<Bytes32>,
   fee: u64,
 ) -> Result<Vec<CoinSpend>, Error> {
   let spender_puzzle_hash: Bytes32 = StandardArgs::curry_tree_hash(spender_synthetic_key).into();
-  let coin_states = peer
-    .register_for_ph_updates(vec![spender_puzzle_hash], spender_ph_min_height)
-    .await
-    .map_err(|e| Error::Wallet(e))?;
-
-  let total_amount = fee;
-  let coins: Vec<Coin> = select_coins(
-    coin_states
-      .iter()
-      .filter(|cs| cs.spent_height.is_none())
-      .map(|coin_state| coin_state.coin)
-      .collect(),
-    total_amount.into(),
-  )
-  .map_err(|cserr| Error::CoinSelection(cserr))?;
 
   let mut ctx = SpendContext::new();
 
-  let lead_coin = coins[0].clone();
+  let lead_coin = selected_coins[0].clone();
   let lead_coin_name = lead_coin.coin_id();
-  for coin in coins.iter().skip(1) {
+  for coin in selected_coins.iter().skip(1) {
     ctx
       .spend_p2_coin(
         *coin,
@@ -571,12 +607,12 @@ pub async fn add_fee(
       .map_err(|err| Error::Spend(err))?;
   }
 
-  let total_amount_from_coins = coins.iter().map(|c| c.amount).sum::<u64>();
+  let total_amount_from_coins = selected_coins.iter().map(|c| c.amount).sum::<u64>();
 
   let mut lead_coin_conditions = Conditions::new().reserve_fee(fee);
-  if total_amount_from_coins > total_amount {
+  if total_amount_from_coins > fee {
     lead_coin_conditions =
-      lead_coin_conditions.create_coin(spender_puzzle_hash, total_amount_from_coins - total_amount);
+      lead_coin_conditions.create_coin(spender_puzzle_hash, total_amount_from_coins - fee);
   }
   for coin_id in coin_ids {
     lead_coin_conditions =
