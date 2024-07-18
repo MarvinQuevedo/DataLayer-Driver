@@ -31,7 +31,6 @@ pub use debug::*;
 pub use drivers::*;
 pub use merkle_tree::*;
 use napi::bindgen_prelude::*;
-use native_tls::TlsConnector;
 pub use puzzles::*;
 pub use puzzles_info::*;
 use puzzles_info::{
@@ -40,6 +39,7 @@ use puzzles_info::{
 };
 use wallet::SuccessResponse as RustSuccessResponse;
 use wallet::SyncStoreResponse as RustSyncStoreResponse;
+use wallet::UnspentCoinsResponse as RustUnspentCoinsResponse;
 pub use wallet::*;
 
 #[macro_use]
@@ -516,16 +516,31 @@ impl ToJS<SyncStoreResponse> for RustSyncStoreResponse {
   }
 }
 
-#[napi]
-pub struct Tls(TlsConnector);
+#[napi(object)]
 
-#[napi]
-impl Tls {
-  #[napi(constructor)]
-  pub fn new(cert_path: String, key_path: String) -> napi::Result<Self> {
-    let cert = load_ssl_cert(&cert_path, &key_path).map_err(js)?;
-    let tls = create_tls_connector(&cert).map_err(js)?;
-    Ok(Self(tls))
+pub struct UnspentCoinsResponse {
+  pub coins: Vec<Coin>,
+  pub last_height: u32,
+  pub last_header_hash: Buffer,
+}
+
+impl FromJS<UnspentCoinsResponse> for RustUnspentCoinsResponse {
+  fn from_js(value: UnspentCoinsResponse) -> Self {
+    RustUnspentCoinsResponse {
+      coins: value.coins.into_iter().map(RustCoin::from_js).collect(),
+      last_height: value.last_height,
+      last_header_hash: RustBytes32::from_js(value.last_header_hash),
+    }
+  }
+}
+
+impl ToJS<UnspentCoinsResponse> for RustUnspentCoinsResponse {
+  fn to_js(self: &Self) -> UnspentCoinsResponse {
+    UnspentCoinsResponse {
+      coins: self.coins.into_iter().map(|c| RustCoin::to_js(c)).collect(),
+      last_height: self.last_height,
+      last_header_hash: self.last_header_hash.to_js(),
+    }
   }
 }
 
@@ -535,8 +550,15 @@ pub struct Peer(Arc<RustPeer>);
 #[napi]
 impl Peer {
   #[napi(factory)]
-  pub async fn new(node_uri: String, network_id: String, tls: &Tls) -> napi::Result<Self> {
-    let peer = connect_peer(&node_uri, tls.0.clone()).await.map_err(js)?;
+  pub async fn new(
+    node_uri: String,
+    network_id: String,
+    cert_path: String,
+    key_path: String,
+  ) -> napi::Result<Self> {
+    let cert = load_ssl_cert(&cert_path, &key_path).map_err(js)?;
+    let tls = create_tls_connector(&cert).map_err(js)?;
+    let peer = connect_peer(&node_uri, tls).await.map_err(js)?;
 
     peer
       .send_handshake(network_id, NodeType::Wallet)
@@ -547,16 +569,22 @@ impl Peer {
   }
 
   #[napi]
-  pub async fn get_coins(&self, puzzle_hash: Buffer, min_height: u32) -> napi::Result<Vec<Coin>> {
-    let coins = get_coins(
+  pub async fn get_unspent_coins(
+    &self,
+    puzzle_hash: Buffer,
+    previous_height: Option<u32>,
+    previous_header_hash: Buffer,
+  ) -> napi::Result<UnspentCoinsResponse> {
+    let resp = get_unspent_coins(
       &self.0.clone(),
       RustBytes32::from_js(puzzle_hash),
-      min_height,
+      previous_height,
+      RustBytes32::from_js(previous_header_hash),
     )
     .await
     .map_err(js)?;
 
-    Ok(coins.iter().map(RustCoin::to_js).collect())
+    Ok(resp.to_js())
   }
 
   #[napi]

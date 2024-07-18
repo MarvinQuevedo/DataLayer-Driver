@@ -89,10 +89,10 @@ pub enum Error {
   Permission(),
 }
 
-struct UnspentCoinResponse {
-  coins: Vec<Coin>,
-  last_height: u32,
-  last_header_hash: Bytes32,
+pub struct UnspentCoinsResponse {
+  pub coins: Vec<Coin>,
+  pub last_height: u32,
+  pub last_header_hash: Bytes32,
 }
 
 pub async fn get_unspent_coins(
@@ -100,7 +100,7 @@ pub async fn get_unspent_coins(
   puzzle_hash: Bytes32,
   previous_height: Option<u32>,
   previous_header_hash: Bytes32,
-) -> Result<UnspentCoinResponse, chia_client::Error<()>> {
+) -> Result<UnspentCoinsResponse, chia_client::Error<()>> {
   let mut coins: Vec<Coin> = vec![];
   let mut last_height: u32 = if previous_height.is_some() {
     previous_height.unwrap()
@@ -138,7 +138,7 @@ pub async fn get_unspent_coins(
     }
   }
 
-  Ok(UnspentCoinResponse {
+  Ok(UnspentCoinsResponse {
     coins,
     last_height,
     last_header_hash,
