@@ -131,7 +131,13 @@ pub async fn get_unspent_coins(
 
     last_height = response.height;
     last_header_hash = response.header_hash;
-    coins.extend(response.coin_states.into_iter().map(|cs| cs.coin));
+    coins.extend(
+      response
+        .coin_states
+        .into_iter()
+        .filter(|cs| cs.spent_height.is_none())
+        .map(|cs| cs.coin),
+    );
 
     if response.is_finished {
       break;
