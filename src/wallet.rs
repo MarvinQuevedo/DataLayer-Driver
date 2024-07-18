@@ -293,7 +293,7 @@ pub async fn sync_store_using_launcher_id(
       false,
     ))
     .await?;
-  let mut last_coin_record = response
+  let last_coin_record = response
     .coin_states
     .into_iter()
     .next()
@@ -685,4 +685,29 @@ pub async fn broadcast_spend_bundle(
   spend_bundle: SpendBundle,
 ) -> Result<TransactionAck, ClientError<()>> {
   peer.send_transaction(spend_bundle).await
+}
+
+pub async fn is_coin_spent(
+  peer: &Peer,
+  coin_id: Bytes32,
+  last_height: Option<u32>,
+  last_header_hash: Bytes32,
+) -> Result<bool, Error> {
+  let response = peer
+    .request::<RespondCoinState, RequestCoinState>(RequestCoinState::new(
+      vec![coin_id],
+      last_height,
+      last_header_hash,
+      false,
+    ))
+    .await?;
+
+  Ok(
+    response
+      .coin_states
+      .first()
+      .ok_or(Error::UnknwonCoin())?
+      .spent_height
+      .is_some(),
+  )
 }

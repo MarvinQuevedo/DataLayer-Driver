@@ -13,11 +13,11 @@ use chia::bls::derive_keys::master_to_wallet_unhardened;
 use chia::bls::{SecretKey as RustSecretKey, Signature as RustSignature};
 use chia::client::Peer as RustPeer;
 use chia::{bls::PublicKey as RustPublicKey, traits::Streamable};
+use chia_protocol::Coin as RustCoin;
 use chia_protocol::CoinSpend as RustCoinSpend;
 use chia_protocol::Program as RustProgram;
 use chia_protocol::SpendBundle as RustSpendBundle;
 use chia_protocol::{Bytes32 as RustBytes32, NodeType};
-use chia_protocol::{Coin as RustCoin, CoinState};
 use chia_puzzles::standard::StandardArgs;
 use chia_puzzles::LineageProof as RustLineageProof;
 use chia_puzzles::Proof as RustProof;
@@ -537,7 +537,7 @@ impl FromJS<UnspentCoinsResponse> for RustUnspentCoinsResponse {
 impl ToJS<UnspentCoinsResponse> for RustUnspentCoinsResponse {
   fn to_js(self: &Self) -> UnspentCoinsResponse {
     UnspentCoinsResponse {
-      coins: self.coins.into_iter().map(|c| RustCoin::to_js(c)).collect(),
+      coins: self.coins.iter().map(RustCoin::to_js).collect(),
       last_height: self.last_height,
       last_header_hash: self.last_header_hash.to_js(),
     }
@@ -569,7 +569,7 @@ impl Peer {
   }
 
   #[napi]
-  pub async fn get_unspent_coins(
+  pub async fn get_all_unspent_coins(
     &self,
     puzzle_hash: Buffer,
     previous_height: Option<u32>,
@@ -588,47 +588,36 @@ impl Peer {
   }
 
   #[napi]
-  pub async fn mint_store(
-    &self,
-    minter_synthetic_key: Buffer,
-    minter_ph_min_height: u32,
-    root_hash: Buffer,
-    label: String,
-    description: String,
-    owner_puzzle_hash: Buffer,
-    delegated_puzzles: Vec<DelegatedPuzzle>,
-    fee: BigInt,
-  ) -> napi::Result<SuccessResponse> {
-    let response = mint_store(
-      &self.0.clone(),
-      RustPublicKey::from_js(minter_synthetic_key),
-      minter_ph_min_height,
-      RustBytes32::from_js(root_hash),
-      label,
-      description,
-      RustBytes32::from_js(owner_puzzle_hash),
-      delegated_puzzles
-        .iter()
-        .map(|dp| RustDelegatedPuzzle::from_js(dp.clone()))
-        .collect(),
-      u64::from_js(fee),
-    )
-    .await
-    .map_err(js)?;
-
-    Ok(response.to_js())
-  }
-
-  #[napi]
   pub async fn sync_store(
     &self,
     store_info: DataStoreInfo,
-    min_height: u32,
+    last_height: Option<u32>,
+    last_header_hash: Buffer,
   ) -> napi::Result<SyncStoreResponse> {
     let res = sync_store(
       &self.0.clone(),
       &RustDataStoreInfo::from_js(store_info),
-      min_height,
+      last_height,
+      RustBytes32::from_js(last_header_hash),
+    )
+    .await
+    .map_err(js)?;
+
+    Ok(res.to_js())
+  }
+
+  #[napi]
+  pub async fn sync_store_from_launcher_id(
+    &self,
+    launcher_id: Buffer,
+    last_height: Option<u32>,
+    last_header_hash: Buffer,
+  ) -> napi::Result<SyncStoreResponse> {
+    let res = sync_store_using_launcher_id(
+      &self.0.clone(),
+      RustBytes32::from_js(launcher_id),
+      last_height,
+      RustBytes32::from_js(last_header_hash),
     )
     .await
     .map_err(js)?;
@@ -664,60 +653,114 @@ impl Peer {
   }
 
   #[napi]
-  pub async fn is_coin_spent(&self, coin_id: Buffer) -> napi::Result<bool> {
-    let p: &RustPeer = &self.0.clone();
-    let states: Vec<CoinState> = p
-      .register_for_coin_updates(vec![RustBytes32::from_js(coin_id)], 0)
+  pub async fn is_coin_spent(
+    &self,
+    coin_id: Buffer,
+    last_height: Option<u32>,
+    header_hash: Buffer,
+  ) -> napi::Result<bool> {
+    Ok(
+      is_coin_spent(
+        &self.0.clone(),
+        RustBytes32::from_js(coin_id),
+        last_height,
+        RustBytes32::from_js(header_hash),
+      )
       .await
-      .map_err(js)?;
-
-    Ok(states.len() == 1 && states[0].spent_height.is_some())
-  }
-
-  #[napi]
-  pub async fn oracle_spend(
-    &self,
-    spender_synthetic_key: Buffer,
-    spender_ph_min_height: u32,
-    store_info: DataStoreInfo,
-    fee: BigInt,
-  ) -> napi::Result<SuccessResponse> {
-    let response = wallet::oracle_spend(
-      &self.0.clone(),
-      RustPublicKey::from_js(spender_synthetic_key),
-      spender_ph_min_height,
-      &RustDataStoreInfo::from_js(store_info),
-      u64::from_js(fee),
+      .map_err(js)?,
     )
-    .await
-    .map_err(js)?;
-
-    Ok(response.to_js())
   }
+}
 
-  #[napi]
-  pub async fn add_fee(
-    &self,
-    spender_synthetic_key: Buffer,
-    spender_ph_min_height: u32,
-    coin_ids: Vec<Buffer>,
-    fee: BigInt,
-  ) -> napi::Result<Vec<CoinSpend>> {
-    let response = wallet::add_fee(
-      &self.0.clone(),
-      RustPublicKey::from_js(spender_synthetic_key),
-      spender_ph_min_height,
-      coin_ids
-        .into_iter()
-        .map(|cid| RustBytes32::from_js(cid))
-        .collect(),
-      u64::from_js(fee),
-    )
-    .await
-    .map_err(js)?;
+#[napi]
+pub fn select_coins(all_coins: Vec<Coin>, total_amount: BigInt) -> napi::Result<Vec<Coin>> {
+  let coins: Vec<RustCoin> = all_coins
+    .into_iter()
+    .map(|c| RustCoin::from_js(c))
+    .collect();
+  let selected_coins = wallet::select_coins(coins, u64::from_js(total_amount)).map_err(js)?;
 
-    Ok(response.into_iter().map(|cs| cs.to_js()).collect())
-  }
+  Ok(selected_coins.into_iter().map(|c| c.to_js()).collect())
+}
+
+#[napi]
+pub async fn mint_store(
+  minter_synthetic_key: Buffer,
+  selected_coins: Vec<Coin>,
+  root_hash: Buffer,
+  label: String,
+  description: String,
+  owner_puzzle_hash: Buffer,
+  delegated_puzzles: Vec<DelegatedPuzzle>,
+  fee: BigInt,
+) -> napi::Result<SuccessResponse> {
+  let response = wallet::mint_store(
+    RustPublicKey::from_js(minter_synthetic_key),
+    selected_coins
+      .into_iter()
+      .map(|c| RustCoin::from_js(c))
+      .collect(),
+    RustBytes32::from_js(root_hash),
+    label,
+    description,
+    RustBytes32::from_js(owner_puzzle_hash),
+    delegated_puzzles
+      .iter()
+      .map(|dp| RustDelegatedPuzzle::from_js(dp.clone()))
+      .collect(),
+    u64::from_js(fee),
+  )
+  .await
+  .map_err(js)?;
+
+  Ok(response.to_js())
+}
+
+#[napi]
+pub async fn oracle_spend(
+  spender_synthetic_key: Buffer,
+  selected_coins: Vec<Coin>,
+  store_info: DataStoreInfo,
+  fee: BigInt,
+) -> napi::Result<SuccessResponse> {
+  let response = wallet::oracle_spend(
+    RustPublicKey::from_js(spender_synthetic_key),
+    selected_coins
+      .into_iter()
+      .map(|c| RustCoin::from_js(c))
+      .collect(),
+    &RustDataStoreInfo::from_js(store_info),
+    u64::from_js(fee),
+  )
+  .await
+  .map_err(js)?;
+
+  Ok(response.to_js())
+}
+
+#[napi]
+pub async fn add_fee(
+  spender_synthetic_key: Buffer,
+  selected_coins: Vec<Coin>,
+  assert_coin_ids: Vec<Buffer>,
+  fee: BigInt,
+) -> napi::Result<Vec<CoinSpend>> {
+  let response = wallet::add_fee(
+    RustPublicKey::from_js(spender_synthetic_key),
+    selected_coins
+      .into_iter()
+      .map(|c| RustCoin::from_js(c))
+      .collect(),
+    assert_coin_ids
+      .into_iter()
+      .map(|cid| RustBytes32::from_js(cid))
+      .collect(),
+    u64::from_js(fee),
+  )
+  .await
+  .map_err(js)?;
+
+  Ok(response.into_iter().map(|cs| cs.to_js()).collect())
 }
 
 #[napi]
@@ -872,11 +915,14 @@ pub fn update_store_metadata(
 #[napi]
 pub fn update_store_ownership(
   store_info: DataStoreInfo,
-  new_owner_puzzle_hash: Buffer,
+  new_owner_puzzle_hash: Option<Buffer>,
   new_delegated_puzzles: Vec<DelegatedPuzzle>,
   owner_public_key: Option<Buffer>,
   admin_public_key: Option<Buffer>,
 ) -> napi::Result<SuccessResponse> {
+  let new_owner_puzzle_hash =
+    new_owner_puzzle_hash.unwrap_or_else(|| store_info.owner_puzzle_hash.clone());
+
   let inner_spend_info = match (owner_public_key, admin_public_key) {
     (Some(owner_public_key), None) => {
       DataStoreInnerSpendInfo::Owner(RustPublicKey::from_js(owner_public_key))
