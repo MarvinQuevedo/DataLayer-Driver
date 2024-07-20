@@ -261,7 +261,7 @@ pub async fn sync_store(
 
     let response = peer
       .request::<RespondCoinState, RequestCoinState>(RequestCoinState::new(
-        vec![store_info.coin.coin_id()],
+        vec![new_info.coin.coin_id()],
         last_height,
         last_header_hash,
         false,
