@@ -418,8 +418,8 @@ pub mod tests {
   };
 
   use crate::{
-    DefaultMetadataSolution, DefaultMetadataSolutionMetadataList, NewMerkleRootCondition,
-    NewMetadataCondition,
+    DefaultMetadataSolution, DefaultMetadataSolutionMetadataList, MeltCondition,
+    NewMerkleRootCondition, NewMetadataCondition,
   };
 
   use super::*;
@@ -2336,5 +2336,166 @@ pub mod tests {
     assert!(src_coin_state.spent_height.is_some()); // tx happened
 
     Ok(())
+  }
+
+  enum FilterPuzzle {
+    Admin,
+    Writer,
+  }
+
+  #[rstest(
+    puzzle => [FilterPuzzle::Admin, FilterPuzzle::Writer],
+  )]
+  #[tokio::test]
+  async fn test_filter_create_coin(puzzle: FilterPuzzle) -> anyhow::Result<()> {
+    let sim = Simulator::new().await?;
+
+    let [owner_sk, puzzle_sk]: [SecretKey; 2] = secret_keys(2).unwrap().try_into().unwrap();
+
+    let owner_pk = owner_sk.public_key();
+    let puzzle_pk = puzzle_sk.public_key();
+
+    let owner_puzzle_hash = StandardArgs::curry_tree_hash(owner_pk).into();
+    let puzzle_ownership_puzzle_hash = StandardArgs::curry_tree_hash(puzzle_pk).into();
+    let coin = sim.mint_coin(owner_puzzle_hash, 1).await;
+
+    let ctx = &mut SpendContext::new();
+
+    let delegated_puzzle = match puzzle {
+      FilterPuzzle::Admin => DelegatedPuzzle::from_admin_pk(ctx, puzzle_pk).unwrap().0,
+      FilterPuzzle::Writer => DelegatedPuzzle::from_writer_pk(ctx, puzzle_pk).unwrap().0,
+    };
+
+    let (launch_singleton, src_datastore_info) = Launcher::new(coin.coin_id(), 1).mint_datastore(
+      ctx,
+      DataStoreMintInfo {
+        metadata: DataStoreMetadata {
+          root_hash: Hash::ZERO.value(),
+          label: Label::EMPTY.value(),
+          description: Description::EMPTY.value(),
+        },
+        owner_puzzle_hash: owner_puzzle_hash.into(),
+        delegated_puzzles: vec![delegated_puzzle.clone()],
+      },
+    )?;
+
+    ctx.spend_p2_coin(coin, owner_pk, launch_singleton)?;
+
+    let spends = ctx.take_spends();
+    for spend in spends.clone() {
+      if spend.coin.coin_id() == src_datastore_info.launcher_id {
+        {
+          let mut stats = TEST_STATS.lock().unwrap();
+          stats.add_launcher_tx(&spend);
+        }
+      }
+
+      ctx.insert_coin_spend(spend);
+    }
+
+    // delegated puzzle tries to steal the coin
+    let inner_datastore_spend = DatastoreInnerSpend::DelegatedPuzzleSpend(
+      delegated_puzzle,
+      Conditions::new()
+        .condition(Condition::CreateCoin(CreateCoin {
+          puzzle_hash: puzzle_ownership_puzzle_hash,
+          amount: 1,
+          memos: vec![],
+        }))
+        .p2_spend(ctx, puzzle_pk)?,
+    );
+    let new_spend = datastore_spend(ctx, &src_datastore_info, inner_datastore_spend)?;
+
+    let puzzle_reveal_ptr = ctx.alloc(&new_spend.puzzle_reveal).unwrap();
+    let solution_ptr = ctx.alloc(&new_spend.solution).unwrap();
+    match ctx.run(puzzle_reveal_ptr, solution_ptr) {
+      Ok(_) => panic!("expected error"),
+      Err(err) => match err {
+        SpendError::Eval(eval_err) => {
+          assert_eq!(eval_err.1, "clvm raise");
+          Ok(())
+        }
+        _ => panic!("expected 'clvm raise' error"),
+      },
+    }
+  }
+
+  #[rstest(
+    puzzle => [FilterPuzzle::Admin, FilterPuzzle::Writer],
+    puzzle_hash => [Hash::ZERO, Hash::SOME],
+  )]
+  #[tokio::test]
+  async fn test_filter_melt(puzzle: FilterPuzzle, puzzle_hash: Hash) -> anyhow::Result<()> {
+    let sim = Simulator::new().await?;
+
+    let [owner_sk, puzzle_sk]: [SecretKey; 2] = secret_keys(2).unwrap().try_into().unwrap();
+
+    let owner_pk = owner_sk.public_key();
+    let puzzle_pk = puzzle_sk.public_key();
+
+    let owner_puzzle_hash = StandardArgs::curry_tree_hash(owner_pk).into();
+    let coin = sim.mint_coin(owner_puzzle_hash, 1).await;
+
+    let ctx = &mut SpendContext::new();
+
+    let delegated_puzzle = match puzzle {
+      FilterPuzzle::Admin => DelegatedPuzzle::from_admin_pk(ctx, puzzle_pk).unwrap().0,
+      FilterPuzzle::Writer => DelegatedPuzzle::from_writer_pk(ctx, puzzle_pk).unwrap().0,
+    };
+
+    let (launch_singleton, src_datastore_info) = Launcher::new(coin.coin_id(), 1).mint_datastore(
+      ctx,
+      DataStoreMintInfo {
+        metadata: DataStoreMetadata {
+          root_hash: Hash::ZERO.value(),
+          label: Label::EMPTY.value(),
+          description: Description::EMPTY.value(),
+        },
+        owner_puzzle_hash: owner_puzzle_hash.into(),
+        delegated_puzzles: vec![delegated_puzzle.clone()],
+      },
+    )?;
+
+    ctx.spend_p2_coin(coin, owner_pk, launch_singleton)?;
+
+    let spends = ctx.take_spends();
+    for spend in spends.clone() {
+      if spend.coin.coin_id() == src_datastore_info.launcher_id {
+        {
+          let mut stats = TEST_STATS.lock().unwrap();
+          stats.add_launcher_tx(&spend);
+        }
+      }
+
+      ctx.insert_coin_spend(spend);
+    }
+
+    // delegated puzzle tries to steal the coin
+    let inner_datastore_spend = DatastoreInnerSpend::DelegatedPuzzleSpend(
+      delegated_puzzle,
+      Conditions::new()
+        .condition(Condition::Other(
+          MeltCondition {
+            fake_puzzle_hash: puzzle_hash.value(),
+          }
+          .to_clvm(ctx.allocator_mut())
+          .unwrap(),
+        ))
+        .p2_spend(ctx, puzzle_pk)?,
+    );
+    let new_spend = datastore_spend(ctx, &src_datastore_info, inner_datastore_spend)?;
+
+    let puzzle_reveal_ptr = ctx.alloc(&new_spend.puzzle_reveal).unwrap();
+    let solution_ptr = ctx.alloc(&new_spend.solution).unwrap();
+    match ctx.run(puzzle_reveal_ptr, solution_ptr) {
+      Ok(_) => panic!("expected error"),
+      Err(err) => match err {
+        SpendError::Eval(eval_err) => {
+          assert_eq!(eval_err.1, "clvm raise");
+          Ok(())
+        }
+        _ => panic!("expected 'clvm raise' error"),
+      },
+    }
   }
 }
