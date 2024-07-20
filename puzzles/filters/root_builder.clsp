@@ -1,0 +1,52 @@
+; root_builder.clsp
+; for DataLayer.storage by yakuhito
+
+;; Given a list of hints, returns the merkle root for the delegated puzzles
+;; This ensures that the admin is only able to delegate writer/admin/oracle puzzles
+;; and not ones that'd allow them to take over the puzzle
+
+(mod (
+    MY_MOD_HASH
+    ADMIN_FILTER_MOD_HASH
+    WRITER_FILTER_MOD_HASH
+    memos
+  )
+
+  (include condition_codes.clib)
+  (include sha256tree.clib)
+  (include curry.clib)
+
+  (defun morph_conditions (ROOT_BUILDER_HASH root_builder_reveal conditions)
+    (if conditions
+      (if (any
+        (= (f (f conditions)) CREATE_COIN)
+        ; don't allow metadata updater to create extra conditions
+        ; update metadata condition is (list -24 [metadata updater puzzle reveal] [solution])
+        ; for the standard DL, solution is (list (list [new metadata] [new updater ph]) [conditions])
+        ; return true if cond = -24 and [conditions] != () or new updater ph != current updater ph since true means we (x)
+        (if (= (f (f conditions)) -24)
+          (not (all
+            (= (f (r (f (r (r (f conditions)))))) ())
+            (= (f (r (f (f (r (r (f conditions))))))) (sha256 1 11))
+          ))
+          ()
+        )
+        (if (= (f (f conditions)) -13)
+          (not (all
+            (= (sha256tree root_builder_reveal) ROOT_BUILDER_HASH)
+            (= (f (r (f conditions))) (a root_builder_reveal (list (r (r (f conditions))))))
+          ))
+          ()
+        )
+      )
+        (x)
+        ; else
+        (c (f conditions) (morph_conditions ROOT_BUILDER_HASH root_builder_reveal (r conditions)))
+      )
+      ; else - all conditions checked
+      ()
+    )
+  )
+
+  (morph_conditions ROOT_BUILDER_HASH root_builder_reveal (a INNER_PUZZLE inner_solution))
+)
