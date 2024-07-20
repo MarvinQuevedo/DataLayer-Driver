@@ -48,7 +48,7 @@ pub struct DelegationLayerSolution<P, S> {
   pub puzzle_solution: S,
 }
 
-pub const DELEGATION_LAYER_PUZZLE: [u8; 881] = hex!(
+pub const DELEGATION_LAYER_PUZZLE: [u8; 862] = hex!(
   "
     ff02ffff01ff02ff12ffff04ff02ffff04ff05ffff04ff0bffff04ffff02ff5fff81bf80ffff04ff
     ff04ff17ff8080ffff04ffff02ff1effff04ff02ffff04ffff02ff1affff04ff02ffff04ff5fff80
@@ -58,27 +58,26 @@ pub const DELEGATION_LAYER_PUZZLE: [u8; 881] = hex!(
     a12871fee210fb8619291eaea194581cbd2531e4b23759d225f6806923f63222a102a8d5dd63fba4
     71ebcb1f3e8f7c1e1879b7152a6e7298a91ce119a63400ade7c5ffffff02ffff03ff17ffff01ff02
     ffff03ffff09ff47ff1880ffff01ff02ff12ffff04ff02ffff04ff05ffff04ff0bffff04ff37ffff
-    04ff67ffff01ff956f64645f6372656174655f636f696e5f666f756e6480808080808080ffff01ff
-    04ff27ffff02ff12ffff04ff02ffff04ff05ffff04ff0bffff04ff37ffff04ff2fffff04ff5fff80
-    808080808080808080ff0180ffff01ff02ffff03ff5fffff01ff04ffff04ff10ffff04ffff0bff5c
-    ffff0bff14ffff0bff14ff6cff0580ffff0bff14ffff0bff7cffff0bff14ffff0bff14ff6cffff0b
-    ffff0101ff058080ffff0bff14ffff0bff7cffff0bff14ffff0bff14ff6cffff0bffff0101ff0b80
-    80ffff0bff14ffff0bff7cffff0bff14ffff0bff14ff6cffff0bffff0101ff4f8080ffff0bff14ff
-    6cff4c808080ff4c808080ff4c808080ff4c808080ffff04ffff0101ffff04ff6fff8080808080ff
-    8080ff8080ff018080ff0180ff02ffff03ffff07ff0580ffff01ff0bffff0102ffff02ff1affff04
-    ff02ffff04ff09ff80808080ffff02ff1affff04ff02ffff04ff0dff8080808080ffff01ff0bffff
-    0101ff058080ff0180ffff02ffff03ff1bffff01ff02ff16ffff04ff02ffff04ffff02ffff03ffff
-    18ffff0101ff1380ffff01ff0bffff0102ff2bff0580ffff01ff0bffff0102ff05ff2b8080ff0180
-    ffff04ffff04ffff17ff13ffff0181ff80ff3b80ff8080808080ffff010580ff0180ff02ffff03ff
-    ff09ff05ff0b80ff80ffff01ff02ffff03ffff09ff17ffff02ff16ffff04ff02ffff04ffff0bffff
-    0101ff0580ffff04ff2fff808080808080ffff01ff0101ffff01ff088080ff018080ff0180ff0180
-    80
+    04ff67ffff04ff5fff8080808080808080ffff01ff04ff27ffff02ff12ffff04ff02ffff04ff05ff
+    ff04ff0bffff04ff37ffff04ff2fffff04ff5fff80808080808080808080ff0180ffff01ff02ffff
+    03ff5fffff01ff04ffff04ff10ffff04ffff0bff5cffff0bff14ffff0bff14ff6cff0580ffff0bff
+    14ffff0bff7cffff0bff14ffff0bff14ff6cffff0bffff0101ff058080ffff0bff14ffff0bff7cff
+    ff0bff14ffff0bff14ff6cffff0bffff0101ff0b8080ffff0bff14ffff0bff7cffff0bff14ffff0b
+    ff14ff6cffff0bffff0101ff4f8080ffff0bff14ff6cff4c808080ff4c808080ff4c808080ff4c80
+    8080ffff04ffff0101ffff04ff6fff8080808080ff8080ff8080ff018080ff0180ff02ffff03ffff
+    07ff0580ffff01ff0bffff0102ffff02ff1affff04ff02ffff04ff09ff80808080ffff02ff1affff
+    04ff02ffff04ff0dff8080808080ffff01ff0bffff0101ff058080ff0180ffff02ffff03ff1bffff
+    01ff02ff16ffff04ff02ffff04ffff02ffff03ffff18ffff0101ff1380ffff01ff0bffff0102ff2b
+    ff0580ffff01ff0bffff0102ff05ff2b8080ff0180ffff04ffff04ffff17ff13ffff0181ff80ff3b
+    80ff8080808080ffff010580ff0180ff02ffff03ffff09ff05ff0b80ff80ffff01ff02ffff03ffff
+    09ff17ffff02ff16ffff04ff02ffff04ffff0bffff0101ff0580ffff04ff2fff808080808080ffff
+    01ff0101ffff01ff088080ff018080ff0180ff018080
     "
 );
 
 pub const DELEGATION_LAYER_PUZZLE_HASH: TreeHash = TreeHash::new(hex!(
   "
-    f5ecc72012675d5b9c7beafc1d0c81b17e7a557dfe99d24cda801da5ae75459c
+    d053f930c54454dbe3336a9e98ec058c95dbcecc26a3fc8c32983e260e338f6a
     "
 ));
 
@@ -205,10 +204,7 @@ mod tests {
   use hex::encode;
   use rstest::rstest;
 
-  use crate::{
-    DefaultMetadataSolution, DefaultMetadataSolutionMetadataList, MeltCondition,
-    NewMetadataCondition,
-  };
+  use crate::{DefaultMetadataSolution, DefaultMetadataSolutionMetadataList, NewMetadataCondition};
 
   use super::*;
 
@@ -364,41 +360,6 @@ mod tests {
     );
 
     Ok(())
-  }
-
-  #[rstest]
-  #[case(TestFilterPuzzle::Admin)]
-  #[case(TestFilterPuzzle::Writer)]
-  fn test_create_coin_filter(#[case] filter_puzzle: TestFilterPuzzle) -> Result<(), ()> {
-    let mut ctx = SpendContext::new();
-
-    let inner_puzzle = clvm_quote!(vec![CreateCoin {
-      puzzle_hash: [0; 32].into(),
-      amount: 1,
-      memos: vec![],
-    }
-    .to_clvm(ctx.allocator_mut())
-    .unwrap(),])
-    .to_clvm(ctx.allocator_mut())
-    .unwrap();
-
-    let filter_puzzle_ptr =
-      get_filter_puzzle_ptr(ctx.allocator_mut(), &filter_puzzle, inner_puzzle).unwrap();
-
-    let solution_ptr = vec![ctx.allocator().nil()]
-      .to_clvm(ctx.allocator_mut())
-      .unwrap();
-
-    match ctx.run(filter_puzzle_ptr, solution_ptr) {
-      Ok(_) => Err(()),
-      Err(err) => match err {
-        SpendError::Eval(eval_err) => {
-          assert_eq!(eval_err.1, "clvm raise");
-          Ok(())
-        }
-        _ => Err(()),
-      },
-    }
   }
 
   #[derive(ToClvm)]
@@ -641,44 +602,6 @@ mod tests {
           } else {
             Err(())
           }
-        }
-        _ => Err(()),
-      },
-    }
-  }
-
-  #[rstest]
-  #[case(TestFilterPuzzle::Admin, Bytes32::from(NULL_B32))]
-  #[case(TestFilterPuzzle::Admin, Bytes32::from(FULL_B32))]
-  #[case(TestFilterPuzzle::Writer, Bytes32::from(NULL_B32))]
-  #[case(TestFilterPuzzle::Writer, Bytes32::from(FULL_B32))]
-  fn test_melt_filter(
-    #[case] filter_puzzle: TestFilterPuzzle,
-    #[case] puzzle_hash: Bytes32,
-  ) -> Result<(), ()> {
-    let mut ctx = SpendContext::new();
-
-    let inner_puzzle = clvm_quote!(vec![MeltCondition {
-      fake_puzzle_hash: puzzle_hash
-    }
-    .to_clvm(ctx.allocator_mut())
-    .unwrap(),])
-    .to_clvm(ctx.allocator_mut())
-    .unwrap();
-
-    let filter_puzzle_ptr =
-      get_filter_puzzle_ptr(ctx.allocator_mut(), &filter_puzzle, inner_puzzle).unwrap();
-
-    let solution_ptr = vec![ctx.allocator().nil()]
-      .to_clvm(ctx.allocator_mut())
-      .unwrap();
-
-    match ctx.run(filter_puzzle_ptr, solution_ptr) {
-      Ok(_) => Err(()),
-      Err(err) => match err {
-        SpendError::Eval(eval_err) => {
-          assert_eq!(eval_err.1, "clvm raise");
-          Ok(())
         }
         _ => Err(()),
       },

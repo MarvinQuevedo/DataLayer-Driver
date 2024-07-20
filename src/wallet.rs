@@ -382,8 +382,6 @@ fn update_store_with_conditions(
     datastore_spend(ctx, &store_info, inner_datastore_spend).map_err(|err| Error::Spend(err))?;
   ctx.insert_coin_spend(new_spend.clone());
 
-  // print_spend_bundle_to_file(vec![new_spend.clone()], Signature::default(), "sb.debug"); // todo: debug
-
   let new_info = DataStoreInfo::from_spend(
     ctx.allocator_mut(),
     &new_spend,

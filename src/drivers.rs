@@ -414,14 +414,14 @@ pub mod tests {
   };
 
   use crate::{
-    print_spend_bundle_to_file, DefaultMetadataSolution, DefaultMetadataSolutionMetadataList,
-    NewMerkleRootCondition, NewMetadataCondition,
+    DefaultMetadataSolution, DefaultMetadataSolutionMetadataList, NewMerkleRootCondition,
+    NewMetadataCondition,
   };
 
   use super::*;
 
   use chia::{
-    bls::{SecretKey, Signature},
+    bls::SecretKey,
     consensus::gen::{
       conditions::EmptyVisitor, flags::MEMPOOL_MODE, owned_conditions::OwnedSpendBundleConditions,
       run_block_generator::run_block_generator, solution_generator::solution_generator,
@@ -682,9 +682,13 @@ pub mod tests {
 
     ctx.insert_coin_spend(new_spend);
 
-    let spends = ctx.take_spends();
-    print_spend_bundle_to_file(spends.clone(), Signature::default(), "sb.debug");
-    test_transaction(&peer, spends, &[sk], sim.config().genesis_challenge).await;
+    test_transaction(
+      &peer,
+      ctx.take_spends(),
+      &[sk],
+      sim.config().genesis_challenge,
+    )
+    .await;
 
     // Make sure the datastore was created.
     let coin_state = sim
@@ -984,11 +988,9 @@ pub mod tests {
     assert_eq!(new_datastore_info.delegated_puzzles.len(), 0);
     assert_eq!(new_datastore_info.owner_puzzle_hash, owner_puzzle_hash);
 
-    let spends = ctx.take_spends();
-    // print_spend_bundle_to_file(spends.clone(), G2Element::default(), "sb.debug");
     test_transaction(
       &peer,
-      spends,
+      ctx.take_spends(),
       &[owner_sk, admin_sk, writer_sk],
       sim.config().genesis_challenge,
     )

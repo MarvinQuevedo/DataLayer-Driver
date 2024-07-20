@@ -33,7 +33,7 @@
           MOD_HASH INNER_PUZZLE_HASH
           (r conditions)
           (r (f conditions))
-          odd_create_coin_found
+          add_odd_create_coin
         )
         ; else
         (c
