@@ -30,7 +30,7 @@
             (= (f (r (f (r (r (f conditions)))))) ())
             (= (f (r (f (f (r (r (f conditions))))))) (sha256 1 11))
           )
-          ()
+          1
         )
         (c (f conditions) (morph_conditions (r conditions)))
         ; else

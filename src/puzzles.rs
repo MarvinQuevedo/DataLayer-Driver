@@ -114,19 +114,19 @@ pub struct AdminFilterSolution<I> {
   pub inner_solution: I,
 }
 
-pub const ADMIN_FILTER_PUZZLE: [u8; 182] = hex!(
+pub const ADMIN_FILTER_PUZZLE: [u8; 186] = hex!(
   "
     ff02ffff01ff02ff02ffff04ff02ffff04ffff02ff05ff0b80ff80808080ffff04ffff01ff02ffff
     03ff05ffff01ff02ffff03ffff02ffff03ffff09ff11ffff0181e880ffff01ff22ffff09ff820159
     ff8080ffff09ff820299ffff01a057bfd1cb0adda3d94315053fda723f2028320faa8338225d99f6
-    29e3d46d43a98080ff8080ff0180ffff01ff04ff09ffff02ff02ffff04ff02ffff04ff0dff808080
-    8080ffff01ff088080ff0180ff8080ff0180ff018080
+    29e3d46d43a98080ffff01ff010180ff0180ffff01ff04ff09ffff02ff02ffff04ff02ffff04ff0d
+    ff8080808080ffff01ff088080ff0180ff8080ff0180ff018080
     "
 );
 
 pub const ADMIN_FILTER_PUZZLE_HASH: TreeHash = TreeHash::new(hex!(
   "
-    ff41e0759732ab08adc419b265cfcdc2dc18115c3a6930f47f0157c5c0caa61b
+    bcbe12fb659f887b1a7e9abade6911dab2db00c4b7614fb10af1ca48b906d6c4
     "
 ));
 
@@ -225,7 +225,7 @@ mod tests {
   }
 
   #[test]
-  fn puzzle_hashes() {
+  fn test_puzzle_hashes() {
     assert_puzzle_hash!(DELEGATION_LAYER_PUZZLE => DELEGATION_LAYER_PUZZLE_HASH);
     assert_puzzle_hash!(ADMIN_FILTER_PUZZLE => ADMIN_FILTER_PUZZLE_HASH);
     assert_puzzle_hash!(WRITER_FILTER_PUZZLE => WRITER_FILTER_PUZZLE_HASH);
@@ -267,7 +267,7 @@ mod tests {
   #[case(TestFilterPuzzle::Writer, hex!("80").to_vec())] // run -d '(mod () ())'
   #[case(TestFilterPuzzle::Writer, hex!("01").to_vec())] // run -d '(mod solution solution)'
   #[case(TestFilterPuzzle::Writer, STANDARD_PUZZLE.to_vec())]
-  fn filter_curry_tree_hash(
+  fn test_filter_curry_tree_hash(
     #[case] filter_puzzle: TestFilterPuzzle,
     #[case] inner_puzzle_bytes: Vec<u8>,
   ) -> Result<(), ()> {
@@ -303,7 +303,7 @@ mod tests {
   #[case(Bytes32::from(FULL_B32), Bytes32::from(NULL_B32))]
   #[case(Bytes32::from(NULL_B32), Bytes32::from(FULL_B32))]
   #[case(Bytes32::from(FULL_B32), Bytes32::from(FULL_B32))]
-  fn delegation_layer_curry_tree_hash(
+  fn test_delegation_layer_curry_tree_hash(
     #[case] inner_puzzle_hash: Bytes32,
     #[case] merkle_root: Bytes32,
   ) -> Result<(), ()> {
@@ -337,7 +337,7 @@ mod tests {
   #[case(hex!("ff01ff0180").to_vec())] // run -d '(mod () (list 1)))'
   #[case(hex!("ff01ff01ff02ff0380").to_vec())] // run -d '(mod () (list 1 2 3)))'
   #[case(hex!("ff01ff01ffff02ff0380ffff04ff0580ffff060780").to_vec())] // run -d '(mod () (list 1 (list 2 3) (list 4 5) (c 6 7))))'
-  fn dl_metadata_updater_puzzle(#[case] third_arg: Vec<u8>) -> Result<(), ()> {
+  fn test_dl_metadata_updater_puzzle(#[case] third_arg: Vec<u8>) -> Result<(), ()> {
     let mut ctx = SpendContext::new();
 
     let third_arg_ptr = node_from_bytes(ctx.allocator_mut(), &third_arg).unwrap();
