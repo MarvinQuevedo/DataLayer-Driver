@@ -381,17 +381,14 @@ impl LauncherExt for Launcher {
   }
 }
 
-// Always use CREATE_COIN + hints to change ownership
-// Since new merkle root might end up costing a lil' bit more
-pub fn get_new_ownership_inner_condition(
+// As an owner use CREATE_COIN to:
+//  - just re-create store (no hints needed)
+//  - change delegated puzzles (hints needed)
+pub fn get_owner_create_coin_condition(
   new_inner_puzzle_hash: &Bytes32,
   new_delegated_puzzles: &Vec<DelegatedPuzzle>,
+  hint_delegated_puzzles: bool,
 ) -> Condition {
-  let memos = get_memos(
-    new_inner_puzzle_hash.clone().into(),
-    new_delegated_puzzles.clone(),
-  );
-
   let new_puzzle_hash = if new_delegated_puzzles.len() > 0 {
     let new_merkle_root = merkle_root_for_delegated_puzzles(&new_delegated_puzzles);
     DelegationLayerArgs::curry_tree_hash(new_inner_puzzle_hash.clone(), new_merkle_root).into()
@@ -402,7 +399,14 @@ pub fn get_new_ownership_inner_condition(
   Condition::CreateCoin(CreateCoin {
     amount: 1,
     puzzle_hash: new_puzzle_hash,
-    memos,
+    memos: if hint_delegated_puzzles {
+      get_memos(
+        new_inner_puzzle_hash.clone().into(),
+        new_delegated_puzzles.clone(),
+      )
+    } else {
+      vec![]
+    },
   })
 }
 
@@ -1517,6 +1521,7 @@ pub mod tests {
     let mut owner_output_conds = Conditions::new();
 
     let mut dst_delegated_puzzles: Vec<DelegatedPuzzle> = src_delegated_puzzles.clone();
+    let mut hint_new_delegated_puzzles = false;
     if src_with_admin != dst_with_admin
       || src_with_writer != dst_with_writer
       || src_with_oracle != dst_with_oracle
@@ -1524,6 +1529,7 @@ pub mod tests {
       || also_change_owner
     {
       dst_delegated_puzzles.clear();
+      hint_new_delegated_puzzles = true;
 
       if dst_with_admin {
         dst_delegated_puzzles.push(admin_delegated_puzzle);
@@ -1534,16 +1540,18 @@ pub mod tests {
       if dst_with_oracle {
         dst_delegated_puzzles.push(oracle_delegated_puzzle);
       }
-
-      owner_output_conds = owner_output_conds.condition(get_new_ownership_inner_condition(
-        if also_change_owner {
-          &owner2_puzzle_hash
-        } else {
-          &owner_puzzle_hash
-        },
-        &dst_delegated_puzzles,
-      ));
     }
+
+    owner_output_conds = owner_output_conds.condition(get_owner_create_coin_condition(
+      if also_change_owner {
+        &owner2_puzzle_hash
+      } else {
+        &owner_puzzle_hash
+      },
+      &dst_delegated_puzzles,
+      hint_new_delegated_puzzles,
+    ));
+    println!("owner_output_conds: {:?}", owner_output_conds); // todo: debug
 
     if src_meta.0 != dst_meta.0 || src_meta.1 != dst_meta.1 || src_meta.2 != dst_meta.2 {
       let new_metadata = DataStoreMetadata {

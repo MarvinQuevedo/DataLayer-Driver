@@ -39,7 +39,7 @@ use thiserror::Error;
 
 use crate::datastore_spend;
 use crate::get_memos;
-use crate::get_new_ownership_inner_condition;
+use crate::get_owner_create_coin_condition;
 use crate::puzzles_info::DataStoreInfo;
 use crate::puzzles_info::DataStoreMetadata;
 use crate::puzzles_info::DelegatedPuzzle;
@@ -405,7 +405,7 @@ pub fn update_store_ownership(
 
   let update_condition: Condition = match inner_spend_info {
     DataStoreInnerSpendInfo::Owner(_) => {
-      get_new_ownership_inner_condition(&new_owner_puzzle_hash, &new_delegated_puzzles)
+      get_owner_create_coin_condition(&new_owner_puzzle_hash, &new_delegated_puzzles, true)
     }
     DataStoreInnerSpendInfo::Admin(_) => {
       let leaves: Vec<Bytes32> = new_delegated_puzzles
@@ -466,8 +466,16 @@ pub fn update_store_metadata(
   }
   .to_clvm(ctx.allocator_mut())
   .map_err(|err| Error::ToClvm(err))?;
-  let new_metadata_condition =
-    Conditions::new().condition(Condition::Other(new_metadata_condition));
+  let new_metadata_condition = match inner_spend_info {
+    DataStoreInnerSpendInfo::Owner(_) => Conditions::new()
+      .condition(Condition::Other(new_metadata_condition))
+      .condition(get_owner_create_coin_condition(
+        &store_info.owner_puzzle_hash,
+        &store_info.delegated_puzzles,
+        false,
+      )),
+    _ => Conditions::new().condition(Condition::Other(new_metadata_condition)),
+  };
 
   update_store_with_conditions(
     &mut ctx,

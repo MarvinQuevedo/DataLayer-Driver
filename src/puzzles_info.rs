@@ -745,7 +745,7 @@ impl DataStoreInfo {
       println!("odd_create_coin: {:?}", odd_create_coin); // todo: debug
       if odd_create_coin.is_none() {
         println!("no odd create coin from deleg layer inner puzzle"); // todo: debug
-        let deleg_puzzle_hash = DelegationLayerArgs::from_clvm(
+        let deleg_puzzle_args = DelegationLayerArgs::from_clvm(
           allocator,
           delegation_layer_puzzle.as_curried().unwrap().args,
         )
@@ -756,7 +756,7 @@ impl DataStoreInfo {
           launcher_id: singleton_puzzle.launcher_id,
           proof: Proof::Lineage(singleton_puzzle.lineage_proof(cs.coin)),
           metadata: new_metadata,
-          owner_puzzle_hash: deleg_puzzle_hash.inner_puzzle_hash,
+          owner_puzzle_hash: deleg_puzzle_args.inner_puzzle_hash,
           delegated_puzzles: prev_delegated_puzzles.clone(),
         }); // get most info from parent spend :)
       }
@@ -767,8 +767,29 @@ impl DataStoreInfo {
 
       // if there were any memos, the if above would have caught it since it processes
       // output conditions
-      // therefore, this spend is 'exiting' the delegation layer
+      // therefore, this spend is either 'exiting' the delegation layer
+      // or re-creatign it
       if let Condition::CreateCoin(create_coin) = odd_create_coin {
+        let prev_deleg_layer_ph = tree_hash(&allocator, delegation_layer_ptr);
+
+        println!(
+          "prev_deleg_layer_ph: {:?} ; create_coin.puzzle_hash: {:?}",
+          prev_deleg_layer_ph, create_coin.puzzle_hash
+        ); // todo: debug
+        if create_coin.puzzle_hash == prev_deleg_layer_ph.into() {
+          // owner is re-creating the delegation layer with the same options
+          return Ok(DataStoreInfo {
+            coin: new_coin,
+            launcher_id: singleton_puzzle.launcher_id,
+            proof: Proof::Lineage(singleton_puzzle.lineage_proof(cs.coin)),
+            metadata: new_metadata,
+            owner_puzzle_hash: tree_hash(&allocator, delegation_layer_solution.puzzle_reveal)
+              .into(), // owner puzzle was ran
+            delegated_puzzles: prev_delegated_puzzles.clone(),
+          });
+        }
+
+        // owner is exiting the delegation layer
         owner_puzzle_hash = create_coin.puzzle_hash;
       }
     }
@@ -810,7 +831,7 @@ mod tests {
   use rstest::rstest;
 
   use crate::{
-    datastore_spend, get_memos, get_new_ownership_inner_condition,
+    datastore_spend, get_memos, get_owner_create_coin_condition,
     spend_nft_state_layer_custom_metadata_updated,
     tests::{secret_keys, Description, Hash, Label},
     DataStoreMintInfo, DatastoreInnerSpend, LauncherExt,
@@ -1002,9 +1023,10 @@ mod tests {
       dst_delegated_puzzles.push(oracle_delegated_puzzle);
     }
 
-    let mut owner_output_conds = Conditions::new().condition(get_new_ownership_inner_condition(
+    let mut owner_output_conds = Conditions::new().condition(get_owner_create_coin_condition(
       &src_datastore_info.owner_puzzle_hash,
       &dst_delegated_puzzles,
+      true,
     ));
 
     if meta_transition.0 .1 != meta_transition.0 .2
