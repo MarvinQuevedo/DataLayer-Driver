@@ -13,12 +13,15 @@
 
 (mod (
     INNER_PUZZLE
+    ROOT_VALIDATOR_HASH
     inner_solution
+    root_validator_reveal
   )
 
   (include condition_codes.clib)
+  (include sha256tree.clib)
 
-  (defun morph_conditions (conditions)
+  (defun morph_conditions (ROOT_VALIDATOR_HASH root_validator_reveal conditions)
     (if conditions
       (if (any
         (= (f (f conditions)) CREATE_COIN)
@@ -32,16 +35,23 @@
             (= (f (r (f (f (r (r (f conditions))))))) (sha256 1 11))
           ))
           ()
-        ) 
+        )
+        (if (= (f (f conditions)) -13)
+          (not (all
+            (= (sha256tree root_validator_reveal) ROOT_VALIDATOR_HASH)
+            (= (f (r (f conditions))) (a root_validator_reveal (list (r (r (f conditions))))))
+          ))
+          ()
+        )
       )
         (x)
         ; else
-        (c (f conditions) (morph_conditions (r conditions)))
+        (c (f conditions) (morph_conditions ROOT_VALIDATOR_HASH root_validator_reveal (r conditions)))
       )
       ; else - all conditions checked
       ()
     )
   )
 
-  (morph_conditions (a INNER_PUZZLE inner_solution))
+  (morph_conditions ROOT_VALIDATOR_HASH root_validator_reveal (a INNER_PUZZLE inner_solution))
 )
