@@ -5,7 +5,7 @@
 ;;  - CAN update the store root hash, label, description, and any other metadata
 ;;    (i.e., call the metadata updatter via the -24 condition)
 ;;  - CANNOT update the authorized puzzles list
-;;    (i.e., cannot create CREATE_COINs)
+;;    (i.e., cannot use the -13 condition)
 ;;
 ;; Warning: This filter only works for the default data layer metadata updater (11).
 
@@ -14,12 +14,9 @@
     inner_solution
   )
 
-  (include condition_codes.clib)
-
   (defun morph_conditions (conditions)
     (if conditions
       (if (any
-        (= (f (f conditions)) CREATE_COIN)
         (= (f (f conditions)) -13) ; don't allow updating merkle root
         ; don't allow metadata updater to create extra conditions
         ; update metadata condition is (list -24 [metadata updater puzzle reveal] [solution])

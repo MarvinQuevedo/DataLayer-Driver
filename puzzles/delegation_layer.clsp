@@ -3,9 +3,9 @@
 
 ;; Allows the owner of a store to delegate a fixed set of capabilities to
 ;; other puzzle hashes.
-;; This layer will only re-create itself if the inner puzzle did not emit any
-;; odd-amount CREATE_COIN condition. 
-;; Capabilities are restricted via filters.
+;; This layer will re-create itself when a delegated puzzle is running to 
+;; prevent take-over attacks.
+;; Capabilities are further restricted via filters.
 
 (mod (
     MOD_HASH
@@ -24,10 +24,10 @@
   (defconstant NEW_MERKLE_ROOT_CONDITION -13)
 
   ; only one odd CREATE_COIN enforced in upper layers
-  (defun morph_conditions (MOD_HASH INNER_PUZZLE_HASH conditions new_merkle_root_info odd_create_coin_found)
+  (defun morph_conditions (MOD_HASH INNER_PUZZLE_HASH conditions new_merkle_root_info add_odd_create_coin)
     (if conditions
       ; todo: I don't understand why my initial code also checked (= (strlen (f (r (f conditions)))) 32)
-      ;; will have to come back, but, for now, removing the condition
+      ;; will have to come back, but, for now, removing that
       (if (= (f (f conditions)) NEW_MERKLE_ROOT_CONDITION)
         (morph_conditions
           MOD_HASH INNER_PUZZLE_HASH
@@ -42,17 +42,12 @@
             MOD_HASH INNER_PUZZLE_HASH
             (r conditions)
             new_merkle_root_info
-            (any
-              odd_create_coin_found
-              (if (= (f (f conditions)) CREATE_COIN) (= (logand (f (r (r (f conditions)))) 1) 1) ())
-            )
+            add_odd_create_coin
           )
         )
       )
       ; else
-      (if odd_create_coin_found
-        ()
-        ; else
+      (if add_odd_create_coin
         (list
           (list
             CREATE_COIN
@@ -65,16 +60,19 @@
             (r new_merkle_root_info)
           )
         )
+        ; else
+        ()
       )
     )
   )
 
-  ; will return () if all's ok, raise if not
+  ; raise if not ok
+  ; return 1 (i.e., add odd create coin) if a delegated puzzle is running
   (defun verify_puzzle_hash (puzzle_hash INNER_PUZZLE_HASH MERKLE_ROOT merkle_proof)
     (if (= puzzle_hash INNER_PUZZLE_HASH)
       ()
       ; else
-      (if (= MERKLE_ROOT (simplify_merkle_proof puzzle_hash merkle_proof)) () (x)) 
+      (if (= MERKLE_ROOT (simplify_merkle_proof puzzle_hash merkle_proof)) 1 (x)) 
     )
   )
 
@@ -83,6 +81,6 @@
     INNER_PUZZLE_HASH
     (a puzzle_reveal puzzle_solution)
     (list MERKLE_ROOT)
-    (verify_puzzle_hash (sha256tree puzzle_reveal) INNER_PUZZLE_HASH MERKLE_ROOT merkle_proof) ; ()
+    (verify_puzzle_hash (sha256tree puzzle_reveal) INNER_PUZZLE_HASH MERKLE_ROOT merkle_proof) ; 0 or 1
   )
 )
