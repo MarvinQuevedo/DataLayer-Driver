@@ -6,8 +6,6 @@
 ;;    (i.e., call the metadata updatter via the -24 condition)
 ;;  - CAN update the authorized puzzles list
 ;;    (i.e., can add other authorized writers and admins, alter oracle address/fees, etc. by using te -13 condition)
-;;  - CANNOT remove the owner
-;;    (i.e., output CREATE_COIN that could delete the one_of_many layer)
 ;;
 ;; Warning: This filter only works for the default data layer metadata updater (11).
 
