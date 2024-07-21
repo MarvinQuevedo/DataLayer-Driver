@@ -24,16 +24,13 @@
   (defconstant NEW_MERKLE_ROOT_CONDITION -13)
 
   ; only one odd CREATE_COIN enforced in upper layers
-  (defun morph_conditions (MOD_HASH INNER_PUZZLE_HASH conditions new_merkle_root_info add_odd_create_coin)
+  (defun morph_conditions (MOD_HASH INNER_PUZZLE_HASH conditions new_merkle_root_info)
     (if conditions
-      ; todo: I don't understand why my initial code also checked (= (strlen (f (r (f conditions)))) 32)
-      ;; will have to come back, but, for now, removing that
       (if (= (f (f conditions)) NEW_MERKLE_ROOT_CONDITION)
         (morph_conditions
           MOD_HASH INNER_PUZZLE_HASH
           (r conditions)
           (r (f conditions))
-          add_odd_create_coin
         )
         ; else
         (c
@@ -42,45 +39,41 @@
             MOD_HASH INNER_PUZZLE_HASH
             (r conditions)
             new_merkle_root_info
-            add_odd_create_coin
           )
         )
       )
       ; else
-      (if add_odd_create_coin
+      (list
         (list
-          (list
-            CREATE_COIN
-            (curry_hashes_inline MOD_HASH
-              (sha256 1 MOD_HASH)
-              (sha256 1 INNER_PUZZLE_HASH)
-              (sha256 1 (f new_merkle_root_info))
-            )
-            1
-            (r new_merkle_root_info)
+          CREATE_COIN
+          (curry_hashes_inline MOD_HASH
+            (sha256 1 MOD_HASH)
+            (sha256 1 INNER_PUZZLE_HASH)
+            (sha256 1 (f new_merkle_root_info))
           )
+          1
+          (r new_merkle_root_info)
+        )
+      )
+    )
+  )
+
+ (defun main (MOD_HASH INNER_PUZZLE_HASH MERKLE_ROOT merkle_proof conditions puzzle_hash)
+    (if (= puzzle_hash INNER_PUZZLE_HASH)
+      conditions
+      ; else
+      (if (= MERKLE_ROOT (simplify_merkle_proof puzzle_hash merkle_proof))
+        (morph_conditions
+          MOD_HASH
+          INNER_PUZZLE_HASH
+          conditions
+          (list MERKLE_ROOT) 
         )
         ; else
-        ()
+        (x)
       )
     )
   )
 
-  ; raise if not ok
-  ; return 1 (i.e., add odd create coin) if a delegated puzzle is running
-  (defun verify_puzzle_hash (puzzle_hash INNER_PUZZLE_HASH MERKLE_ROOT merkle_proof)
-    (if (= puzzle_hash INNER_PUZZLE_HASH)
-      ()
-      ; else
-      (if (= MERKLE_ROOT (simplify_merkle_proof puzzle_hash merkle_proof)) 1 (x)) 
-    )
-  )
-
-  (morph_conditions
-    MOD_HASH
-    INNER_PUZZLE_HASH
-    (a puzzle_reveal puzzle_solution)
-    (list MERKLE_ROOT)
-    (verify_puzzle_hash (sha256tree puzzle_reveal) INNER_PUZZLE_HASH MERKLE_ROOT merkle_proof) ; 0 or 1
-  )
+ (main MOD_HASH INNER_PUZZLE_HASH MERKLE_ROOT merkle_proof (a puzzle_reveal puzzle_solution) (sha256tree puzzle_reveal)) 
 )
