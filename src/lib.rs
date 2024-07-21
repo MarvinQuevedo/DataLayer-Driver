@@ -121,6 +121,11 @@ impl ToJS<Buffer> for RustSignature {
 
 #[napi(object)]
 #[derive(Clone)]
+/// Represents a coin on the Chia blockchain.
+///
+/// @property {Buffer} parentCoinInfo - Parent coin name/id.
+/// @property {Buffer} puzzleHash - Puzzle hash.
+/// @property {BigInt} amount - Coin amount.
 pub struct Coin {
   pub parent_coin_info: Buffer,
   pub puzzle_hash: Buffer,
@@ -161,6 +166,11 @@ impl ToJS<Coin> for RustCoin {
 
 #[napi(object)]
 #[derive(Clone)]
+/// Represents a coin spend on the Chia blockchain.
+///
+/// @property {Coin} coin - The coin being spent.
+/// @property {Buffer} puzzleReveal - The puzzle of the coin being spent.
+/// @property {Buffer} solution - The solution.
 pub struct CoinSpend {
   pub coin: Coin,
   pub puzzle_reveal: Buffer,
@@ -189,6 +199,11 @@ impl ToJS<CoinSpend> for RustCoinSpend {
 
 #[napi(object)]
 #[derive(Clone)]
+/// Represents a lineage proof that can be used to spend a singleton.
+///
+/// @property {Buffer} parentParentCoinId - Parent coin's parent coin info/name/ID.
+/// @property {Buffer} parentInnerPuzzleHash - Parent coin's inner puzzle hash.
+/// @property {BigInt} parentAmount - Parent coin's amount.
 pub struct LineageProof {
   pub parent_parent_coin_id: Buffer,
   pub parent_inner_puzzle_hash: Buffer,
@@ -217,6 +232,10 @@ impl ToJS<LineageProof> for RustLineageProof {
 
 #[napi(object)]
 #[derive(Clone)]
+/// Represents an eve proof that can be used to spend a singleton. Parent coin is the singleton launcher.
+///
+/// @property {Buffer} parentCoinInfo - Parent coin's name.
+/// @property {BigInt} amount - Parent coin's amount.
 pub struct EveProof {
   pub parent_coin_info: Buffer,
   pub amount: BigInt,
@@ -242,6 +261,10 @@ impl ToJS<EveProof> for RustEveProof {
 
 #[napi(object)]
 #[derive(Clone)]
+/// Represents a proof (either eve or lineage) that can be used to spend a singleton. Use `new_lineage_proof` or `new_eve_proof` to create a new proof.
+///
+/// @property {Option<LineageProof>} lineageProof - The lineage proof, if this is a lineage proof.
+/// @property {Option<EveProof>} eveProof - The eve proof, if this is an eve proof.
 pub struct Proof {
   pub lineage_proof: Option<LineageProof>,
   pub eve_proof: Option<EveProof>,
@@ -283,6 +306,10 @@ impl ToJS<Proof> for RustProof {
 }
 
 #[napi]
+/// Creates a new lineage proof.
+///
+/// @param {LineageProof} lineageProof - The lineage proof.
+/// @returns {Proof} The new proof.
 pub fn new_lineage_proof(lineage_proof: LineageProof) -> Proof {
   Proof {
     lineage_proof: Some(lineage_proof),
@@ -291,6 +318,10 @@ pub fn new_lineage_proof(lineage_proof: LineageProof) -> Proof {
 }
 
 #[napi]
+/// Creates a new eve proof.
+///
+/// @param {EveProof} eveProof - The eve proof.
+/// @returns {Proof} The new proof.
 pub fn new_eve_proof(eve_proof: EveProof) -> Proof {
   Proof {
     lineage_proof: None,
@@ -300,6 +331,11 @@ pub fn new_eve_proof(eve_proof: EveProof) -> Proof {
 
 #[napi(object)]
 #[derive(Clone)]
+/// Represents metadata for a data store.
+///
+/// @property {Buffer} rootHash - Root hash.
+/// @property {String} label - Label. An empty string signifies no label.
+/// @property {String} description - Description. An empty string signifies no description.
 pub struct DataStoreMetadata {
   pub root_hash: Buffer,
   pub label: String,
@@ -328,6 +364,12 @@ impl ToJS<DataStoreMetadata> for RustDataStoreMetadata {
 
 #[napi(object)]
 #[derive(Clone)]
+/// Represents information about a delegated puzzle. Note that this struct can represent all three types of delegated puzzles, but only represents one at a time.
+///
+/// @property {Option<Buffer>} adminInnerPuzzleHash - Admin inner puzzle hash, if this is an admin delegated puzzle.
+/// @property {Option<Buffer>} writerInnerPuzzleHash - Writer inner puzzle hash, if this is a writer delegated puzzle.
+/// @property {Option<Buffer>} oraclePaymentPuzzleHash - Oracle payment puzzle hash, if this is an oracle delegated puzzle.
+/// @property {Option<BigInt>} oracleFee - Oracle fee, if this is an oracle delegated puzzle.
 pub struct DelegatedPuzzleInfo {
   pub admin_inner_puzzle_hash: Option<Buffer>,
   pub writer_inner_puzzle_hash: Option<Buffer>,
@@ -391,6 +433,10 @@ impl ToJS<DelegatedPuzzleInfo> for RustDelegatedPuzzleInfo {
 
 #[napi(object)]
 #[derive(Clone)]
+/// Represents a delegated puzzle. Note that utilities such as `admin_delegated_puzzle_from_key` should be used to create this object.
+///
+/// @property {Buffer} puzzleHash - The full puzzle hash of the delegated puzzle (filter where applicable + inner puzzle).
+/// @property {DelegatedPuzzleInfo} puzzleInfo - Delegated puzzle information.
 pub struct DelegatedPuzzle {
   pub puzzle_hash: Buffer,
   pub puzzle_info: DelegatedPuzzleInfo,
@@ -418,6 +464,14 @@ impl ToJS<DelegatedPuzzle> for RustDelegatedPuzzle {
 
 #[napi(object)]
 #[derive(Clone)]
+/// Represents information about a data store. This information can be used to spend the store. It is recommended that this struct is stored in a database to avoid syncing it every time.
+///
+/// @property {Coin} coin - The coin associated with the data store.
+/// @property {Buffer} launcherId - The store's launcher/singleton ID.
+/// @property {Proof} proof - Proof that can be used to spend this store.
+/// @property {DataStoreMetadata} metadata - This store's metadata.
+/// @property {Buffer} ownerPuzzleHash - The puzzle hash of the owner puzzle.
+/// @property {Vec<DelegatedPuzzle>} delegatedPuzzles - This store's delegated puzzles. An empty list usually indicates a 'vanilla' store.
 pub struct DataStoreInfo {
   pub coin: Coin,
   // singleton layer
@@ -465,6 +519,10 @@ impl ToJS<DataStoreInfo> for RustDataStoreInfo {
 }
 
 #[napi(object)]
+// Represents a driver response indicating success.
+///
+/// @property {Vec<CoinSpend>} coinSpends - Coin spends that can be used to spend the provided store.
+/// @property {DataStoreInfo} newInfo - New data store information after the spend is confirmed.
 pub struct SuccessResponse {
   pub coin_spends: Vec<CoinSpend>,
   pub new_info: DataStoreInfo,
@@ -493,6 +551,10 @@ impl ToJS<SuccessResponse> for RustSuccessResponse {
 }
 
 #[napi(object)]
+/// Represents a response from synchronizing a store.
+///
+/// @property {DataStoreInfo} latestInfo - Latest data store information.
+/// @property {u32} latestHeight - Latest sync height.
 pub struct SyncStoreResponse {
   pub latest_info: DataStoreInfo,
   pub latest_height: u32,
@@ -517,7 +579,11 @@ impl ToJS<SyncStoreResponse> for RustSyncStoreResponse {
 }
 
 #[napi(object)]
-
+/// Represents a response containing unspent coins.
+///
+/// @property {Vec<Coin>} coins - Unspent coins.
+/// @property {u32} lastHeight - Last height.
+/// @property {Buffer} lastHeaderHash - Last header hash.
 pub struct UnspentCoinsResponse {
   pub coins: Vec<Coin>,
   pub last_height: u32,
@@ -550,6 +616,13 @@ pub struct Peer(Arc<RustPeer>);
 #[napi]
 impl Peer {
   #[napi(factory)]
+  /// Creates a new Peer instance.
+  ///
+  /// @param {String} nodeUri - URI of the node (e.g., '127.0.0.1:58444').
+  /// @param {String} networkId - Network ID (e.g., 'testnet11').
+  /// @param {String} certPath - Path to the certificate file (usually '~/.chia/mainnet/config/ssl/wallet/wallet_node.crt').
+  /// @param {String} keyPath - Path to the key file (usually '~/.chia/mainnet/config/ssl/wallet/wallet_node.key').
+  /// @returns {Promise<Peer>} A new Peer instance.
   pub async fn new(
     node_uri: String,
     network_id: String,
@@ -569,6 +642,12 @@ impl Peer {
   }
 
   #[napi]
+  /// Retrieves all coins that are unspent on the chain. Note that coins part of spend bundles that are pending in the mempool will also be included.
+  ///
+  /// @param {Buffer} puzzleHash - Puzzle hash of the wallet.
+  /// @param {Option<u32>} previousHeight - Previous height that was spent. If null, sync will be done from the genesis block.
+  /// @param {Buffer} previousHeaderHash - Header hash corresponding to the previous height. If previousHeight is null, this should be the genesis challenge of the current chain.
+  /// @returns {Promise<UnspentCoinsResponse>} The unspent coins response.
   pub async fn get_all_unspent_coins(
     &self,
     puzzle_hash: Buffer,
@@ -588,6 +667,12 @@ impl Peer {
   }
 
   #[napi]
+  /// Synchronizes a datastore.
+  ///
+  /// @param {DataStoreInfo} storeInfo - Data store information.
+  /// @param {Option<u32>} lastHeight - Min. height to search records from. If null, sync will be done from the genesis block.
+  /// @param {Buffer} lastHeaderHash - Header hash corresponding to `lastHeight`. If null, this should be the genesis challenge of the current chain.
+  /// @returns {Promise<SyncStoreResponse>} The sync store response.
   pub async fn sync_store(
     &self,
     store_info: DataStoreInfo,
@@ -607,6 +692,12 @@ impl Peer {
   }
 
   #[napi]
+  /// Synchronizes a store using its launcher ID.
+  ///
+  /// @param {Buffer} launcherId - The store's launcher/singleton ID.
+  /// @param {Option<u32>} lastHeight - Min. height to search records from. If null, sync will be done from the genesis block.
+  /// @param {Buffer} lastHeaderHash - Header hash corresponding to `lastHeight`. If null, this should be the genesis challenge of the current chain.
+  /// @returns {Promise<SyncStoreResponse>} The sync store response.
   pub async fn sync_store_from_launcher_id(
     &self,
     launcher_id: Buffer,
@@ -625,8 +716,12 @@ impl Peer {
     Ok(res.to_js())
   }
 
-  // returns error
   #[napi]
+  /// Broadcasts a spend bundle to the mempool.
+  ///
+  /// @param {Vec<CoinSpend>} coinSpends - The coin spends to be included in the bundle.
+  /// @param {Vec<Buffer>} sigs - The signatures to be aggregated and included in the bundle.
+  /// @returns {Promise<String>} The broadcast error. If '', the broadcast was successful.
   pub async fn broadcast_spend(
     &self,
     coin_spends: Vec<CoinSpend>,
@@ -653,6 +748,12 @@ impl Peer {
   }
 
   #[napi]
+  /// Checks if a coin is spent on-chain.
+  ///
+  /// @param {Buffer} coinId - The coin ID.
+  /// @param {Option<u32>} lastHeight - Min. height to search records from. If null, sync will be done from the genesis block.
+  /// @param {Buffer} headerHash - Header hash corresponding to `lastHeight`. If null, this should be the genesis challenge of the current chain.
+  /// @returns {Promise<bool>} Whether the coin is spent on-chain.
   pub async fn is_coin_spent(
     &self,
     coin_id: Buffer,
@@ -672,6 +773,11 @@ impl Peer {
   }
 }
 
+/// Selects coins using the knapsack algorithm.
+///
+/// @param {Vec<Coin>} allCoins - Array of available coins (coins to select from).
+/// @param {BigInt} totalAmount - Amount needed for the transaction, including fee.
+/// @returns {Vec<Coin>} Array of selected coins.
 #[napi]
 pub fn select_coins(all_coins: Vec<Coin>, total_amount: BigInt) -> napi::Result<Vec<Coin>> {
   let coins: Vec<RustCoin> = all_coins
@@ -684,6 +790,17 @@ pub fn select_coins(all_coins: Vec<Coin>, total_amount: BigInt) -> napi::Result<
 }
 
 #[napi]
+/// Mints a new datastore.
+///
+/// @param {Buffer} minterSyntheticKey - Minter synthetic key.
+/// @param {Vec<Coin>} selectedCoins - Coins to be used for minting, as retured by `select_coins`. Note that, besides the fee, 1 mojo will be used to create the new store.
+/// @param {Buffer} rootHash - Root hash of the store.
+/// @param {String} label - Store label.
+/// @param {String} description - Store description.
+/// @param {Buffer} ownerPuzzleHash - Owner puzzle hash.
+/// @param {Vec<DelegatedPuzzle>} delegatedPuzzles - Delegated puzzles.
+/// @param {BigInt} fee - Fee to use for the transaction. Total amount - 1 - fee will be sent back to the minter.
+/// @returns {SuccessResponse} The success response, which includes coin spends and information about the new datastore.
 pub fn mint_store(
   minter_synthetic_key: Buffer,
   selected_coins: Vec<Coin>,
@@ -716,6 +833,13 @@ pub fn mint_store(
 }
 
 #[napi]
+/// Spends a store in oracle mode.
+///
+/// @param {Buffer} spenderSyntheticKey - Spender synthetic key.
+/// @param {Vec<Coin>} selectedCoins - Selected coins, as returned by `select_coins`.
+/// @param {DataStoreInfo} storeInfo - Up-to-daye store information.
+/// @param {BigInt} fee - Transaction fee to use.
+/// @returns {SuccessResponse} The success response, which includes coin spends and information about the new datastore.
 pub fn oracle_spend(
   spender_synthetic_key: Buffer,
   selected_coins: Vec<Coin>,
@@ -737,6 +861,13 @@ pub fn oracle_spend(
 }
 
 #[napi]
+/// Adds a fee to any transaction. Change will be sent to spender.
+///
+/// @param {Buffer} spenderSyntheticKey - Synthetic key of spender.
+/// @param {Vec<Coin>} selectedCoins - Selected coins, as returned by `select_coins`.
+/// @param {Vec<Buffer>} assertCoinIds - IDs of coins that need to be spent for the fee to be paid. Usually all coin ids in the original transaction.
+/// @param {BigInt} fee - Fee to add.
+/// @returns {Vec<CoinSpend>} The coin spends to be added to the original transaction.
 pub fn add_fee(
   spender_synthetic_key: Buffer,
   selected_coins: Vec<Coin>,
@@ -761,6 +892,10 @@ pub fn add_fee(
 }
 
 #[napi]
+/// Converts a master public key to a wallet synthetic key.
+///
+/// @param {Buffer} publicKey - Master public key.
+/// @returns {Buffer} The (first) wallet synthetic key.
 pub fn master_public_key_to_wallet_synthetic_key(public_key: Buffer) -> Buffer {
   let public_key = RustPublicKey::from_js(public_key);
   let wallet_pk = master_to_wallet_unhardened(&public_key, 0).derive_synthetic();
@@ -768,6 +903,10 @@ pub fn master_public_key_to_wallet_synthetic_key(public_key: Buffer) -> Buffer {
 }
 
 #[napi]
+/// Converts a master public key to the first puzzle hash.
+///
+/// @param {Buffer} publicKey - Master public key.
+/// @returns {Buffer} The first wallet puzzle hash.
 pub fn master_public_key_to_first_puzzle_hash(public_key: Buffer) -> Buffer {
   let public_key = RustPublicKey::from_js(public_key);
   let wallet_pk = master_to_wallet_unhardened(&public_key, 0).derive_synthetic();
@@ -778,6 +917,10 @@ pub fn master_public_key_to_first_puzzle_hash(public_key: Buffer) -> Buffer {
 }
 
 #[napi]
+/// Converts a master secret key to a wallet synthetic secret key.
+///
+/// @param {Buffer} secretKey - Master secret key.
+/// @returns {Buffer} The (first) wallet synthetic secret key.
 pub fn master_secret_key_to_wallet_synthetic_secret_key(secret_key: Buffer) -> Buffer {
   let secret_key = RustSecretKey::from_js(secret_key);
   let wallet_sk = master_to_wallet_unhardened(&secret_key, 0).derive_synthetic();
@@ -785,12 +928,21 @@ pub fn master_secret_key_to_wallet_synthetic_secret_key(secret_key: Buffer) -> B
 }
 
 #[napi]
+/// Converts a secret key to its corresponding public key.
+///
+/// @param {Buffer} secretKey - The secret key.
+/// @returns {Buffer} The public key.
 pub fn secret_key_to_public_key(secret_key: Buffer) -> Buffer {
   let secret_key = RustSecretKey::from_js(secret_key);
   secret_key.public_key().to_js()
 }
 
 #[napi]
+/// Converts a puzzle hash to an address by encoding it using bech32m.
+///
+/// @param {Buffer} puzzleHash - The puzzle hash.
+/// @param {String} prefix - Address prefix (e.g., 'txch').
+/// @returns {Promise<String>} The converted address.
 pub fn puzzle_hash_to_address(puzzle_hash: Buffer, prefix: String) -> napi::Result<String> {
   let puzzle_hash = RustBytes32::from_js(puzzle_hash);
 
@@ -798,6 +950,10 @@ pub fn puzzle_hash_to_address(puzzle_hash: Buffer, prefix: String) -> napi::Resu
 }
 
 #[napi]
+/// Converts an address to a puzzle hash using bech32m.
+///
+/// @param {String} address - The address.
+/// @returns {Promise<Buffer>} The puzzle hash.
 pub fn address_to_puzzle_hash(address: String) -> napi::Result<Buffer> {
   let (puzzle_hash, _) = decode_address(&address).map_err(js)?;
   let puzzle_hash: RustBytes32 = RustBytes32::from_bytes(&puzzle_hash).map_err(js)?;
@@ -806,6 +962,10 @@ pub fn address_to_puzzle_hash(address: String) -> napi::Result<Buffer> {
 }
 
 #[napi]
+/// Creates an admin delegated puzzle for a given key.
+///
+/// @param {Buffer} syntheticKey - Synthetic key.
+/// @returns {Promise<DelegatedPuzzle>} The delegated puzzle.
 pub fn admin_delegated_puzzle_from_key(synthetic_key: Buffer) -> napi::Result<DelegatedPuzzle> {
   let synthetic_key = RustPublicKey::from_js(synthetic_key);
 
@@ -816,6 +976,10 @@ pub fn admin_delegated_puzzle_from_key(synthetic_key: Buffer) -> napi::Result<De
 }
 
 #[napi]
+/// Creates a writer delegated puzzle from a given key.
+///
+/// @param {Buffer} syntheticKey - Synthetic key.
+/// /// @returns {Promise<DelegatedPuzzle>} The delegated puzzle.
 pub fn writer_delegated_puzzle_from_key(synthetic_key: Buffer) -> napi::Result<DelegatedPuzzle> {
   let synthetic_key = RustPublicKey::from_js(synthetic_key);
 
@@ -826,6 +990,11 @@ pub fn writer_delegated_puzzle_from_key(synthetic_key: Buffer) -> napi::Result<D
 }
 
 #[napi]
+// Creates an oracle delegated puzzle.
+///
+/// @param {Buffer} oraclePuzzleHash - The oracle puzzle hash (corresponding to the wallet where fees should be paid).
+/// @param {BigInt} oracleFee - The oracle fee (i.e., XCH amount to be paid for every oracle spend). This amount MUST be even.
+/// @returns {Promise<DelegatedPuzzle>} The delegated puzzle.
 pub fn oracle_delegated_puzzle(
   oracle_puzzle_hash: Buffer,
   oracle_fee: BigInt,
@@ -843,6 +1012,12 @@ pub fn oracle_delegated_puzzle(
 }
 
 #[napi]
+/// Partially or fully signs coin spends using a list of keys.
+///
+/// @param {Vec<CoinSpend>} coinSpends - The coin spends to sign.
+/// @param {Vec<Buffer>} privateKeys - The private/secret keys to be used for signing.
+/// @param {Buffer} aggSigData - Aggregated signature data. For testnet11 and mainnet, this is the same as the genesis challenge.
+/// @returns {Promise<Buffer>} The signature.
 pub fn sign_coin_spends(
   coin_spends: Vec<CoinSpend>,
   private_keys: Vec<Buffer>,
@@ -864,6 +1039,10 @@ pub fn sign_coin_spends(
 }
 
 #[napi]
+/// Computes the ID (name) of a coin.
+///
+/// @param {Coin} coin - The coin.
+/// @returns {Buffer} The coin ID.
 pub fn get_coin_id(coin: Coin) -> Buffer {
   let coin = RustCoin::from_js(coin);
 
@@ -871,6 +1050,16 @@ pub fn get_coin_id(coin: Coin) -> Buffer {
 }
 
 #[napi]
+/// Updates the metadata of a store. Either the owner, admin, or writer public key must be provided.
+///
+/// @param {DataStoreInfo} storeInfo - Current store information.
+/// @param {Buffer} newRootHash - New root hash.
+/// @param {String} newLabel - New label.
+/// @param {String} newDescription - New description.
+/// @param {Option<Buffer>} ownerPublicKey - Owner public key.
+/// @param {Option<Buffer>} adminPublicKey - Admin public key.
+/// @param {Option<Buffer>} writerPublicKey - Writer public key.
+/// @returns {SuccessResponse} The success response, which includes coin spends and information about the new datastore.
 pub fn update_store_metadata(
   store_info: DataStoreInfo,
   new_root_hash: Buffer,
@@ -910,6 +1099,14 @@ pub fn update_store_metadata(
 }
 
 #[napi]
+/// Updates the ownership of a store. Either the admin or owner public key must be provided.
+///
+/// @param {DataStoreInfo} storeInfo - Store information.
+/// @param {Option<Buffer>} newOwnerPuzzleHash - New owner puzzle hash.
+/// @param {Vec<DelegatedPuzzle>} newDelegatedPuzzles - New delegated puzzles.
+/// @param {Option<Buffer>} ownerPublicKey - Owner public key.
+/// @param {Option<Buffer>} adminPublicKey - Admin public key.
+/// @returns {SuccessResponse} The success response, which includes coin spends and information about the new datastore.
 pub fn update_store_ownership(
   store_info: DataStoreInfo,
   new_owner_puzzle_hash: Option<Buffer>,
@@ -949,6 +1146,11 @@ pub fn update_store_ownership(
 }
 
 #[napi]
+/// Melts a store. The 1 mojo change will be used as a fee.
+///
+/// @param {DataStoreInfo} storeInfo - Store information.
+/// @param {Buffer} ownerPublicKey - Owner's public key.
+/// @returns {Vec<CoinSpend>} The coin spends that the owner can sign to melt the store.
 pub fn melt_store(
   store_info: DataStoreInfo,
   owner_public_key: Buffer,
