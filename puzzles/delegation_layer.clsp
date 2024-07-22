@@ -7,6 +7,8 @@
 ;; prevent take-over attacks.
 ;; Capabilities are further restricted via filters.
 
+;; Warning: This puzzle only works for the default data layer metadata updater (11).
+
 (mod (
     MOD_HASH
     INNER_PUZZLE_HASH
@@ -34,7 +36,24 @@
         )
         ; else
         (c
-          (f conditions)
+          ; don't allow delegated puzzles to use the metadata updater to create extra conditions
+          ; or to change the metadata updater puzzle hash
+          ; update metadata condition is (list -24 [metadata updater puzzle reveal] [solution])
+          ; for the standard DL, solution is (list (list [new metadata] [new updater ph]) [conditions])
+          ; raise if condition is -24 but [conditions] != 0 or condition is -24 and [new updater ph] != (sha256 1 11)
+          (if
+            (if (= (f (f conditions)) -24)
+              (all
+                (= (f (r (f (r (r (f conditions)))))) ())
+                (= (f (r (f (f (r (r (f conditions))))))) (sha256 1 11))
+              )
+              ; else
+              1
+            )
+            (f conditions)
+            ; else
+            (x)
+          )
           (morph_conditions
             MOD_HASH INNER_PUZZLE_HASH
             (r conditions)

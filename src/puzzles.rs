@@ -48,7 +48,7 @@ pub struct DelegationLayerSolution<P, S> {
   pub puzzle_solution: S,
 }
 
-pub const DELEGATION_LAYER_PUZZLE: [u8; 842] = hex!(
+pub const DELEGATION_LAYER_PUZZLE: [u8; 947] = hex!(
   "
     ff02ffff01ff02ff12ffff04ff02ffff04ff05ffff04ff0bffff04ff17ffff04ff2fffff04ffff02
     ff5fff81bf80ffff04ffff02ff16ffff04ff02ffff04ff5fff80808080ff808080808080808080ff
@@ -60,18 +60,20 @@ pub const DELEGATION_LAYER_PUZZLE: [u8; 842] = hex!(
     ff0101ff81bf80ffff04ff2fff808080808080ffff01ff02ff1affff04ff02ffff04ff05ffff04ff
     0bffff04ff5fffff04ffff04ff17ff8080ff80808080808080ffff01ff088080ff018080ff0180ff
     02ffff03ff17ffff01ff02ffff03ffff09ff47ff1880ffff01ff02ff1affff04ff02ffff04ff05ff
-    ff04ff0bffff04ff37ffff04ff67ff80808080808080ffff01ff04ff27ffff02ff1affff04ff02ff
-    ff04ff05ffff04ff0bffff04ff37ffff04ff2fff808080808080808080ff0180ffff01ff04ffff04
-    ff10ffff04ffff0bff5cffff0bff14ffff0bff14ff6cff0580ffff0bff14ffff0bff7cffff0bff14
-    ffff0bff14ff6cffff0bffff0101ff058080ffff0bff14ffff0bff7cffff0bff14ffff0bff14ff6c
-    ffff0bffff0101ff0b8080ffff0bff14ffff0bff7cffff0bff14ffff0bff14ff6cffff0bffff0101
-    ff4f8080ffff0bff14ff6cff4c808080ff4c808080ff4c808080ff4c808080ffff04ffff0101ffff
-    04ff6fff8080808080ff808080ff0180ffff02ffff03ffff07ff0580ffff01ff0bffff0102ffff02
-    ff16ffff04ff02ffff04ff09ff80808080ffff02ff16ffff04ff02ffff04ff0dff8080808080ffff
-    01ff0bffff0101ff058080ff0180ff02ffff03ff1bffff01ff02ff1effff04ff02ffff04ffff02ff
-    ff03ffff18ffff0101ff1380ffff01ff0bffff0102ff2bff0580ffff01ff0bffff0102ff05ff2b80
-    80ff0180ffff04ffff04ffff17ff13ffff0181ff80ff3b80ff8080808080ffff010580ff0180ff01
-    8080
+    ff04ff0bffff04ff37ffff04ff67ff80808080808080ffff01ff04ffff02ffff03ffff02ffff03ff
+    ff09ff47ffff0181e880ffff01ff22ffff09ff820567ff8080ffff09ff820a67ffff01a057bfd1cb
+    0adda3d94315053fda723f2028320faa8338225d99f629e3d46d43a98080ffff01ff010180ff0180
+    ffff0127ffff01ff088080ff0180ffff02ff1affff04ff02ffff04ff05ffff04ff0bffff04ff37ff
+    ff04ff2fff808080808080808080ff0180ffff01ff04ffff04ff10ffff04ffff0bff5cffff0bff14
+    ffff0bff14ff6cff0580ffff0bff14ffff0bff7cffff0bff14ffff0bff14ff6cffff0bffff0101ff
+    058080ffff0bff14ffff0bff7cffff0bff14ffff0bff14ff6cffff0bffff0101ff0b8080ffff0bff
+    14ffff0bff7cffff0bff14ffff0bff14ff6cffff0bffff0101ff4f8080ffff0bff14ff6cff4c8080
+    80ff4c808080ff4c808080ff4c808080ffff04ffff0101ffff04ff6fff8080808080ff808080ff01
+    80ffff02ffff03ffff07ff0580ffff01ff0bffff0102ffff02ff16ffff04ff02ffff04ff09ff8080
+    8080ffff02ff16ffff04ff02ffff04ff0dff8080808080ffff01ff0bffff0101ff058080ff0180ff
+    02ffff03ff1bffff01ff02ff1effff04ff02ffff04ffff02ffff03ffff18ffff0101ff1380ffff01
+    ff0bffff0102ff2bff0580ffff01ff0bffff0102ff05ff2b8080ff0180ffff04ffff04ffff17ff13
+    ffff0181ff80ff3b80ff8080808080ffff010580ff0180ff018080
     "
 );
 
@@ -161,14 +163,11 @@ pub struct WriterFilterSolution<I> {
   pub inner_solution: I,
 }
 
-pub const WRITER_FILTER_PUZZLE: [u8; 201] = hex!(
+pub const WRITER_FILTER_PUZZLE: [u8; 110] = hex!(
   "
     ff02ffff01ff02ff02ffff04ff02ffff04ffff02ff05ff0b80ff80808080ffff04ffff01ff02ffff
-    03ff05ffff01ff02ffff03ffff21ffff09ff11ffff0181f380ffff02ffff03ffff09ff11ffff0181
-    e880ffff01ff20ffff22ffff09ff820159ff8080ffff09ff820299ffff01a057bfd1cb0adda3d943
-    15053fda723f2028320faa8338225d99f629e3d46d43a9808080ff8080ff018080ffff01ff0880ff
-    ff01ff04ff09ffff02ff02ffff04ff02ffff04ff0dff808080808080ff0180ff8080ff0180ff0180
-    80
+    03ff05ffff01ff02ffff03ffff09ff11ffff0181f380ffff01ff0880ffff01ff04ff09ffff02ff02
+    ffff04ff02ffff04ff0dff808080808080ff0180ff8080ff0180ff018080
     "
 );
 
