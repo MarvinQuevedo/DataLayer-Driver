@@ -5,7 +5,7 @@
 ;; other puzzle hashes.
 ;; This layer will re-create itself when a delegated puzzle is running to 
 ;; prevent take-over attacks.
-;; Capabilities are further restricted via filters.
+;; Capabilities can be further restricted via filters.
 
 ;; Warning: This puzzle only works for the default data layer metadata updater (11).
 
