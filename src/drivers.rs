@@ -418,14 +418,14 @@ pub mod tests {
   };
 
   use crate::{
-    print_spend_bundle_to_file, DefaultMetadataSolution, DefaultMetadataSolutionMetadataList,
-    MeltCondition, NewMerkleRootCondition, NewMetadataCondition,
+    DefaultMetadataSolution, DefaultMetadataSolutionMetadataList, MeltCondition,
+    NewMerkleRootCondition, NewMetadataCondition,
   };
 
   use super::*;
 
   use chia::{
-    bls::{SecretKey, Signature},
+    bls::SecretKey,
     consensus::gen::{
       conditions::EmptyVisitor, flags::MEMPOOL_MODE, owned_conditions::OwnedSpendBundleConditions,
       run_block_generator::run_block_generator, solution_generator::solution_generator,
@@ -1293,7 +1293,7 @@ pub mod tests {
       ),
     );
     let new_spend = datastore_spend(ctx, &src_datastore_info, inner_datastore_spend)?;
-    print_spend_bundle_to_file(vec![new_spend.clone()], Signature::default(), "sb.debug");
+    // print_spend_bundle_to_file(vec![new_spend.clone()], Signature::default(), "sb.debug");
 
     {
       let mut stats = TEST_STATS.lock().unwrap();
