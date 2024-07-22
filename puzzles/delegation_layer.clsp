@@ -8,6 +8,8 @@
 ;; Capabilities can be further restricted via filters.
 
 ;; Warning: This puzzle only works for the default data layer metadata updater (11).
+;; Warning: If multiple -13 conditions are emitted, the last one will be used to determine the new Merkle root.
+;;          This layer will *NOT* raise in the case above.
 
 (mod (
     MOD_HASH
