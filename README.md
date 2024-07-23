@@ -117,7 +117,7 @@ Broadcasting a bundle is as easy as:
 ```js
 const err = await peer.broadcastSpend(
     coinSpends,
-    signature ? [mySig, Buffer.from(signature.replace('0x', ''), 'hex')] : [mySig]
+    [sig]
   );
 ```
 
