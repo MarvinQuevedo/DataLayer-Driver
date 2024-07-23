@@ -1,6 +1,10 @@
 {
   "name": "datalayer-driver-win32-x64-msvc",
   "version": "0.1.2",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Datalayer-Storage/DataLayer-Driver"
+  },
   "os": [
     "win32"
   ],

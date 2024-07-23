@@ -1,6 +1,10 @@
 {
   "name": "datalayer-driver-linux-arm64-gnu",
   "version": "0.1.2",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/Datalayer-Storage/DataLayer-Driver"
+  },
   "os": [
     "linux"
   ],
