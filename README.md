@@ -1,10 +1,6 @@
 # DataLayer-Driver
 
-## Description
-
 A collection of functions that can be used to interact with datastores on the Chia blockchain.
-
-## Functions
 
 This library offers the following functions:
 - wallet: `selectCoins`, `addFee`, `signCoinSpends`
