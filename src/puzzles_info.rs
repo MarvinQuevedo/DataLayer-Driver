@@ -19,9 +19,9 @@ use hex::encode;
 use num_bigint::BigInt;
 
 use crate::{
-  AdminFilterArgs, DelegationLayerArgs, DelegationLayerSolution, MerkleTree, WriterFilterArgs,
-  ADMIN_FILTER_PUZZLE, ADMIN_FILTER_PUZZLE_HASH, DELEGATION_LAYER_PUZZLE_HASH,
-  DL_METADATA_UPDATER_PUZZLE_HASH, WRITER_FILTER_PUZZLE, WRITER_FILTER_PUZZLE_HASH,
+  DelegationLayerArgs, DelegationLayerSolution, MerkleTree, WriterFilterArgs,
+  DELEGATION_LAYER_PUZZLE_HASH, DL_METADATA_UPDATER_PUZZLE_HASH, WRITER_FILTER_PUZZLE,
+  WRITER_FILTER_PUZZLE_HASH,
 };
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 #[must_use]
@@ -92,36 +92,15 @@ pub struct DelegatedPuzzle {
 }
 
 impl DelegatedPuzzle {
-  pub fn admin_layer_full_puzzle(
-    allocator: &mut Allocator,
-    inner_puzzle: NodePtr,
-  ) -> Result<NodePtr, ToClvmError> {
-    let curried_prog = CurriedProgram {
-      program: node_from_bytes(allocator, &ADMIN_FILTER_PUZZLE)
-        .map_err(|_| ToClvmError::Custom(String::from("could not load puzzle")))?,
-      args: AdminFilterArgs { inner_puzzle },
-    };
-
-    let full_puzzle = curried_prog.to_clvm(allocator)?;
-    Ok(full_puzzle)
-  }
-
   pub fn from_admin_inner_puzzle(
     allocator: &mut Allocator,
     inner_puzzle: NodePtr,
   ) -> Result<Self, ToClvmError> {
-    let inner_puzzle_hash: TreeHash = tree_hash(&allocator, inner_puzzle);
-    let full_puzzle_hash = CurriedProgram {
-      program: ADMIN_FILTER_PUZZLE_HASH,
-      args: AdminFilterArgs {
-        inner_puzzle: inner_puzzle_hash,
-      },
-    }
-    .tree_hash();
+    let puzzle_hash: TreeHash = tree_hash(&allocator, inner_puzzle);
 
     Ok(Self {
-      puzzle_hash: full_puzzle_hash.into(),
-      puzzle_info: DelegatedPuzzleInfo::Admin(inner_puzzle_hash.into()),
+      puzzle_hash: puzzle_hash.into(),
+      puzzle_info: DelegatedPuzzleInfo::Admin(puzzle_hash.into()),
     })
   }
 
@@ -255,16 +234,8 @@ impl DelegatedPuzzle {
       .into();
 
     if puzzle_type == HintType::AdminPuzzle.value() {
-      let full_puzzle_hash = CurriedProgram {
-        program: ADMIN_FILTER_PUZZLE_HASH,
-        args: AdminFilterArgs {
-          inner_puzzle: puzzle_hash,
-        },
-      }
-      .tree_hash();
-
       return Ok(DelegatedPuzzle {
-        puzzle_hash: full_puzzle_hash.into(),
+        puzzle_hash: puzzle_hash.into(),
         puzzle_info: DelegatedPuzzleInfo::Admin(puzzle_hash.into()),
       });
     } else if puzzle_type == HintType::WriterPuzzle.value() {
@@ -311,10 +282,7 @@ impl DelegatedPuzzle {
     inner_puzzle_reveal: NodePtr,
   ) -> Result<NodePtr, ToClvmError> {
     let full_puzzle = match self.puzzle_info {
-      DelegatedPuzzleInfo::Admin(_) => Ok(DelegatedPuzzle::admin_layer_full_puzzle(
-        allocator,
-        inner_puzzle_reveal,
-      )?),
+      DelegatedPuzzleInfo::Admin(_) => Ok(inner_puzzle_reveal),
       DelegatedPuzzleInfo::Writer(_) => Ok(DelegatedPuzzle::writer_layer_full_puzzle(
         allocator,
         inner_puzzle_reveal,
@@ -1347,13 +1315,5 @@ mod tests {
     assert!(eve_coin_state.created_height.is_some());
 
     Ok(())
-  }
-
-  #[rstest]
-  fn test_1337() {
-    let hex_value: u32 = 0x31333337;
-    let bytes = hex_value.to_be_bytes();
-    let ascii_str = String::from_utf8(bytes.to_vec()).unwrap();
-    assert_eq!(ascii_str, "1337");
   }
 }

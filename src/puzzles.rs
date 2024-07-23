@@ -48,7 +48,7 @@ pub struct DelegationLayerSolution<P, S> {
   pub puzzle_solution: S,
 }
 
-pub const DELEGATION_LAYER_PUZZLE: [u8; 842] = hex!(
+pub const DELEGATION_LAYER_PUZZLE: [u8; 947] = hex!(
   "
     ff02ffff01ff02ff12ffff04ff02ffff04ff05ffff04ff0bffff04ff17ffff04ff2fffff04ffff02
     ff5fff81bf80ffff04ffff02ff16ffff04ff02ffff04ff5fff80808080ff808080808080808080ff
@@ -60,72 +60,26 @@ pub const DELEGATION_LAYER_PUZZLE: [u8; 842] = hex!(
     ff0101ff81bf80ffff04ff2fff808080808080ffff01ff02ff1affff04ff02ffff04ff05ffff04ff
     0bffff04ff5fffff04ffff04ff17ff8080ff80808080808080ffff01ff088080ff018080ff0180ff
     02ffff03ff17ffff01ff02ffff03ffff09ff47ff1880ffff01ff02ff1affff04ff02ffff04ff05ff
-    ff04ff0bffff04ff37ffff04ff67ff80808080808080ffff01ff04ff27ffff02ff1affff04ff02ff
-    ff04ff05ffff04ff0bffff04ff37ffff04ff2fff808080808080808080ff0180ffff01ff04ffff04
-    ff10ffff04ffff0bff5cffff0bff14ffff0bff14ff6cff0580ffff0bff14ffff0bff7cffff0bff14
-    ffff0bff14ff6cffff0bffff0101ff058080ffff0bff14ffff0bff7cffff0bff14ffff0bff14ff6c
-    ffff0bffff0101ff0b8080ffff0bff14ffff0bff7cffff0bff14ffff0bff14ff6cffff0bffff0101
-    ff4f8080ffff0bff14ff6cff4c808080ff4c808080ff4c808080ff4c808080ffff04ffff0101ffff
-    04ff6fff8080808080ff808080ff0180ffff02ffff03ffff07ff0580ffff01ff0bffff0102ffff02
-    ff16ffff04ff02ffff04ff09ff80808080ffff02ff16ffff04ff02ffff04ff0dff8080808080ffff
-    01ff0bffff0101ff058080ff0180ff02ffff03ff1bffff01ff02ff1effff04ff02ffff04ffff02ff
-    ff03ffff18ffff0101ff1380ffff01ff0bffff0102ff2bff0580ffff01ff0bffff0102ff05ff2b80
-    80ff0180ffff04ffff04ffff17ff13ffff0181ff80ff3b80ff8080808080ffff010580ff0180ff01
-    8080
+    ff04ff0bffff04ff37ffff04ff67ff80808080808080ffff01ff04ffff02ffff03ffff02ffff03ff
+    ff09ff47ffff0181e880ffff01ff22ffff09ff820567ff8080ffff09ff820a67ffff01a057bfd1cb
+    0adda3d94315053fda723f2028320faa8338225d99f629e3d46d43a98080ffff01ff010180ff0180
+    ffff0127ffff01ff088080ff0180ffff02ff1affff04ff02ffff04ff05ffff04ff0bffff04ff37ff
+    ff04ff2fff808080808080808080ff0180ffff01ff04ffff04ff10ffff04ffff0bff5cffff0bff14
+    ffff0bff14ff6cff0580ffff0bff14ffff0bff7cffff0bff14ffff0bff14ff6cffff0bffff0101ff
+    058080ffff0bff14ffff0bff7cffff0bff14ffff0bff14ff6cffff0bffff0101ff0b8080ffff0bff
+    14ffff0bff7cffff0bff14ffff0bff14ff6cffff0bffff0101ff4f8080ffff0bff14ff6cff4c8080
+    80ff4c808080ff4c808080ff4c808080ffff04ffff0101ffff04ff6fff8080808080ff808080ff01
+    80ffff02ffff03ffff07ff0580ffff01ff0bffff0102ffff02ff16ffff04ff02ffff04ff09ff8080
+    8080ffff02ff16ffff04ff02ffff04ff0dff8080808080ffff01ff0bffff0101ff058080ff0180ff
+    02ffff03ff1bffff01ff02ff1effff04ff02ffff04ffff02ffff03ffff18ffff0101ff1380ffff01
+    ff0bffff0102ff2bff0580ffff01ff0bffff0102ff05ff2b8080ff0180ffff04ffff04ffff17ff13
+    ffff0181ff80ff3b80ff8080808080ffff010580ff0180ff018080
     "
 );
 
 pub const DELEGATION_LAYER_PUZZLE_HASH: TreeHash = TreeHash::new(hex!(
   "
-    b7daa55b7b829563a07fdef43f65695a3b9a2a538f68b3c66dfeffdc514fabd1
-    "
-));
-
-#[derive(ToClvm, FromClvm)]
-#[apply_constants]
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-#[clvm(curry)]
-pub struct AdminFilterArgs<I> {
-  pub inner_puzzle: I,
-}
-
-impl<I> AdminFilterArgs<I> {
-  pub fn new(inner_puzzle: I) -> Self {
-    Self { inner_puzzle }
-  }
-}
-
-impl AdminFilterArgs<TreeHash> {
-  pub fn curry_tree_hash(inner_puzzle: TreeHash) -> TreeHash {
-    CurriedProgram {
-      program: ADMIN_FILTER_PUZZLE_HASH,
-      args: AdminFilterArgs { inner_puzzle },
-    }
-    .tree_hash()
-  }
-}
-
-#[derive(ToClvm, FromClvm)]
-#[apply_constants]
-#[derive(Debug, Clone, PartialEq, Eq)]
-#[clvm(list)]
-pub struct AdminFilterSolution<I> {
-  pub inner_solution: I,
-}
-
-pub const ADMIN_FILTER_PUZZLE: [u8; 186] = hex!(
-  "
-    ff02ffff01ff02ff02ffff04ff02ffff04ffff02ff05ff0b80ff80808080ffff04ffff01ff02ffff
-    03ff05ffff01ff02ffff03ffff02ffff03ffff09ff11ffff0181e880ffff01ff22ffff09ff820159
-    ff8080ffff09ff820299ffff01a057bfd1cb0adda3d94315053fda723f2028320faa8338225d99f6
-    29e3d46d43a98080ffff01ff010180ff0180ffff01ff04ff09ffff02ff02ffff04ff02ffff04ff0d
-    ff8080808080ffff01ff088080ff0180ff8080ff0180ff018080
-    "
-);
-
-pub const ADMIN_FILTER_PUZZLE_HASH: TreeHash = TreeHash::new(hex!(
-  "
-    bcbe12fb659f887b1a7e9abade6911dab2db00c4b7614fb10af1ca48b906d6c4
+    36892238de330efe47affdf8ba1f28413bf3d6f40c815e9411f24fc4c51f782c
     "
 ));
 
@@ -161,20 +115,17 @@ pub struct WriterFilterSolution<I> {
   pub inner_solution: I,
 }
 
-pub const WRITER_FILTER_PUZZLE: [u8; 201] = hex!(
+pub const WRITER_FILTER_PUZZLE: [u8; 110] = hex!(
   "
     ff02ffff01ff02ff02ffff04ff02ffff04ffff02ff05ff0b80ff80808080ffff04ffff01ff02ffff
-    03ff05ffff01ff02ffff03ffff21ffff09ff11ffff0181f380ffff02ffff03ffff09ff11ffff0181
-    e880ffff01ff20ffff22ffff09ff820159ff8080ffff09ff820299ffff01a057bfd1cb0adda3d943
-    15053fda723f2028320faa8338225d99f629e3d46d43a9808080ff8080ff018080ffff01ff0880ff
-    ff01ff04ff09ffff02ff02ffff04ff02ffff04ff0dff808080808080ff0180ff8080ff0180ff0180
-    80
+    03ff05ffff01ff02ffff03ffff09ff11ffff0181f380ffff01ff0880ffff01ff04ff09ffff02ff02
+    ffff04ff02ffff04ff0dff808080808080ff0180ff8080ff0180ff018080
     "
 );
 
 pub const WRITER_FILTER_PUZZLE_HASH: TreeHash = TreeHash::new(hex!(
   "
-    0f3e06290983010f0c1f748a58a1d7daa4354d2298c6df7f115966881aebb0f2
+    407f70ea751c25052708219ae148b45db2f61af2287da53d600b2486f12b3ca6
     "
 ));
 
@@ -204,7 +155,9 @@ mod tests {
   use hex::encode;
   use rstest::rstest;
 
-  use crate::{DefaultMetadataSolution, DefaultMetadataSolutionMetadataList, NewMetadataCondition};
+  use crate::{
+    DefaultMetadataSolution, DefaultMetadataSolutionMetadataList, MerkleTree, NewMetadataCondition,
+  };
 
   use super::*;
 
@@ -223,30 +176,23 @@ mod tests {
   #[test]
   fn test_puzzle_hashes() {
     assert_puzzle_hash!(DELEGATION_LAYER_PUZZLE => DELEGATION_LAYER_PUZZLE_HASH);
-    assert_puzzle_hash!(ADMIN_FILTER_PUZZLE => ADMIN_FILTER_PUZZLE_HASH);
     assert_puzzle_hash!(WRITER_FILTER_PUZZLE => WRITER_FILTER_PUZZLE_HASH);
     assert_puzzle_hash!(DL_METADATA_UPDATER_PUZZLE => DL_METADATA_UPDATER_PUZZLE_HASH);
   }
 
-  enum TestFilterPuzzle {
+  enum TestPuzzle {
     Admin,
     Writer,
   }
 
   fn get_filter_puzzle_ptr(
     allocator: &mut Allocator,
-    filter_puzzle: &TestFilterPuzzle,
+    filter_puzzle: &TestPuzzle,
     inner_puzzle_ptr: NodePtr,
   ) -> Result<NodePtr, SpendError> {
     match filter_puzzle {
-      TestFilterPuzzle::Admin => CurriedProgram {
-        program: node_from_bytes(allocator, &ADMIN_FILTER_PUZZLE)
-          .map_err(|err| SpendError::Io(err))?,
-        args: AdminFilterArgs::new(inner_puzzle_ptr),
-      }
-      .to_clvm(allocator)
-      .map_err(|err| SpendError::ToClvm(err)),
-      TestFilterPuzzle::Writer => CurriedProgram {
+      TestPuzzle::Admin => Ok(inner_puzzle_ptr),
+      TestPuzzle::Writer => CurriedProgram {
         program: node_from_bytes(allocator, &WRITER_FILTER_PUZZLE)
           .map_err(|err| SpendError::Io(err))?,
         args: WriterFilterArgs::new(inner_puzzle_ptr),
@@ -257,29 +203,20 @@ mod tests {
   }
 
   #[rstest]
-  #[case(TestFilterPuzzle::Admin, hex!("80").to_vec())] // run -d '(mod () ())'
-  #[case(TestFilterPuzzle::Admin, hex!("01").to_vec())] // run -d '(mod solution solution)'
-  #[case(TestFilterPuzzle::Admin, STANDARD_PUZZLE.to_vec())]
-  #[case(TestFilterPuzzle::Writer, hex!("80").to_vec())] // run -d '(mod () ())'
-  #[case(TestFilterPuzzle::Writer, hex!("01").to_vec())] // run -d '(mod solution solution)'
-  #[case(TestFilterPuzzle::Writer, STANDARD_PUZZLE.to_vec())]
-  fn test_filter_curry_tree_hash(
-    #[case] filter_puzzle: TestFilterPuzzle,
-    #[case] inner_puzzle_bytes: Vec<u8>,
-  ) -> Result<(), ()> {
+  #[case(hex!("80").to_vec())] // run -d '(mod () ())'
+  #[case(hex!("01").to_vec())] // run -d '(mod solution solution)'
+  #[case(STANDARD_PUZZLE.to_vec())]
+  fn test_writer_filter_curry_tree_hash(#[case] inner_puzzle_bytes: Vec<u8>) -> Result<(), ()> {
     let allocator: &mut Allocator = &mut Allocator::new();
     let inner_puzzle_ptr = node_from_bytes(allocator, &inner_puzzle_bytes).unwrap();
 
     let full_puzzle_ptr =
-      get_filter_puzzle_ptr(allocator, &filter_puzzle, inner_puzzle_ptr).unwrap();
+      get_filter_puzzle_ptr(allocator, &TestPuzzle::Writer, inner_puzzle_ptr).unwrap();
 
     let full_puzzle_hash = tree_hash(allocator, full_puzzle_ptr);
 
     let inner_puzzle_hash: TreeHash = tree_hash(allocator, inner_puzzle_ptr);
-    let curry_puzzle_hash = match filter_puzzle {
-      TestFilterPuzzle::Admin => AdminFilterArgs::curry_tree_hash(inner_puzzle_hash),
-      TestFilterPuzzle::Writer => WriterFilterArgs::curry_tree_hash(inner_puzzle_hash),
-    };
+    let curry_puzzle_hash = WriterFilterArgs::curry_tree_hash(inner_puzzle_hash);
 
     assert_eq!(
       hex::encode(full_puzzle_hash),
@@ -375,20 +312,20 @@ mod tests {
   }
 
   #[rstest]
-  #[case(TestFilterPuzzle::Admin, Bytes32::from(NULL_B32), vec![])]
-  #[case(TestFilterPuzzle::Admin, Bytes32::from(FULL_B32), vec![])]
-  #[case(TestFilterPuzzle::Admin, Bytes32::from(NULL_B32), vec![Bytes32::from(NULL_B32)])]
-  #[case(TestFilterPuzzle::Admin, Bytes32::from(FULL_B32), vec![Bytes32::from(NULL_B32)])]
-  #[case(TestFilterPuzzle::Admin, Bytes32::from(NULL_B32), vec![Bytes32::from(FULL_B32)])]
-  #[case(TestFilterPuzzle::Admin, Bytes32::from(FULL_B32), vec![Bytes32::from(FULL_B32)])]
-  #[case(TestFilterPuzzle::Writer, Bytes32::from(NULL_B32), vec![])]
-  #[case(TestFilterPuzzle::Writer, Bytes32::from(FULL_B32), vec![])]
-  #[case(TestFilterPuzzle::Writer, Bytes32::from(NULL_B32), vec![Bytes32::from(NULL_B32)])]
-  #[case(TestFilterPuzzle::Writer, Bytes32::from(FULL_B32), vec![Bytes32::from(NULL_B32)])]
-  #[case(TestFilterPuzzle::Writer, Bytes32::from(NULL_B32), vec![Bytes32::from(FULL_B32)])]
-  #[case(TestFilterPuzzle::Writer, Bytes32::from(FULL_B32), vec![Bytes32::from(FULL_B32)])]
+  #[case(TestPuzzle::Admin, Bytes32::from(NULL_B32), vec![])]
+  #[case(TestPuzzle::Admin, Bytes32::from(FULL_B32), vec![])]
+  #[case(TestPuzzle::Admin, Bytes32::from(NULL_B32), vec![Bytes32::from(NULL_B32)])]
+  #[case(TestPuzzle::Admin, Bytes32::from(FULL_B32), vec![Bytes32::from(NULL_B32)])]
+  #[case(TestPuzzle::Admin, Bytes32::from(NULL_B32), vec![Bytes32::from(FULL_B32)])]
+  #[case(TestPuzzle::Admin, Bytes32::from(FULL_B32), vec![Bytes32::from(FULL_B32)])]
+  #[case(TestPuzzle::Writer, Bytes32::from(NULL_B32), vec![])]
+  #[case(TestPuzzle::Writer, Bytes32::from(FULL_B32), vec![])]
+  #[case(TestPuzzle::Writer, Bytes32::from(NULL_B32), vec![Bytes32::from(NULL_B32)])]
+  #[case(TestPuzzle::Writer, Bytes32::from(FULL_B32), vec![Bytes32::from(NULL_B32)])]
+  #[case(TestPuzzle::Writer, Bytes32::from(NULL_B32), vec![Bytes32::from(FULL_B32)])]
+  #[case(TestPuzzle::Writer, Bytes32::from(FULL_B32), vec![Bytes32::from(FULL_B32)])]
   fn test_new_merkle_root_filter(
-    #[case] filter_puzzle: TestFilterPuzzle,
+    #[case] test_puzzle: TestPuzzle,
     #[case] new_merkle_root: Bytes32,
     #[case] memos: Vec<Bytes32>,
   ) -> Result<(), ()> {
@@ -403,22 +340,22 @@ mod tests {
     .to_clvm(ctx.allocator_mut())
     .unwrap();
 
-    let filter_puzzle_ptr =
-      get_filter_puzzle_ptr(ctx.allocator_mut(), &filter_puzzle, inner_puzzle).unwrap();
+    let test_puzzle_ptr =
+      get_filter_puzzle_ptr(ctx.allocator_mut(), &test_puzzle, inner_puzzle).unwrap();
 
     let solution_ptr = vec![ctx.allocator().nil()]
       .to_clvm(ctx.allocator_mut())
       .unwrap();
 
-    match ctx.run(filter_puzzle_ptr, solution_ptr) {
-      Ok(_) => match filter_puzzle {
-        TestFilterPuzzle::Admin => Ok(()),
-        TestFilterPuzzle::Writer => Err(()),
+    match ctx.run(test_puzzle_ptr, solution_ptr) {
+      Ok(_) => match test_puzzle {
+        TestPuzzle::Admin => Ok(()),
+        TestPuzzle::Writer => Err(()),
       },
       Err(err) => match err {
-        SpendError::Eval(eval_err) => match filter_puzzle {
-          TestFilterPuzzle::Admin => Err(()),
-          TestFilterPuzzle::Writer => {
+        SpendError::Eval(eval_err) => match test_puzzle {
+          TestPuzzle::Admin => Err(()),
+          TestPuzzle::Writer => {
             assert_eq!(eval_err.1, "clvm raise");
             Ok(())
           }
@@ -431,56 +368,56 @@ mod tests {
   #[rstest]
   // fail because of wrong new updater ph
   #[case(
-    TestFilterPuzzle::Admin,
+    TestPuzzle::Admin,
     Bytes32::from(NULL_B32),
     Bytes32::from(NULL_B32),
     false,
     true
   )]
   #[case(
-    TestFilterPuzzle::Admin,
+    TestPuzzle::Admin,
     Bytes32::from(NULL_B32),
     Bytes32::from(FULL_B32),
     false,
     true
   )]
   #[case(
-    TestFilterPuzzle::Admin,
+    TestPuzzle::Admin,
     Bytes32::from(FULL_B32),
     Bytes32::from(NULL_B32),
     false,
     true
   )]
   #[case(
-    TestFilterPuzzle::Admin,
+    TestPuzzle::Admin,
     Bytes32::from(FULL_B32),
     Bytes32::from(FULL_B32),
     false,
     true
   )]
   #[case(
-    TestFilterPuzzle::Writer,
+    TestPuzzle::Writer,
     Bytes32::from(NULL_B32),
     Bytes32::from(NULL_B32),
     false,
     true
   )]
   #[case(
-    TestFilterPuzzle::Writer,
+    TestPuzzle::Writer,
     Bytes32::from(NULL_B32),
     Bytes32::from(FULL_B32),
     false,
     true
   )]
   #[case(
-    TestFilterPuzzle::Writer,
+    TestPuzzle::Writer,
     Bytes32::from(FULL_B32),
     Bytes32::from(NULL_B32),
     false,
     true
   )]
   #[case(
-    TestFilterPuzzle::Writer,
+    TestPuzzle::Writer,
     Bytes32::from(FULL_B32),
     Bytes32::from(FULL_B32),
     false,
@@ -488,28 +425,28 @@ mod tests {
   )]
   // valid metadata update - should not fail
   #[case(
-    TestFilterPuzzle::Admin,
+    TestPuzzle::Admin,
     Bytes32::from(NULL_B32),
     DL_METADATA_UPDATER_PUZZLE_HASH.into(),
     false,
     false
   )]
   #[case(
-    TestFilterPuzzle::Writer,
+    TestPuzzle::Writer,
     Bytes32::from(FULL_B32),
     DL_METADATA_UPDATER_PUZZLE_HASH.into(),
     false,
     false
   )]
   #[case(
-    TestFilterPuzzle::Admin,
+    TestPuzzle::Admin,
     Bytes32::from(NULL_B32),
     DL_METADATA_UPDATER_PUZZLE_HASH.into(),
     false,
     false
   )]
   #[case(
-    TestFilterPuzzle::Writer,
+    TestPuzzle::Writer,
     Bytes32::from(FULL_B32),
     DL_METADATA_UPDATER_PUZZLE_HASH.into(),
     false,
@@ -517,35 +454,35 @@ mod tests {
   )]
   // should fail because output conditions are not empty
   #[case(
-    TestFilterPuzzle::Admin,
+    TestPuzzle::Admin,
     Bytes32::from(NULL_B32),
     DL_METADATA_UPDATER_PUZZLE_HASH.into(),
     true,
     true
   )]
   #[case(
-    TestFilterPuzzle::Writer,
+    TestPuzzle::Writer,
     Bytes32::from(FULL_B32),
     DL_METADATA_UPDATER_PUZZLE_HASH.into(),
     true,
     true
   )]
   #[case(
-    TestFilterPuzzle::Admin,
+    TestPuzzle::Admin,
     Bytes32::from(NULL_B32),
     DL_METADATA_UPDATER_PUZZLE_HASH.into(),
     true,
     true
   )]
   #[case(
-    TestFilterPuzzle::Writer,
+    TestPuzzle::Writer,
     Bytes32::from(FULL_B32),
     DL_METADATA_UPDATER_PUZZLE_HASH.into(),
     true,
     true
   )]
   fn test_metadata_filter(
-    #[case] filter_puzzle: TestFilterPuzzle,
+    #[case] test_puzzle: TestPuzzle,
     #[case] new_metadata: Bytes32,
     #[case] new_updater_ph: Bytes32,
     #[case] output_conditions: bool,
@@ -575,14 +512,32 @@ mod tests {
       .to_clvm(ctx.allocator_mut())
       .unwrap();
 
-    let filter_puzzle_ptr =
-      get_filter_puzzle_ptr(ctx.allocator_mut(), &filter_puzzle, inner_puzzle).unwrap();
+    let test_puzzle_ptr =
+      get_filter_puzzle_ptr(ctx.allocator_mut(), &test_puzzle, inner_puzzle).unwrap();
 
-    let solution_ptr = vec![ctx.allocator().nil()]
+    let test_puzzle_hash = ctx.tree_hash(test_puzzle_ptr);
+    let merkle_tree = MerkleTree::new(&vec![test_puzzle_hash.into()]);
+
+    let deleg_layer_puz = CurriedProgram {
+      program: node_from_bytes(ctx.allocator_mut(), &DELEGATION_LAYER_PUZZLE).unwrap(),
+      args: DelegationLayerArgs::new(Bytes32::default(), merkle_tree.get_root()),
+    }
+    .to_clvm(ctx.allocator_mut())
+    .unwrap();
+
+    let test_puzzle_solution_ptr = vec![ctx.allocator().nil()]
       .to_clvm(ctx.allocator_mut())
       .unwrap();
 
-    match ctx.run(filter_puzzle_ptr, solution_ptr) {
+    let deleg_layer_sol = DelegationLayerSolution {
+      merkle_proof: merkle_tree.generate_proof(test_puzzle_hash.into()),
+      puzzle_reveal: test_puzzle_ptr,
+      puzzle_solution: test_puzzle_solution_ptr,
+    }
+    .to_clvm(ctx.allocator_mut())
+    .unwrap();
+
+    match ctx.run(deleg_layer_puz, deleg_layer_sol) {
       Ok(_) => {
         if should_error_out {
           Err(())

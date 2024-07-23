@@ -1,9 +1,9 @@
 use crate::{
   merkle_root_for_delegated_puzzles, merkle_tree_for_delegated_puzzles,
   puzzles_info::{DataStoreInfo, DataStoreMetadata, DelegatedPuzzle, DelegatedPuzzleInfo},
-  DLLauncherKVList, DelegationLayerArgs, DelegationLayerSolution, HintType, ADMIN_FILTER_PUZZLE,
-  ADMIN_FILTER_PUZZLE_HASH, DELEGATION_LAYER_PUZZLE, DELEGATION_LAYER_PUZZLE_HASH,
-  DL_METADATA_UPDATER_PUZZLE_HASH, WRITER_FILTER_PUZZLE, WRITER_FILTER_PUZZLE_HASH,
+  DLLauncherKVList, DelegationLayerArgs, DelegationLayerSolution, HintType,
+  DELEGATION_LAYER_PUZZLE, DELEGATION_LAYER_PUZZLE_HASH, DL_METADATA_UPDATER_PUZZLE_HASH,
+  WRITER_FILTER_PUZZLE, WRITER_FILTER_PUZZLE_HASH,
 };
 use chia_protocol::{Bytes, Bytes32, CoinSpend};
 use chia_puzzles::{
@@ -19,17 +19,12 @@ use clvmr::{reduction::EvalErr, NodePtr};
 
 pub trait SpendContextExt {
   fn delegation_layer_puzzle(&mut self) -> Result<NodePtr, SpendError>;
-  fn delegated_admin_filter(&mut self) -> Result<NodePtr, SpendError>;
   fn delegated_writer_filter(&mut self) -> Result<NodePtr, SpendError>;
 }
 
 impl SpendContextExt for SpendContext {
   fn delegation_layer_puzzle(&mut self) -> Result<NodePtr, SpendError> {
     self.puzzle(DELEGATION_LAYER_PUZZLE_HASH, &DELEGATION_LAYER_PUZZLE)
-  }
-
-  fn delegated_admin_filter(&mut self) -> Result<NodePtr, SpendError> {
-    self.puzzle(ADMIN_FILTER_PUZZLE_HASH, &ADMIN_FILTER_PUZZLE)
   }
 
   fn delegated_writer_filter(&mut self) -> Result<NodePtr, SpendError> {
@@ -143,11 +138,16 @@ pub fn spend_delegation_layer(
 
       println!("merkle_proof: {:?}", merkle_proof); // todo: debug
 
-      let solution: Vec<NodePtr> = vec![delegated_inner_spend.solution()];
       let new_inner_solution = DelegationLayerSolution::<NodePtr, NodePtr> {
         merkle_proof: Some(merkle_proof),
         puzzle_reveal: full_puzzle,
-        puzzle_solution: ctx.alloc(&solution)?,
+        puzzle_solution: match delegated_puzzle.puzzle_info {
+          DelegatedPuzzleInfo::Admin(_) => delegated_inner_spend.solution(),
+          DelegatedPuzzleInfo::Writer(_) => ctx.alloc(&vec![delegated_inner_spend.solution()])?,
+          DelegatedPuzzleInfo::Oracle(_, _) => {
+            ctx.alloc(&vec![delegated_inner_spend.solution()])?
+          }
+        },
       };
 
       // todo: debug
@@ -1293,6 +1293,7 @@ pub mod tests {
       ),
     );
     let new_spend = datastore_spend(ctx, &src_datastore_info, inner_datastore_spend)?;
+    // print_spend_bundle_to_file(vec![new_spend.clone()], Signature::default(), "sb.debug");
 
     {
       let mut stats = TEST_STATS.lock().unwrap();
