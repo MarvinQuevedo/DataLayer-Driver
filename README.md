@@ -1,7 +1,7 @@
 # DataLayer-Driver
 
 A collection of functions that can be used to interact with datastores on the Chia blockchain.
-
+cd
 This library offers the following functions:
 - wallet: `selectCoins`, `addFee`, `signCoinSpends`
 - drivers: `mintStore`, `adminDelegatedPuzzleFromKey`, `writerDelegatedPuzzleFromKey`, `oracleDelegatedPuzzle`, `oracleSpend`, `updateStoreMetadata`, `updateStoreOwnership`, `meltStore`
@@ -71,6 +71,7 @@ You can speed up coin lookup by setting `MIN_HEIGHT` and `MIN_HEIGHT_HEADER_HASH
 
 The next step is to generate coin spends using drivers:
 ```js
+const serverKey = getPublicSyntheticKey();
 const successResponse = await mintStore(
     getPublicSyntheticKey(),
     coins,
@@ -99,7 +100,7 @@ const successResponse = await mintStore(
 In that case, the 'basic' transaction only spends the store - to add fees, you'll need to call `addFee` and make sure to include the returned coin spends in the final bundle:
 
 ```js
-const resp = await addFee(getPublicSyntheticKey(), selectedCoins, coin_ids, BigInt(fee));
+const resp = await addFee(serverKey, selectedCoins, coin_ids, BigInt(fee));
 ```
 
 Before broadcasting transactions, you'll usually need to sign the coin spends. The `signCoinSpends` function was created for that purpose:
