@@ -286,11 +286,12 @@ pub trait LauncherExt {
 }
 
 pub fn get_memos(
+  launcher_id: Bytes32,
   owner_puzzle_hash: TreeHash,
   delegated_puzzles: Vec<DelegatedPuzzle>,
 ) -> Vec<Bytes> {
-  let hint: Bytes32 = owner_puzzle_hash.into();
-  let mut memos: Vec<Bytes> = vec![hint.into()];
+  let owner_puzzle_hash: Bytes32 = owner_puzzle_hash.into();
+  let mut memos: Vec<Bytes> = vec![launcher_id.into(), owner_puzzle_hash.into()];
 
   for delegated_puzzle in delegated_puzzles {
     match delegated_puzzle.puzzle_info {
@@ -350,7 +351,14 @@ impl LauncherExt for Launcher {
     }
     .tree_hash();
 
-    let mut memos = get_memos(info.owner_puzzle_hash, info.delegated_puzzles.clone());
+    let mut memos = get_memos(
+      Bytes32::default(),
+      info.owner_puzzle_hash,
+      info.delegated_puzzles.clone(),
+    )
+    .into_iter()
+    .skip(1)
+    .collect();
     if info.delegated_puzzles.len() == 0 {
       memos = vec![];
     }
@@ -385,6 +393,7 @@ impl LauncherExt for Launcher {
 //  - just re-create store (no hints needed)
 //  - change delegated puzzles (hints needed)
 pub fn get_owner_create_coin_condition(
+  launcher_id: Bytes32,
   new_inner_puzzle_hash: &Bytes32,
   new_delegated_puzzles: &Vec<DelegatedPuzzle>,
   hint_delegated_puzzles: bool,
@@ -401,6 +410,7 @@ pub fn get_owner_create_coin_condition(
     puzzle_hash: new_puzzle_hash,
     memos: if hint_delegated_puzzles {
       get_memos(
+        launcher_id,
         new_inner_puzzle_hash.clone().into(),
         new_delegated_puzzles.clone(),
       )
@@ -901,7 +911,11 @@ pub mod tests {
 
     let new_merkle_root_condition = NewMerkleRootCondition {
       new_merkle_root,
-      memos: get_memos(owner_puzzle_hash.into(), delegated_puzzles),
+      memos: get_memos(
+        datastore_info.launcher_id,
+        owner_puzzle_hash.into(),
+        delegated_puzzles,
+      ),
     }
     .to_clvm(ctx.allocator_mut())
     .unwrap();
@@ -1254,7 +1268,11 @@ pub mod tests {
 
       let new_merkle_root_condition = NewMerkleRootCondition {
         new_merkle_root,
-        memos: get_memos(owner_puzzle_hash.into(), dst_delegated_puzzles.clone()),
+        memos: get_memos(
+          src_datastore_info.launcher_id,
+          owner_puzzle_hash.into(),
+          dst_delegated_puzzles.clone(),
+        ),
       }
       .to_clvm(ctx.allocator_mut())
       .unwrap();
@@ -1544,6 +1562,7 @@ pub mod tests {
     }
 
     owner_output_conds = owner_output_conds.condition(get_owner_create_coin_condition(
+      src_datastore_info.launcher_id,
       if also_change_owner {
         &owner2_puzzle_hash
       } else {

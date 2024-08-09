@@ -419,14 +419,30 @@ impl DataStoreInfo {
     let mut memos = memos.clone();
     println!("memos clone: {:?}", memos); // todo: debug
 
-    if memos.len() == 3 && memos[0] == launcher_id.into() && memos[1] == metadata.root_hash.into() {
+    if memos.len() == 0 {
+      // no hints; owner puzzle hash is the inner puzzle hash
+      return Ok(DataStoreInfo {
+        coin,
+        launcher_id,
+        proof,
+        metadata,
+        owner_puzzle_hash: fallback_owner_ph,
+        delegated_puzzles: vec![],
+      });
+    }
+
+    if memos.drain(0..1).next().unwrap() != launcher_id.into() {
+      return Err(ParseError::MissingHint);
+    }
+
+    if memos.len() == 2 && memos[0] == metadata.root_hash.into() {
       println!("vanilla store using old memo format detected"); // todo: debug
       return Ok(DataStoreInfo {
         coin,
         launcher_id,
         proof,
         metadata,
-        owner_puzzle_hash: Bytes32::from_bytes(&memos[2]).map_err(|_| ParseError::MissingHint)?,
+        owner_puzzle_hash: Bytes32::from_bytes(&memos[1]).map_err(|_| ParseError::MissingHint)?,
         delegated_puzzles: vec![],
       });
     }
@@ -510,8 +526,10 @@ impl DataStoreInfo {
           };
 
           println!("building datastore info..."); // todo: debug
-          println!("memos: {:?}", solution.key_value_list.memos); // todo: debug
           println!("calling build_datastore_info..."); // todo: debug
+          let mut memos: Vec<Bytes> = vec![launcher_id.into()];
+          memos.extend(solution.key_value_list.memos);
+          println!("memos: {:?}", memos); // todo: debug
           match DataStoreInfo::build_datastore_info(
             allocator,
             new_coin,
@@ -519,7 +537,7 @@ impl DataStoreInfo {
             proof,
             metadata,
             solution.key_value_list.state_layer_inner_puzzle_hash,
-            &solution.key_value_list.memos,
+            &memos,
           ) {
             Ok(info) => Ok(info),
             Err(err) => Err(err),
@@ -911,7 +929,11 @@ mod tests {
 
     let new_merkle_root_condition = NewMerkleRootCondition {
       new_merkle_root,
-      memos: get_memos(owner_puzzle_hash.into(), vec![].clone()),
+      memos: get_memos(
+        src_datastore_info.launcher_id,
+        owner_puzzle_hash.into(),
+        vec![].clone(),
+      ),
     }
     .to_clvm(ctx.allocator_mut())
     .unwrap();
@@ -992,6 +1014,7 @@ mod tests {
     }
 
     let mut owner_output_conds = Conditions::new().condition(get_owner_create_coin_condition(
+      src_datastore_info.launcher_id,
       &src_datastore_info.owner_puzzle_hash,
       &dst_delegated_puzzles,
       true,

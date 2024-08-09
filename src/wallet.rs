@@ -404,9 +404,12 @@ pub fn update_store_ownership(
   let mut ctx = SpendContext::new();
 
   let update_condition: Condition = match inner_spend_info {
-    DataStoreInnerSpendInfo::Owner(_) => {
-      get_owner_create_coin_condition(&new_owner_puzzle_hash, &new_delegated_puzzles, true)
-    }
+    DataStoreInnerSpendInfo::Owner(_) => get_owner_create_coin_condition(
+      store_info.launcher_id,
+      &new_owner_puzzle_hash,
+      &new_delegated_puzzles,
+      true,
+    ),
     DataStoreInnerSpendInfo::Admin(_) => {
       let leaves: Vec<Bytes32> = new_delegated_puzzles
         .clone()
@@ -418,7 +421,11 @@ pub fn update_store_ownership(
 
       let new_merkle_root_condition = NewMerkleRootCondition {
         new_merkle_root,
-        memos: get_memos(new_owner_puzzle_hash.into(), new_delegated_puzzles),
+        memos: get_memos(
+          store_info.launcher_id,
+          new_owner_puzzle_hash.into(),
+          new_delegated_puzzles,
+        ),
       }
       .to_clvm(ctx.allocator_mut())
       .map_err(|err| Error::ToClvm(err))?;
@@ -470,6 +477,7 @@ pub fn update_store_metadata(
     DataStoreInnerSpendInfo::Owner(_) => Conditions::new()
       .condition(Condition::Other(new_metadata_condition))
       .condition(get_owner_create_coin_condition(
+        store_info.launcher_id,
         &store_info.owner_puzzle_hash,
         &store_info.delegated_puzzles,
         false,
