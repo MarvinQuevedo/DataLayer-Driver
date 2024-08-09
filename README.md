@@ -78,6 +78,7 @@ const successResponse = await mintStore(
     rootHash,
     label,
     description,
+    sizeBigInt,
     ownerPuzzleHash,
     [
       adminDelegatedPuzzleFromKey(serverKey),
