@@ -77,13 +77,15 @@ export declare function newEveProof(eveProof: EveProof): Proof
  * Represents metadata for a data store.
  *
  * @property {Buffer} rootHash - Root hash.
- * @property {String} label - Label. An empty string signifies no label.
- * @property {String} description - Description. An empty string signifies no description.
+ * @property {Option<String>} label - Label (optional).
+ * @property {Option<String>} description - Description (optional).
+ * @property {Option<BigInt>} size - Size of the store (optional).
  */
 export interface DataStoreMetadata {
   rootHash: Buffer
-  label: string
-  description: string
+  label?: string
+  description?: string
+  size?: bigint
 }
 /**
  * Represents information about a delegated puzzle. Note that this struct can represent all three types of delegated puzzles, but only represents one at a time.
@@ -172,14 +174,15 @@ export declare function selectCoins(allCoins: Array<Coin>, totalAmount: bigint):
  * @param {Buffer} minterSyntheticKey - Minter synthetic key.
  * @param {Vec<Coin>} selectedCoins - Coins to be used for minting, as retured by `select_coins`. Note that, besides the fee, 1 mojo will be used to create the new store.
  * @param {Buffer} rootHash - Root hash of the store.
- * @param {String} label - Store label.
- * @param {String} description - Store description.
+ * @param {Option<String>} label - Store label (optional).
+ * @param {Option<String>} description - Store description (optional).
+ * @param {Option<BigInt>} size - Store size (optional).
  * @param {Buffer} ownerPuzzleHash - Owner puzzle hash.
  * @param {Vec<DelegatedPuzzle>} delegatedPuzzles - Delegated puzzles.
  * @param {BigInt} fee - Fee to use for the transaction. Total amount - 1 - fee will be sent back to the minter.
  * @returns {SuccessResponse} The success response, which includes coin spends and information about the new datastore.
  */
-export declare function mintStore(minterSyntheticKey: Buffer, selectedCoins: Array<Coin>, rootHash: Buffer, label: string, description: string, ownerPuzzleHash: Buffer, delegatedPuzzles: Array<DelegatedPuzzle>, fee: bigint): SuccessResponse
+export declare function mintStore(minterSyntheticKey: Buffer, selectedCoins: Array<Coin>, rootHash: Buffer, label: string | undefined | null, description: string | undefined | null, size: bigint | undefined | null, ownerPuzzleHash: Buffer, delegatedPuzzles: Array<DelegatedPuzzle>, fee: bigint): SuccessResponse
 /**
  * Spends a store in oracle mode.
  *
@@ -285,14 +288,15 @@ export declare function getCoinId(coin: Coin): Buffer
  *
  * @param {DataStoreInfo} storeInfo - Current store information.
  * @param {Buffer} newRootHash - New root hash.
- * @param {String} newLabel - New label.
- * @param {String} newDescription - New description.
+ * @param {Option<String>} newLabel - New label (optional).
+ * @param {Option<String>} newDescription - New description (optional).
+ * @param {Option<BigInt>} newSize - New size (optional).
  * @param {Option<Buffer>} ownerPublicKey - Owner public key.
  * @param {Option<Buffer>} adminPublicKey - Admin public key.
  * @param {Option<Buffer>} writerPublicKey - Writer public key.
  * @returns {SuccessResponse} The success response, which includes coin spends and information about the new datastore.
  */
-export declare function updateStoreMetadata(storeInfo: DataStoreInfo, newRootHash: Buffer, newLabel: string, newDescription: string, ownerPublicKey?: Buffer | undefined | null, adminPublicKey?: Buffer | undefined | null, writerPublicKey?: Buffer | undefined | null): SuccessResponse
+export declare function updateStoreMetadata(storeInfo: DataStoreInfo, newRootHash: Buffer, newLabel?: string | undefined | null, newDescription?: string | undefined | null, newSize?: bigint | undefined | null, ownerPublicKey?: Buffer | undefined | null, adminPublicKey?: Buffer | undefined | null, writerPublicKey?: Buffer | undefined | null): SuccessResponse
 /**
  * Updates the ownership of a store. Either the admin or owner public key must be provided.
  *

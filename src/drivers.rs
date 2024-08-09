@@ -655,11 +655,7 @@ pub mod tests {
     let (launch_singleton, datastore_info) = Launcher::new(coin.coin_id(), 1).mint_datastore(
       ctx,
       DataStoreMintInfo {
-        metadata: DataStoreMetadata {
-          root_hash: Hash::ZERO.value(),
-          label: Label::EMPTY.value(),
-          description: Description::EMPTY.value(),
-        },
+        metadata: DataStoreMetadata::root_hash_only(Hash::ZERO.value()),
         owner_puzzle_hash: puzzle_hash.into(),
         delegated_puzzles: vec![],
       },
@@ -717,34 +713,34 @@ pub mod tests {
 
   #[derive(PartialEq)]
   pub enum Label {
-    EMPTY,
+    NONE,
     SOME,
     NEW,
   }
 
   impl Label {
-    pub fn value(&self) -> String {
+    pub fn value(&self) -> Option<String> {
       match self {
-        Label::EMPTY => String::new(),
-        Label::SOME => String::from("label"),
-        Label::NEW => String::from("new_label"),
+        Label::NONE => None,
+        Label::SOME => Some(String::from("label")),
+        Label::NEW => Some(String::from("new_label")),
       }
     }
   }
 
   #[derive(PartialEq)]
   pub enum Description {
-    EMPTY,
+    NONE,
     SOME,
     NEW,
   }
 
   impl Description {
-    pub fn value(&self) -> String {
+    pub fn value(&self) -> Option<String> {
       match self {
-        Description::EMPTY => String::new(),
-        Description::SOME => String::from("description"),
-        Description::NEW => String::from("new_description"),
+        Description::NONE => None,
+        Description::SOME => Some(String::from("description")),
+        Description::NEW => Some(String::from("new_description")),
       }
     }
   }
@@ -760,6 +756,23 @@ pub mod tests {
       match self {
         Hash::ZERO => Bytes32::from([0; 32]),
         Hash::SOME => Bytes32::from([1; 32]),
+      }
+    }
+  }
+
+  #[derive(PartialEq)]
+  pub enum Size {
+    NONE,
+    SOME,
+    NEW,
+  }
+
+  impl Size {
+    pub fn value(&self) -> Option<u64> {
+      match self {
+        Size::NONE => None,
+        Size::SOME => Some(1337),
+        Size::NEW => Some(42),
       }
     }
   }
@@ -816,11 +829,7 @@ pub mod tests {
     let (launch_singleton, datastore_info) = Launcher::new(coin.coin_id(), 1).mint_datastore(
       ctx,
       DataStoreMintInfo {
-        metadata: DataStoreMetadata {
-          root_hash: Hash::ZERO.value(),
-          label: Label::EMPTY.value(),
-          description: Description::EMPTY.value(),
-        },
+        metadata: DataStoreMetadata::default(),
         owner_puzzle_hash: owner_puzzle_hash.into(),
         delegated_puzzles: vec![
           admin_delegated_puzzle,
@@ -859,6 +868,7 @@ pub mod tests {
       root_hash: Hash::SOME.value(),
       label: Label::SOME.value(),
       description: Description::SOME.value(),
+      size: Size::SOME.value(),
     };
     let new_metadata_condition = NewMetadataCondition::<i32, DataStoreMetadata, Bytes32, i32> {
       metadata_updater_reveal: 11,
@@ -1028,7 +1038,7 @@ pub mod tests {
   #[rstest]
   #[tokio::test]
   async fn test_datastore_launch(
-    #[values(true, false)] use_label_and_desc: bool,
+    #[values(true, false)] use_meta_fields: bool,
     #[values(true, false)] with_writer: bool,
     #[values(true, false)] with_admin: bool,
     #[values(true, false)] with_oracle: bool,
@@ -1069,25 +1079,18 @@ pub mod tests {
       delegated_puzzles.push(oracle_delegated_puzzle);
     }
 
-    let label = if use_label_and_desc {
-      Label::SOME.value()
-    } else {
-      Label::EMPTY.value()
-    };
-
-    let description = if use_label_and_desc {
-      Description::SOME.value()
-    } else {
-      Label::EMPTY.value()
-    };
-
     let (launch_singleton, datastore_info) = Launcher::new(coin.coin_id(), 1).mint_datastore(
       ctx,
       DataStoreMintInfo {
-        metadata: DataStoreMetadata {
-          root_hash: Hash::ZERO.value(),
-          label: label,
-          description: description,
+        metadata: if use_meta_fields {
+          DataStoreMetadata {
+            root_hash: Hash::ZERO.value(),
+            label: Label::SOME.value(),
+            description: Description::SOME.value(),
+            size: Size::SOME.value(),
+          }
+        } else {
+          DataStoreMetadata::default()
         },
         owner_puzzle_hash: owner_puzzle_hash.into(),
         delegated_puzzles: delegated_puzzles,
@@ -1148,13 +1151,13 @@ pub mod tests {
     dst_with_writer => [true, false],
     dst_with_oracle => [true, false],
     src_meta => [
-      (Hash::ZERO, Label::EMPTY, Description::EMPTY),
-      (Hash::SOME, Label::SOME, Description::SOME),
+      (Hash::ZERO, Label::NONE, Description::NONE, Size::NONE),
+      (Hash::SOME, Label::SOME, Description::SOME, Size::SOME),
     ],
     dst_meta => [
-      (Hash::ZERO, Label::EMPTY, Description::EMPTY),
-      (Hash::ZERO, Label::SOME, Description::SOME),
-      (Hash::ZERO, Label::NEW, Description::NEW),
+      (Hash::ZERO, Label::NONE, Description::NONE, Size::NONE),
+      (Hash::ZERO, Label::SOME, Description::SOME, Size::SOME),
+      (Hash::ZERO, Label::NEW, Description::NEW, Size::NEW),
     ],
     dst_admin => [
       DstAdmin::None,
@@ -1164,14 +1167,14 @@ pub mod tests {
   )]
   #[tokio::test]
   async fn test_datastore_admin_transition(
-    src_meta: (Hash, Label, Description),
+    src_meta: (Hash, Label, Description, Size),
     src_with_writer: bool,
     // src must have admin layer in this scenario
     src_with_oracle: bool,
     dst_with_writer: bool,
     dst_with_oracle: bool,
     dst_admin: DstAdmin,
-    dst_meta: (Hash, Label, Description),
+    dst_meta: (Hash, Label, Description, Size),
   ) -> anyhow::Result<()> {
     let sim = Simulator::new().await?;
     let peer = sim.connect().await?;
@@ -1218,6 +1221,7 @@ pub mod tests {
           root_hash: src_meta.0.value(),
           label: src_meta.1.value(),
           description: src_meta.2.value(),
+          size: src_meta.3.value(),
         },
         owner_puzzle_hash: owner_puzzle_hash.into(),
         delegated_puzzles: src_delegated_puzzles.clone(),
@@ -1285,6 +1289,7 @@ pub mod tests {
         root_hash: dst_meta.0.value(),
         label: dst_meta.1.value(),
         description: dst_meta.2.value(),
+        size: dst_meta.3.value(),
       };
       let new_metadata_condition = NewMetadataCondition::<i32, DataStoreMetadata, Bytes32, i32> {
         metadata_updater_reveal: 11,
@@ -1448,26 +1453,26 @@ pub mod tests {
     dst_with_writer => [true, false],
     dst_with_oracle => [true, false],
     src_meta => [
-      (Hash::ZERO, Label::EMPTY, Description::EMPTY),
-      (Hash::SOME, Label::SOME, Description::SOME),
+      (Hash::ZERO, Label::NONE, Description::NONE, Size::NONE),
+      (Hash::SOME, Label::SOME, Description::SOME, Size::SOME),
     ],
     dst_meta => [
-      (Hash::ZERO, Label::EMPTY, Description::EMPTY),
-      (Hash::ZERO, Label::SOME, Description::SOME),
-      (Hash::ZERO, Label::NEW, Description::NEW),
+      (Hash::ZERO, Label::NONE, Description::NONE, Size::NONE),
+      (Hash::ZERO, Label::SOME, Description::SOME, Size::SOME),
+      (Hash::ZERO, Label::NEW, Description::NEW, Size::NEW),
     ],
     also_change_owner => [true, false],
   )]
   #[tokio::test]
   async fn test_datastore_owner_transition(
-    src_meta: (Hash, Label, Description),
+    src_meta: (Hash, Label, Description, Size),
     src_with_admin: bool,
     src_with_writer: bool,
     src_with_oracle: bool,
     dst_with_admin: bool,
     dst_with_writer: bool,
     dst_with_oracle: bool,
-    dst_meta: (Hash, Label, Description),
+    dst_meta: (Hash, Label, Description, Size),
     also_change_owner: bool,
   ) -> anyhow::Result<()> {
     let sim = Simulator::new().await?;
@@ -1517,6 +1522,7 @@ pub mod tests {
           root_hash: src_meta.0.value(),
           label: src_meta.1.value(),
           description: src_meta.2.value(),
+          size: src_meta.3.value(),
         },
         owner_puzzle_hash: owner_puzzle_hash.into(),
         delegated_puzzles: src_delegated_puzzles.clone(),
@@ -1578,6 +1584,7 @@ pub mod tests {
         root_hash: dst_meta.0.value(),
         label: dst_meta.1.value(),
         description: dst_meta.2.value(),
+        size: dst_meta.3.value(),
       };
       let new_metadata_condition = NewMetadataCondition::<i32, DataStoreMetadata, Bytes32, i32> {
         metadata_updater_reveal: 11,
@@ -1737,23 +1744,33 @@ pub mod tests {
     meta_transition => [
       (
         (Hash::ZERO, Hash::ZERO),
-        (Label::EMPTY, Label::SOME),
-        (Description::EMPTY, Description::SOME)
+        (Label::NONE, Label::SOME),
+        (Description::NONE, Description::SOME),
+        (Size::NONE, Size::SOME)
       ),
       (
         (Hash::ZERO, Hash::SOME),
-        (Label::EMPTY, Label::EMPTY),
-        (Description::EMPTY, Description::EMPTY)
+        (Label::NONE, Label::NONE),
+        (Description::NONE, Description::NONE),
+        (Size::NONE, Size::NONE)
       ),
       (
         (Hash::ZERO, Hash::SOME),
         (Label::SOME, Label::SOME),
-        (Description::SOME, Description::SOME)
+        (Description::SOME, Description::SOME),
+        (Size::SOME, Size::SOME)
       ),
       (
         (Hash::ZERO, Hash::ZERO),
         (Label::SOME, Label::NEW),
-        (Description::SOME, Description::NEW)
+        (Description::SOME, Description::NEW),
+        (Size::SOME, Size::NEW)
+      ),
+      (
+        (Hash::ZERO, Hash::ZERO),
+        (Label::NONE, Label::NONE),
+        (Description::NONE, Description::NONE),
+        (Size::NONE, Size::SOME)
       ),
     ],
   )]
@@ -1761,7 +1778,12 @@ pub mod tests {
   async fn test_datastore_writer_transition(
     with_admin_layer: bool,
     with_oracle_layer: bool,
-    meta_transition: ((Hash, Hash), (Label, Label), (Description, Description)),
+    meta_transition: (
+      (Hash, Hash),
+      (Label, Label),
+      (Description, Description),
+      (Size, Size),
+    ),
   ) -> anyhow::Result<()> {
     let sim = Simulator::new().await?;
     let peer = sim.connect().await?;
@@ -1806,6 +1828,7 @@ pub mod tests {
           root_hash: meta_transition.0 .0.value(),
           label: meta_transition.1 .0.value(),
           description: meta_transition.2 .0.value(),
+          size: meta_transition.3 .0.value(),
         },
         owner_puzzle_hash: owner_puzzle_hash.into(),
         delegated_puzzles: delegated_puzzles.clone(),
@@ -1831,6 +1854,7 @@ pub mod tests {
       root_hash: meta_transition.0 .1.value(),
       label: meta_transition.1 .1.value(),
       description: meta_transition.2 .1.value(),
+      size: meta_transition.3 .1.value(),
     };
     let new_metadata_condition = NewMetadataCondition::<i32, DataStoreMetadata, Bytes32, i32> {
       metadata_updater_reveal: 11,
@@ -1990,15 +2014,17 @@ pub mod tests {
     with_admin_layer => [true, false],
     with_writer_layer => [true, false],
     meta => [
-      (Hash::ZERO, Label::EMPTY, Description::EMPTY),
-      (Hash::ZERO, Label::SOME, Description::SOME),
+      (Hash::ZERO, Label::NONE, Description::NONE, Size::NONE),
+      (Hash::ZERO, Label::NONE, Description::NONE, Size::SOME),
+      (Hash::ZERO, Label::NONE, Description::SOME, Size::SOME),
+      (Hash::ZERO, Label::SOME, Description::SOME, Size::SOME),
     ],
   )]
   #[tokio::test]
   async fn test_datastore_oracle_transition(
     with_admin_layer: bool,
     with_writer_layer: bool,
-    meta: (Hash, Label, Description),
+    meta: (Hash, Label, Description, Size),
   ) -> anyhow::Result<()> {
     let sim = Simulator::new().await?;
     let peer = sim.connect().await?;
@@ -2045,6 +2071,7 @@ pub mod tests {
           root_hash: meta.0.value(),
           label: meta.1.value(),
           description: meta.2.value(),
+          size: meta.3.value(),
         },
         owner_puzzle_hash: owner_puzzle_hash.into(),
         delegated_puzzles: delegated_puzzles.clone(),
@@ -2212,8 +2239,8 @@ pub mod tests {
     with_writer_layer => [true, false],
     with_oracle_layer => [true, false],
     meta => [
-      (Hash::ZERO, Label::EMPTY, Description::EMPTY),
-      (Hash::ZERO, Label::SOME, Description::SOME),
+      (Hash::ZERO, Label::NONE, Description::NONE, Size::NONE),
+      (Hash::ZERO, Label::SOME, Description::SOME, Size::SOME),
     ],
   )]
   #[tokio::test]
@@ -2221,7 +2248,7 @@ pub mod tests {
     with_admin_layer: bool,
     with_writer_layer: bool,
     with_oracle_layer: bool,
-    meta: (Hash, Label, Description),
+    meta: (Hash, Label, Description, Size),
   ) -> anyhow::Result<()> {
     let sim = Simulator::new().await?;
     let peer = sim.connect().await?;
@@ -2267,6 +2294,7 @@ pub mod tests {
           root_hash: meta.0.value(),
           label: meta.1.value(),
           description: meta.2.value(),
+          size: meta.3.value(),
         },
         owner_puzzle_hash: owner_puzzle_hash.into(),
         delegated_puzzles: delegated_puzzles.clone(),
@@ -2389,11 +2417,7 @@ pub mod tests {
     let (launch_singleton, src_datastore_info) = Launcher::new(coin.coin_id(), 1).mint_datastore(
       ctx,
       DataStoreMintInfo {
-        metadata: DataStoreMetadata {
-          root_hash: Hash::ZERO.value(),
-          label: Label::EMPTY.value(),
-          description: Description::EMPTY.value(),
-        },
+        metadata: DataStoreMetadata::default(),
         owner_puzzle_hash: owner_puzzle_hash.into(),
         delegated_puzzles: vec![delegated_puzzle.clone()],
       },
@@ -2466,11 +2490,7 @@ pub mod tests {
     let (launch_singleton, src_datastore_info) = Launcher::new(coin.coin_id(), 1).mint_datastore(
       ctx,
       DataStoreMintInfo {
-        metadata: DataStoreMetadata {
-          root_hash: Hash::ZERO.value(),
-          label: Label::EMPTY.value(),
-          description: Description::EMPTY.value(),
-        },
+        metadata: DataStoreMetadata::default(),
         owner_puzzle_hash: owner_puzzle_hash.into(),
         delegated_puzzles: vec![delegated_puzzle.clone()],
       },

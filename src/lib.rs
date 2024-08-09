@@ -334,12 +334,14 @@ pub fn new_eve_proof(eve_proof: EveProof) -> Proof {
 /// Represents metadata for a data store.
 ///
 /// @property {Buffer} rootHash - Root hash.
-/// @property {String} label - Label. An empty string signifies no label.
-/// @property {String} description - Description. An empty string signifies no description.
+/// @property {Option<String>} label - Label (optional).
+/// @property {Option<String>} description - Description (optional).
+/// @property {Option<BigInt>} size - Size of the store (optional).
 pub struct DataStoreMetadata {
   pub root_hash: Buffer,
-  pub label: String,
-  pub description: String,
+  pub label: Option<String>,
+  pub description: Option<String>,
+  pub size: Option<BigInt>,
 }
 
 impl FromJS<DataStoreMetadata> for RustDataStoreMetadata {
@@ -348,6 +350,7 @@ impl FromJS<DataStoreMetadata> for RustDataStoreMetadata {
       root_hash: RustBytes32::from_js(value.root_hash),
       label: value.label,
       description: value.description,
+      size: value.size.map(|s| u64::from_js(s)),
     }
   }
 }
@@ -358,6 +361,7 @@ impl ToJS<DataStoreMetadata> for RustDataStoreMetadata {
       root_hash: self.root_hash.to_js(),
       label: self.label.clone(),
       description: self.description.clone(),
+      size: self.size.map(|s| s.to_js()),
     }
   }
 }
@@ -795,8 +799,9 @@ pub fn select_coins(all_coins: Vec<Coin>, total_amount: BigInt) -> napi::Result<
 /// @param {Buffer} minterSyntheticKey - Minter synthetic key.
 /// @param {Vec<Coin>} selectedCoins - Coins to be used for minting, as retured by `select_coins`. Note that, besides the fee, 1 mojo will be used to create the new store.
 /// @param {Buffer} rootHash - Root hash of the store.
-/// @param {String} label - Store label.
-/// @param {String} description - Store description.
+/// @param {Option<String>} label - Store label (optional).
+/// @param {Option<String>} description - Store description (optional).
+/// @param {Option<BigInt>} size - Store size (optional).
 /// @param {Buffer} ownerPuzzleHash - Owner puzzle hash.
 /// @param {Vec<DelegatedPuzzle>} delegatedPuzzles - Delegated puzzles.
 /// @param {BigInt} fee - Fee to use for the transaction. Total amount - 1 - fee will be sent back to the minter.
@@ -805,8 +810,9 @@ pub fn mint_store(
   minter_synthetic_key: Buffer,
   selected_coins: Vec<Coin>,
   root_hash: Buffer,
-  label: String,
-  description: String,
+  label: Option<String>,
+  description: Option<String>,
+  size: Option<BigInt>,
   owner_puzzle_hash: Buffer,
   delegated_puzzles: Vec<DelegatedPuzzle>,
   fee: BigInt,
@@ -820,6 +826,7 @@ pub fn mint_store(
     RustBytes32::from_js(root_hash),
     label,
     description,
+    size.map(|s| u64::from_js(s)),
     RustBytes32::from_js(owner_puzzle_hash),
     delegated_puzzles
       .iter()
@@ -1054,8 +1061,9 @@ pub fn get_coin_id(coin: Coin) -> Buffer {
 ///
 /// @param {DataStoreInfo} storeInfo - Current store information.
 /// @param {Buffer} newRootHash - New root hash.
-/// @param {String} newLabel - New label.
-/// @param {String} newDescription - New description.
+/// @param {Option<String>} newLabel - New label (optional).
+/// @param {Option<String>} newDescription - New description (optional).
+/// @param {Option<BigInt>} newSize - New size (optional).
 /// @param {Option<Buffer>} ownerPublicKey - Owner public key.
 /// @param {Option<Buffer>} adminPublicKey - Admin public key.
 /// @param {Option<Buffer>} writerPublicKey - Writer public key.
@@ -1063,8 +1071,9 @@ pub fn get_coin_id(coin: Coin) -> Buffer {
 pub fn update_store_metadata(
   store_info: DataStoreInfo,
   new_root_hash: Buffer,
-  new_label: String,
-  new_description: String,
+  new_label: Option<String>,
+  new_description: Option<String>,
+  new_size: Option<BigInt>,
   owner_public_key: Option<Buffer>,
   admin_public_key: Option<Buffer>,
   writer_public_key: Option<Buffer>,
@@ -1091,6 +1100,7 @@ pub fn update_store_metadata(
     RustBytes32::from_js(new_root_hash),
     new_label,
     new_description,
+    new_size.map(|s| u64::from_js(s)),
     inner_spend_info,
   )
   .map_err(js)?;

@@ -159,8 +159,9 @@ pub fn mint_store(
   minter_synthetic_key: PublicKey,
   selected_coins: Vec<Coin>,
   root_hash: Bytes32,
-  label: String,
-  description: String,
+  label: Option<String>,
+  description: Option<String>,
+  size: Option<u64>,
   owner_puzzle_hash: Bytes32,
   delegated_puzzles: Vec<DelegatedPuzzle>,
   fee: u64,
@@ -190,6 +191,7 @@ pub fn mint_store(
         root_hash,
         label,
         description,
+        size,
       },
       owner_puzzle_hash: owner_puzzle_hash.into(),
       delegated_puzzles,
@@ -450,8 +452,9 @@ pub fn update_store_ownership(
 pub fn update_store_metadata(
   store_info: DataStoreInfo,
   new_root_hash: Bytes32,
-  new_label: String,
-  new_description: String,
+  new_label: Option<String>,
+  new_description: Option<String>,
+  new_size: Option<u64>,
   inner_spend_info: DataStoreInnerSpendInfo,
 ) -> Result<SuccessResponse, Error> {
   let mut ctx = SpendContext::new();
@@ -460,6 +463,7 @@ pub fn update_store_metadata(
     root_hash: new_root_hash,
     label: new_label,
     description: new_description,
+    size: new_size,
   };
   let new_metadata_condition = NewMetadataCondition::<i32, DataStoreMetadata, Bytes32, i32> {
     metadata_updater_reveal: 11,
