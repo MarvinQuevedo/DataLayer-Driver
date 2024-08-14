@@ -415,7 +415,7 @@ pub fn get_owner_create_coin_condition(
         new_delegated_puzzles.clone(),
       )
     } else {
-      vec![]
+      vec![launcher_id.into()]
     },
   })
 }

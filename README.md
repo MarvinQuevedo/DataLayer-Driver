@@ -125,6 +125,44 @@ To confirm the transaction, you can just confirm that the datastore coin was spe
 const confirmed = await peer.isCoinSpent(getCoinId(info.coin), MIN_HEIGHT, MIN_HEIGHT_HEADER_HASH);
 ```
 
+## More Examples
+
+### Transferring the Store to a New Owner
+Suppose `info` is holding the current store's information and you want to transfer it to `newOwnerPuzzleHash`. You can do this as follows:
+
+```js
+const {coinSpends, newInfo} = updateStoreOwnership(
+    info,
+    newOwnerPuzzleHash,
+    info.delegatedPuzzles,
+    currentOwnerPublicKey,
+    null,
+ );
+ 
+/* optionally add a fee via 'addFee' - you'll also need to get 'server_sig' via 'signCoinSpends' */
+
+const sig = /* fetch from user */;
+/* /\ Goby in browser: await window.chia.request({ method: 'signCoinSpends', params: { coinSpends } }); */
+/* or use 'signCoinSpends' if spending as admin (i.e., you have access to the private synthetic key) */
+
+/* broadcast spend */
+const err = await peer.broadcastSpend(
+    coinSpends,
+    [sig /* add 'server_sig' if adding fee */ ]
+  );
+// check that err === "" <-> successful mempool inclusion
+  
+/* wait for tx to be confirmed */
+var confirmed = await peer.isCoinSpent(getCoinId(info.coin), MIN_HEIGHT, MIN_HEIGHT_HEADER_HASH);
+while(!confirmed) {
+    confirmed = await peer.isCoinSpent(getCoinId(info.coin), MIN_HEIGHT, MIN_HEIGHT_HEADER_HASH);
+}
+```
+
+Note that, when changing ownership, either the owner's or an admin's synthetic key can be provided. Admins can change delegated puzzles, so you can use this method to spend the store as an admin when you want to modify the allowed delegated puzzles. When changing the owner's puzzle hash, however, you need to provide the current owner's synthetic key - only an owner may transfer store ownership.
+
+Waiting for transactions is usually more complicated than the snippet above - mempool items are sometimes kicked out when transactions with higher fees can fill the mempool, meaning that the `while` loop would run infinitely.
+
 ## License
 
 This project is licensed under the MIT License. See the [LICENSE](https://github.com/Datalayer-Storage/DataLayer-Driver/blob/HEAD/LICENSE) file for details.
