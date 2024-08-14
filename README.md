@@ -174,7 +174,7 @@ const CHIA_KEY = path.join(os.homedir(), '.chia/mainnet/config/ssl/wallet/wallet
 const peer = await Peer.new('127.0.0.1:58444', 'testnet11', CHIA_CRT, CHIA_KEY)  
 ```
 
-To sync, you'll also need two other values, `MIN_HEIGHT` and `MIN_HEIGHT_HEADER_HASH`. These variables represent information relating to the block you want to start syning from - higher heights lead to faster sync times. If you wish to sync from genesis, use a height of `null` and a header hash equal to the network's genesis challenge.
+To sync, you'll also need two other values, `MIN_HEIGHT` and `MIN_HEIGHT_HEADER_HASH`. These variables represent information relating to the block you want to start syncing from - higher heights lead to faster sync times. If you wish to sync from genesis, use a height of `null` and a header hash equal to the network's genesis challenge.
 
 Syncing a store using its launcher id is as easy as:
 
