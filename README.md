@@ -163,6 +163,44 @@ Note that, when changing ownership, either the owner's or an admin's synthetic k
 
 Waiting for transactions is usually more complicated than the snippet above - mempool items are sometimes kicked out when transactions with higher fees can fill the mempool, meaning that the `while` loop would run infinitely.
 
+### Syncing a Store & Verifying Ownership 
+
+To sync a store, you'll first need a peer. Recall that we've previously initialized a peer as:
+
+```js
+const CHIA_CRT = path.join(os.homedir(), '.chia/mainnet/config/ssl/wallet/wallet_node.crt');
+const CHIA_KEY = path.join(os.homedir(), '.chia/mainnet/config/ssl/wallet/wallet_node.key');
+// ...
+const peer = await Peer.new('127.0.0.1:58444', 'testnet11', CHIA_CRT, CHIA_KEY)  
+```
+
+To sync, you'll also need two other values, `MIN_HEIGHT` and `MIN_HEIGHT_HEADER_HASH`. These variables represent information relating to the block you want to start syning from - higher heights lead to faster sync times. If you wish to sync from genesis, use a height of `null` and a header hash equal to the network's genesis challenge.
+
+Syncing a store using its launcher id is as easy as:
+
+```js
+const {
+  latestInfo, latestHeight
+} = await peer.syncStoreFromLauncherId(launcherId, MIN_HEIGHT, MIN_HEIGHT_HEADER_HASH);
+```
+
+If you already have a `DataStoreInfo` object, you can use it to 'bootstrap' the syncing process and minimize the time it takes to fetch the latest info:
+
+
+```js
+const {
+  latestInfo, latestHeight
+} = await peer.syncStore(oldStoreInfo, MIN_HEIGHT, MIN_HEIGHT_HEADER_HASH);
+```
+
+With the latest store info in the `latestInfo` variable, checking that the current store owner is `myPuzzleHash` can be done as follows:
+
+```js
+if(latestInfo.ownerPuzzleHash === myPuzzleHash) {
+  doSomething();
+}
+```
+
 ## License
 
 This project is licensed under the MIT License. See the [LICENSE](https://github.com/Datalayer-Storage/DataLayer-Driver/blob/HEAD/LICENSE) file for details.
