@@ -1,6 +1,6 @@
 {
   "name": "datalayer-driver-darwin-x64",
-  "version": "0.1.8",
+  "version": "0.1.9",
   "repository": {
     "type": "git",
     "url": "https://github.com/Datalayer-Storage/DataLayer-Driver"
