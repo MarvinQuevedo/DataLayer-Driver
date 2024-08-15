@@ -1,9 +1,21 @@
+use std::env;
 use std::{fs::File, io::Write, path::Path};
 
 use chia::bls::G2Element;
 use chia_protocol::{Coin, CoinSpend, SpendBundle};
 use hex::encode;
 use serde::Serialize;
+
+#[macro_export]
+macro_rules! debug_log {
+    ($($arg:tt)*) => {{
+        if let Ok(debug) = env::var("RUST_DEBUG") {
+            if debug == "1" || debug.to_lowercase() == "true" {
+                println!($($arg)*);
+            }
+        }
+    }};
+}
 
 #[derive(Serialize)]
 struct SerializableCoin {
@@ -72,7 +84,7 @@ pub fn get_spend_bundle_json(spends: Vec<CoinSpend>, agg_sig: G2Element) -> Stri
 }
 
 pub fn print_spend_bundle(spends: Vec<CoinSpend>, agg_sig: G2Element) {
-  println!("{}", get_spend_bundle_json(spends, agg_sig));
+  debug_log!("{}", get_spend_bundle_json(spends, agg_sig));
 }
 
 pub fn print_spend_bundle_to_file(spends: Vec<CoinSpend>, agg_sig: G2Element, file_path: &str) {

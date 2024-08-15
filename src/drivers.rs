@@ -1,5 +1,5 @@
 use crate::{
-  merkle_root_for_delegated_puzzles, merkle_tree_for_delegated_puzzles,
+  debug_log, merkle_root_for_delegated_puzzles, merkle_tree_for_delegated_puzzles,
   puzzles_info::{DataStoreInfo, DataStoreMetadata, DelegatedPuzzle, DelegatedPuzzleInfo},
   DLLauncherKVList, DelegationLayerArgs, DelegationLayerSolution, HintType,
   DELEGATION_LAYER_PUZZLE, DELEGATION_LAYER_PUZZLE_HASH, DL_METADATA_UPDATER_PUZZLE_HASH,
@@ -16,6 +16,7 @@ use chia_sdk_types::conditions::{Condition, CreateCoin};
 use clvm_traits::{simplify_int_bytes, FromClvmError, ToClvm};
 use clvm_utils::{CurriedProgram, ToTreeHash, TreeHash};
 use clvmr::{reduction::EvalErr, NodePtr};
+use std::env;
 
 pub trait SpendContextExt {
   fn delegation_layer_puzzle(&mut self) -> Result<NodePtr, SpendError>;
@@ -67,21 +68,22 @@ pub fn spend_delegation_layer(
         }
         .tree_hash();
 
-        println!("owner puzzle hash: {:?}", datastore_info.owner_puzzle_hash); // todo: debug
-        println!("nft layer hash: {:?}", nft_layer_hash); // todo: debug
+        debug_log!("owner puzzle hash: {:?}", datastore_info.owner_puzzle_hash); // todo: debug
+        debug_log!("nft layer hash: {:?}", nft_layer_hash); // todo: debug
 
         let full_ph_if_a =
           SingletonArgs::curry_tree_hash(datastore_info.launcher_id, nft_layer_hash);
 
-        println!("full_ph_if_a: {:?}", full_ph_if_a); // todo: debug
+        debug_log!("full_ph_if_a: {:?}", full_ph_if_a); // todo: debug
 
         if datastore_info.coin.puzzle_hash == full_ph_if_a.into() {
           return Ok(inner_spend);
         }
 
-        println!(
+        debug_log!(
           "that pesky admin! {:?} {:?}",
-          datastore_info.coin.puzzle_hash, full_ph_if_a
+          datastore_info.coin.puzzle_hash,
+          full_ph_if_a
         ) // todo: debug
           // turns out the admin left delegated_puzzles=[]... (option b)
           // no problem; let the function continue execution as if delegated_puzzles!=[]
@@ -136,7 +138,7 @@ pub fn spend_delegation_layer(
             "could not generate merkle proof for spent puzzle",
           ))))?;
 
-      println!("merkle_proof: {:?}", merkle_proof); // todo: debug
+      debug_log!("merkle_proof: {:?}", merkle_proof); // todo: debug
 
       let new_inner_solution = DelegationLayerSolution::<NodePtr, NodePtr> {
         merkle_proof: Some(merkle_proof),
@@ -151,11 +153,11 @@ pub fn spend_delegation_layer(
       };
 
       // todo: debug
-      println!(
+      debug_log!(
         "puz + filter puzzle hash: {:}",
         encode(ctx.tree_hash(full_puzzle))
       );
-      println!(
+      debug_log!(
         "puz puzzle hash: {:}",
         match delegated_puzzle.puzzle_info {
           DelegatedPuzzleInfo::Admin(a) => encode(a),
@@ -163,7 +165,7 @@ pub fn spend_delegation_layer(
           DelegatedPuzzleInfo::Oracle(_, _) => "nope".to_string(),
         }
       );
-      // println!(
+      // debug_log!(
       //     "writer puzzle reveal: {:}",
       //     encode(
       //         Program::from_node_ptr(ctx.allocator_mut(), full_puzzle)
@@ -173,7 +175,7 @@ pub fn spend_delegation_layer(
       //             .unwrap()
       //     )
       // ); // todo: debug
-      // println!(
+      // debug_log!(
       //     "writer puzzle solution: {:}",
       //     encode(
       //         Program::from_node_ptr(ctx.allocator_mut(), delegated_puzzle_solution)
@@ -230,27 +232,27 @@ pub fn datastore_spend(
 ) -> Result<CoinSpend, SpendError> {
   // 1. Handle delegation layer spend
   let inner_spend = spend_delegation_layer(ctx, datastore_info, inner_datastore_spend)?;
-  println!("inner_spend!"); // todo: debug
-                            // println!(
-                            //     "puzzle: {:}",
-                            //     encode(
-                            //         Program::from_node_ptr(ctx.allocator_mut(), inner_spend.puzzle())
-                            //             .unwrap()
-                            //             .clone()
-                            //             .to_bytes()
-                            //             .unwrap()
-                            //     )
-                            // ); // todo: debug
-                            // println!(
-                            //     "solution: {:}",
-                            //     encode(
-                            //         Program::from_node_ptr(ctx.allocator_mut(), inner_spend.solution())
-                            //             .unwrap()
-                            //             .clone()
-                            //             .to_bytes()
-                            //             .unwrap()
-                            //     )
-                            // ); // todo: debug
+  debug_log!("inner_spend!"); // todo: debug
+                              // debug_log!(
+                              //     "puzzle: {:}",
+                              //     encode(
+                              //         Program::from_node_ptr(ctx.allocator_mut(), inner_spend.puzzle())
+                              //             .unwrap()
+                              //             .clone()
+                              //             .to_bytes()
+                              //             .unwrap()
+                              //     )
+                              // ); // todo: debug
+                              // debug_log!(
+                              //     "solution: {:}",
+                              //     encode(
+                              //         Program::from_node_ptr(ctx.allocator_mut(), inner_spend.solution())
+                              //             .unwrap()
+                              //             .clone()
+                              //             .to_bytes()
+                              //             .unwrap()
+                              //     )
+                              // ); // todo: debug
 
   // 2. Handle state layer spend
   // allows custom metadata updater hash
@@ -313,7 +315,7 @@ pub fn get_memos(
     }
   }
 
-  println!("memos: {:?}", memos);
+  debug_log!("memos: {:?}", memos);
   memos
 }
 
@@ -526,7 +528,7 @@ pub mod tests {
     }
 
     pub fn print_stats(&self) {
-      println!(
+      debug_log!(
         "Launcher TX Cost - Cnt: {}, Min: {}, Max: {}, Avg: {}, Median: {}",
         self.cnt(&self.launcher_tx_costs),
         self.min(&self.launcher_tx_costs),
@@ -535,7 +537,7 @@ pub mod tests {
         self.median(&self.launcher_tx_costs),
       );
 
-      println!(
+      debug_log!(
         "Normal Spend TX Cost - Cnt: {}, Min: {}, Max: {}, Avg: {}, Median: {}",
         self.cnt(&self.normal_spend_tx_costs),
         self.min(&self.normal_spend_tx_costs),
@@ -604,11 +606,11 @@ pub mod tests {
     }
     assert_eq!(new_datastore_info.launcher_id, datastore_info.launcher_id);
 
-    println!(
+    debug_log!(
       "new datastore info metadata: {:?}",
       new_datastore_info.metadata.clone()
     ); // todo: debug
-    println!(
+    debug_log!(
       "datastore info metadata: {:?}",
       datastore_info.metadata.clone()
     ); // todo: debug
@@ -630,7 +632,7 @@ pub mod tests {
         let a = delegated_puzzles.get(i).unwrap();
         let b = new_delegated_puzzles.get(i).unwrap();
 
-        println!("compating phes - a: {:?}, b: {:?}", a, b); // todo: debug
+        debug_log!("compating phes - a: {:?}, b: {:?}", a, b); // todo: debug
         assert_eq!(a.puzzle_hash, b.puzzle_hash);
         assert_eq!(a.puzzle_info, b.puzzle_info);
       }
@@ -819,7 +821,7 @@ pub mod tests {
       DelegatedPuzzle::from_admin_inner_puzzle(ctx.allocator_mut(), admin_puzzle).unwrap();
     let writer_delegated_puzzle =
       DelegatedPuzzle::from_writer_inner_puzzle(ctx.allocator_mut(), writer_puzzle).unwrap();
-    println!(
+    debug_log!(
       "writer puzzle hash: {:}",
       encode(writer_delegated_puzzle.puzzle_hash)
     ); // todo: debug
@@ -1577,7 +1579,7 @@ pub mod tests {
       &dst_delegated_puzzles,
       hint_new_delegated_puzzles,
     ));
-    println!("owner_output_conds: {:?}", owner_output_conds); // todo: debug
+    debug_log!("owner_output_conds: {:?}", owner_output_conds); // todo: debug
 
     if src_meta.0 != dst_meta.0 || src_meta.1 != dst_meta.1 || src_meta.2 != dst_meta.2 {
       let new_metadata = DataStoreMetadata {

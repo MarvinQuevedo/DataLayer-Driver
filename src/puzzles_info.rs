@@ -17,9 +17,10 @@ use clvm_utils::{tree_hash, CurriedProgram, ToTreeHash, TreeHash};
 use clvmr::{serde::node_from_bytes, Allocator, NodePtr};
 use hex::encode;
 use num_bigint::BigInt;
+use std::env;
 
 use crate::{
-  DelegationLayerArgs, DelegationLayerSolution, MerkleTree, WriterFilterArgs,
+  debug_log, DelegationLayerArgs, DelegationLayerSolution, MerkleTree, WriterFilterArgs,
   DELEGATION_LAYER_PUZZLE_HASH, DL_METADATA_UPDATER_PUZZLE_HASH, WRITER_FILTER_PUZZLE,
   WRITER_FILTER_PUZZLE_HASH,
 };
@@ -422,7 +423,7 @@ impl DataStoreInfo {
     memos: &Vec<Bytes>,
   ) -> Result<DataStoreInfo, ParseError> {
     let mut memos = memos.clone();
-    println!("memos clone: {:?}", memos); // todo: debug
+    debug_log!("memos clone: {:?}", memos); // todo: debug
 
     if memos.len() == 0 {
       // no hints; owner puzzle hash is the inner puzzle hash
@@ -441,7 +442,7 @@ impl DataStoreInfo {
     }
 
     if memos.len() == 2 && memos[0] == metadata.root_hash.into() {
-      println!("vanilla store using old memo format detected"); // todo: debug
+      debug_log!("vanilla store using old memo format detected"); // todo: debug
       return Ok(DataStoreInfo {
         coin,
         launcher_id,
@@ -460,7 +461,7 @@ impl DataStoreInfo {
     };
 
     let delegated_puzzles = {
-      println!("moar memos: {:?}", memos); // todo: debug
+      debug_log!("moar memos: {:?}", memos); // todo: debug
       let mut d_puzz: Vec<DelegatedPuzzle> = vec![];
 
       while memos.len() > 1 {
@@ -471,7 +472,7 @@ impl DataStoreInfo {
     }
     .map_err(|_: ParseError| ParseError::MissingHint)?;
 
-    println!("returning datastore info :)"); //todo: debug
+    debug_log!("returning datastore info :)"); //todo: debug
     Ok(DataStoreInfo {
       coin,
       launcher_id,
@@ -495,9 +496,9 @@ impl DataStoreInfo {
     NodePtr: ToClvm<NodePtr>,
     NftStateLayerArgs<TreeHash, TreeHash>: ToClvm<TreeHash> + ToTreeHash,
   {
-    println!("func start"); // todo: debug
+    debug_log!("func start"); // todo: debug
     let Ok(solution_node_ptr) = cs.solution.to_node_ptr(allocator) else {
-      println!("err 1"); // todo: debug
+      debug_log!("err 1"); // todo: debug
       return Err(ParseError::NonStandardLayer);
     };
 
@@ -512,7 +513,7 @@ impl DataStoreInfo {
         amount: cs.coin.amount,
       });
 
-      println!("converting metadata..."); // todo: debug
+      debug_log!("converting metadata..."); // todo: debug
       let solution = LauncherSolution::<DLLauncherKVList<DataStoreMetadata, Bytes>>::from_clvm(
         allocator,
         solution_node_ptr,
@@ -522,7 +523,7 @@ impl DataStoreInfo {
         Ok(solution) => {
           // store properly hinted
           let metadata = solution.key_value_list.metadata;
-          println!("metadata: {:?}", metadata); // todo: debug
+          debug_log!("metadata: {:?}", metadata); // todo: debug
 
           let new_coin = Coin {
             parent_coin_info: launcher_id,
@@ -530,11 +531,11 @@ impl DataStoreInfo {
             amount: solution.amount,
           };
 
-          println!("building datastore info..."); // todo: debug
-          println!("calling build_datastore_info..."); // todo: debug
+          debug_log!("building datastore info..."); // todo: debug
+          debug_log!("calling build_datastore_info..."); // todo: debug
           let mut memos: Vec<Bytes> = vec![launcher_id.into()];
           memos.extend(solution.key_value_list.memos);
-          println!("memos: {:?}", memos); // todo: debug
+          debug_log!("memos: {:?}", memos); // todo: debug
           match DataStoreInfo::build_datastore_info(
             allocator,
             new_coin,
@@ -550,7 +551,9 @@ impl DataStoreInfo {
         }
         Err(err) => match err {
           FromClvmError::ExpectedPair => {
-            println!("expected pair error; datastore might've been launched using old memo format"); // todo: debug
+            debug_log!(
+              "expected pair error; datastore might've been launched using old memo format"
+            ); // todo: debug
             let solution = LauncherSolution::<OldDLLauncherKVList<Bytes>>::from_clvm(
               allocator,
               solution_node_ptr,
@@ -578,10 +581,10 @@ impl DataStoreInfo {
     }
 
     let Ok(puzzle_node_ptr) = cs.puzzle_reveal.to_node_ptr(allocator) else {
-      println!("err 2"); // todo: debug
+      debug_log!("err 2"); // todo: debug
       return Err(ParseError::NonStandardLayer);
     };
-    println!("got puzzle_node_ptr"); // todo: debug
+    debug_log!("got puzzle_node_ptr"); // todo: debug
 
     let full_puzzle = Puzzle::parse(allocator, puzzle_node_ptr);
 
@@ -609,7 +612,7 @@ impl DataStoreInfo {
 
     let mut new_metadata = state_args.metadata;
 
-    println!("running inner (state layer) puzzle...");
+    debug_log!("running inner (state layer) puzzle...");
     // run inner state layer so we also catch -24 conditions
     let inner_inner_output = run_puzzle(
       allocator,
@@ -617,10 +620,10 @@ impl DataStoreInfo {
       solution.inner_solution.inner_solution,
     )
     .map_err(|err| {
-      println!("{:?}", err); // todo: debug
+      debug_log!("{:?}", err); // todo: debug
       ParseError::MismatchedOutput
     })?;
-    println!("ran state layer's inner puzzle");
+    debug_log!("ran state layer's inner puzzle");
     let inner_inner_output_conditions = Vec::<NodePtr>::from_clvm(allocator, inner_inner_output)?;
 
     inner_inner_output_conditions.iter().for_each(|cond| {
@@ -628,15 +631,15 @@ impl DataStoreInfo {
         allocator, *cond,
       ) {
         Ok(cond) => {
-          println!("new metadata condition found and processed!!!"); // todo: debug
+          debug_log!("new metadata condition found and processed!!!"); // todo: debug
           new_metadata = cond.metadata_updater_solution.metadata_part.new_metadata;
         }
         _ => {}
       }
     });
-    println!("all ok now :)");
+    debug_log!("all ok now :)");
 
-    println!(
+    debug_log!(
       "inner_inner_output: {:?}",
       encode(
         Program::from_node_ptr(&allocator, inner_inner_output)
@@ -654,12 +657,12 @@ impl DataStoreInfo {
         _ => false,
       })
       .ok_or(ParseError::MissingChild)??;
-    println!("odd create coin found"); // todo: debug
+    debug_log!("odd create coin found"); // todo: debug
 
     let Condition::CreateCoin(odd_create_coin) = odd_create_coin else {
       return Err(ParseError::MismatchedOutput);
     };
-    println!("odd_create_coin: {:?}", odd_create_coin); // todo: debug
+    debug_log!("odd_create_coin: {:?}", odd_create_coin); // todo: debug
 
     let new_metadata_ptr = new_metadata
       .to_node_ptr(allocator)
@@ -706,7 +709,7 @@ impl DataStoreInfo {
     if delegation_layer_puzzle.is_curried()
       && delegation_layer_puzzle.mod_hash() == DELEGATION_LAYER_PUZZLE_HASH
     {
-      println!("has deleg layer"); // todo: debug
+      debug_log!("has deleg layer"); // todo: debug
       let delegation_layer_solution = solution.inner_solution.inner_solution;
       let delegation_layer_solution = DelegationLayerSolution::<NodePtr, NodePtr>::from_clvm(
         allocator,
@@ -729,9 +732,9 @@ impl DataStoreInfo {
           _ => false,
         });
 
-      println!("odd_create_coin: {:?}", odd_create_coin); // todo: debug
+      debug_log!("odd_create_coin: {:?}", odd_create_coin); // todo: debug
       if odd_create_coin.is_none() {
-        println!("no odd create coin from deleg layer inner puzzle"); // todo: debug
+        debug_log!("no odd create coin from deleg layer inner puzzle"); // todo: debug
         let deleg_puzzle_args = DelegationLayerArgs::from_clvm(
           allocator,
           delegation_layer_puzzle.as_curried().unwrap().args,
@@ -759,9 +762,10 @@ impl DataStoreInfo {
       if let Condition::CreateCoin(create_coin) = odd_create_coin {
         let prev_deleg_layer_ph = tree_hash(&allocator, delegation_layer_ptr);
 
-        println!(
+        debug_log!(
           "prev_deleg_layer_ph: {:?} ; create_coin.puzzle_hash: {:?}",
-          prev_deleg_layer_ph, create_coin.puzzle_hash
+          prev_deleg_layer_ph,
+          create_coin.puzzle_hash
         ); // todo: debug
         if create_coin.puzzle_hash == prev_deleg_layer_ph.into() {
           // owner is re-creating the delegation layer with the same options
