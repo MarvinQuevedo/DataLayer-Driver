@@ -687,7 +687,7 @@ impl DataStoreInfo {
       amount: odd_create_coin.amount,
     };
     // was the coin re-created with hints?
-    if odd_create_coin.memos.len() >= 1 {
+    if odd_create_coin.memos.len() > 1 {
       return match DataStoreInfo::build_datastore_info(
         allocator,
         new_coin,
