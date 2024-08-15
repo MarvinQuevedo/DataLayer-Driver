@@ -360,6 +360,7 @@ export declare class Peer {
    * @returns {Promise<SyncStoreResponse>} The sync store response.
    */
   syncStoreFromLauncherId(launcherId: Buffer, lastHeight: number | undefined | null, lastHeaderHash: Buffer, withHistory: boolean): Promise<SyncStoreResponse>
+  
   /**
    * Broadcasts a spend bundle to the mempool.
    *
