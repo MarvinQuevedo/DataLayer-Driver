@@ -142,10 +142,14 @@ export interface SuccessResponse {
  * Represents a response from synchronizing a store.
  *
  * @property {DataStoreInfo} latestInfo - Latest data store information.
+ * @property {Option<Vec<Buffer>>} rootHashes - When synced with whistory, this list will contain all of the store's previous root hashes. Otherwise null.
+ * @property {Option<Vec<BigInt>>} rootHashesTimestamps - Timestamps of the root hashes (see `rootHashes`).
  * @property {u32} latestHeight - Latest sync height.
  */
 export interface SyncStoreResponse {
   latestInfo: DataStoreInfo
+  rootHashes?: Array<Buffer>
+  rootHashesTimestamps?: Array<bigint>
   latestHeight: number
 }
 /**
@@ -342,18 +346,20 @@ export declare class Peer {
    * @param {DataStoreInfo} storeInfo - Data store information.
    * @param {Option<u32>} lastHeight - Min. height to search records from. If null, sync will be done from the genesis block.
    * @param {Buffer} lastHeaderHash - Header hash corresponding to `lastHeight`. If null, this should be the genesis challenge of the current chain.
+   * @param {bool} withHistory - Whether to return the root hash history of the store.
    * @returns {Promise<SyncStoreResponse>} The sync store response.
    */
-  syncStore(storeInfo: DataStoreInfo, lastHeight: number | undefined | null, lastHeaderHash: Buffer): Promise<SyncStoreResponse>
+  syncStore(storeInfo: DataStoreInfo, lastHeight: number | undefined | null, lastHeaderHash: Buffer, withHistory: boolean): Promise<SyncStoreResponse>
   /**
    * Synchronizes a store using its launcher ID.
    *
    * @param {Buffer} launcherId - The store's launcher/singleton ID.
    * @param {Option<u32>} lastHeight - Min. height to search records from. If null, sync will be done from the genesis block.
    * @param {Buffer} lastHeaderHash - Header hash corresponding to `lastHeight`. If null, this should be the genesis challenge of the current chain.
+   * @param {bool} withHistory - Whether to return the root hash history of the store.
    * @returns {Promise<SyncStoreResponse>} The sync store response.
    */
-  syncStoreFromLauncherId(launcherId: Buffer, lastHeight: number | undefined | null, lastHeaderHash: Buffer): Promise<SyncStoreResponse>
+  syncStoreFromLauncherId(launcherId: Buffer, lastHeight: number | undefined | null, lastHeaderHash: Buffer, withHistory: boolean): Promise<SyncStoreResponse>
   /**
    * Broadcasts a spend bundle to the mempool.
    *
