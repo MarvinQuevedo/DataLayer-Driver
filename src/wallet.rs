@@ -72,6 +72,9 @@ pub enum Error {
   RejectPuzzleSolution(#[from] ClientError<RejectPuzzleSolution>),
 
   #[error("{0:?}")]
+  RejectHeaderRequest(#[from] ClientError<RejectHeaderRequest>),
+
+  #[error("{0:?}")]
   Spend(#[from] SpendError),
 
   #[error("{0:?}")]
@@ -216,6 +219,7 @@ pub fn mint_store(
 pub struct SyncStoreResponse {
   pub latest_info: DataStoreInfo,
   pub latest_height: u32,
+  pub root_hash_history: Option<Vec<(Bytes32, u64)>>,
 }
 
 pub async fn sync_store(
@@ -223,8 +227,10 @@ pub async fn sync_store(
   store_info: &DataStoreInfo,
   last_height: Option<u32>,
   last_header_hash: Bytes32,
+  with_history: bool,
 ) -> Result<SyncStoreResponse, Error> {
   let mut latest_info = store_info.clone();
+  let mut history = vec![];
 
   let response = peer
     .request::<RespondCoinState, RequestCoinState>(RequestCoinState::new(
@@ -262,6 +268,17 @@ pub async fn sync_store(
       DataStoreInfo::from_spend(ctx.allocator_mut(), &cs, &latest_info.delegated_puzzles)
         .map_err(|_| Error::Parse())?;
 
+    if with_history {
+      let block_header = peer
+        .request_block_header(last_coin_record.spent_height.unwrap())
+        .await
+        .map_err(|err| Error::RejectHeaderRequest(err))?;
+      history.push((
+        new_info.metadata.root_hash,
+        block_header.foliage_transaction_block.unwrap().timestamp,
+      ));
+    }
+
     let response = peer
       .request::<RespondCoinState, RequestCoinState>(RequestCoinState::new(
         vec![new_info.coin.coin_id()],
@@ -285,6 +302,7 @@ pub async fn sync_store(
     latest_height: last_coin_record
       .created_height
       .ok_or(Error::UnknwonCoin())?,
+    root_hash_history: if with_history { Some(history) } else { None },
   })
 }
 
@@ -293,6 +311,7 @@ pub async fn sync_store_using_launcher_id(
   launcher_id: Bytes32,
   last_height: Option<u32>,
   last_header_hash: Bytes32,
+  with_history: bool,
 ) -> Result<SyncStoreResponse, Error> {
   let response = peer
     .request::<RespondCoinState, RequestCoinState>(RequestCoinState::new(
@@ -328,7 +347,14 @@ pub async fn sync_store_using_launcher_id(
   let first_info =
     DataStoreInfo::from_spend(ctx.allocator_mut(), &cs, &vec![]).map_err(|_| Error::Parse())?;
 
-  return sync_store(peer, &first_info, last_height, last_header_hash).await;
+  return sync_store(
+    peer,
+    &first_info,
+    last_height,
+    last_header_hash,
+    with_history,
+  )
+  .await;
 }
 
 pub enum DataStoreInnerSpendInfo {

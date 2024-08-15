@@ -558,17 +558,39 @@ impl ToJS<SuccessResponse> for RustSuccessResponse {
 /// Represents a response from synchronizing a store.
 ///
 /// @property {DataStoreInfo} latestInfo - Latest data store information.
+/// @property {Option<Vec<Buffer>>} rootHashes - When synced with whistory, this list will contain all of the store's previous root hashes. Otherwise null.
+/// @property {Option<Vec<BigInt>>} rootHashesTimestamps - Timestamps of the root hashes (see `rootHashes`).
 /// @property {u32} latestHeight - Latest sync height.
 pub struct SyncStoreResponse {
   pub latest_info: DataStoreInfo,
+  pub root_hashes: Option<Vec<Buffer>>,
+  pub root_hashes_timestamps: Option<Vec<BigInt>>,
   pub latest_height: u32,
 }
 
 impl FromJS<SyncStoreResponse> for RustSyncStoreResponse {
   fn from_js(value: SyncStoreResponse) -> Self {
+    let mut root_hash_history = None;
+
+    if value.root_hashes.is_some() && value.root_hashes_timestamps.is_some() {
+      let mut v = vec![];
+
+      for (root_hash, timestamp) in value
+        .root_hashes
+        .unwrap()
+        .into_iter()
+        .zip(value.root_hashes_timestamps.unwrap().into_iter())
+      {
+        v.push((RustBytes32::from_js(root_hash), u64::from_js(timestamp)));
+      }
+
+      root_hash_history = Some(v);
+    }
+
     RustSyncStoreResponse {
       latest_info: RustDataStoreInfo::from_js(value.latest_info),
       latest_height: value.latest_height,
+      root_hash_history,
     }
   }
 }
@@ -578,6 +600,14 @@ impl ToJS<SyncStoreResponse> for RustSyncStoreResponse {
     SyncStoreResponse {
       latest_info: self.latest_info.to_js(),
       latest_height: self.latest_height,
+      root_hashes: self
+        .root_hash_history
+        .as_ref()
+        .map(|v| v.iter().map(|(rh, _)| rh.to_js()).collect()),
+      root_hashes_timestamps: self
+        .root_hash_history
+        .as_ref()
+        .map(|v| v.iter().map(|(_, ts)| ts.to_js()).collect()),
     }
   }
 }
@@ -676,18 +706,21 @@ impl Peer {
   /// @param {DataStoreInfo} storeInfo - Data store information.
   /// @param {Option<u32>} lastHeight - Min. height to search records from. If null, sync will be done from the genesis block.
   /// @param {Buffer} lastHeaderHash - Header hash corresponding to `lastHeight`. If null, this should be the genesis challenge of the current chain.
+  /// @param {bool} withHistory - Whether to return the root hash history of the store.
   /// @returns {Promise<SyncStoreResponse>} The sync store response.
   pub async fn sync_store(
     &self,
     store_info: DataStoreInfo,
     last_height: Option<u32>,
     last_header_hash: Buffer,
+    with_history: bool,
   ) -> napi::Result<SyncStoreResponse> {
     let res = sync_store(
       &self.0.clone(),
       &RustDataStoreInfo::from_js(store_info),
       last_height,
       RustBytes32::from_js(last_header_hash),
+      with_history,
     )
     .await
     .map_err(js)?;
@@ -701,18 +734,21 @@ impl Peer {
   /// @param {Buffer} launcherId - The store's launcher/singleton ID.
   /// @param {Option<u32>} lastHeight - Min. height to search records from. If null, sync will be done from the genesis block.
   /// @param {Buffer} lastHeaderHash - Header hash corresponding to `lastHeight`. If null, this should be the genesis challenge of the current chain.
+  /// @param {bool} withHistory - Whether to return the root hash history of the store.
   /// @returns {Promise<SyncStoreResponse>} The sync store response.
   pub async fn sync_store_from_launcher_id(
     &self,
     launcher_id: Buffer,
     last_height: Option<u32>,
     last_header_hash: Buffer,
+    with_history: bool,
   ) -> napi::Result<SyncStoreResponse> {
     let res = sync_store_using_launcher_id(
       &self.0.clone(),
       RustBytes32::from_js(launcher_id),
       last_height,
       RustBytes32::from_js(last_header_hash),
+      with_history,
     )
     .await
     .map_err(js)?;

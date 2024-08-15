@@ -181,7 +181,7 @@ Syncing a store using its launcher id is as easy as:
 ```js
 const {
   latestInfo, latestHeight
-} = await peer.syncStoreFromLauncherId(launcherId, MIN_HEIGHT, MIN_HEIGHT_HEADER_HASH);
+} = await peer.syncStoreFromLauncherId(launcherId, MIN_HEIGHT, MIN_HEIGHT_HEADER_HASH, false);
 ```
 
 If you already have a `DataStoreInfo` object, you can use it to 'bootstrap' the syncing process and minimize the time it takes to fetch the latest info:
@@ -190,7 +190,7 @@ If you already have a `DataStoreInfo` object, you can use it to 'bootstrap' the 
 ```js
 const {
   latestInfo, latestHeight
-} = await peer.syncStore(oldStoreInfo, MIN_HEIGHT, MIN_HEIGHT_HEADER_HASH);
+} = await peer.syncStore(oldStoreInfo, MIN_HEIGHT, MIN_HEIGHT_HEADER_HASH, false);
 ```
 
 With the latest store info in the `latestInfo` variable, checking that the current store owner is `myPuzzleHash` can be done as follows:
