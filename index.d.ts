@@ -371,4 +371,11 @@ export declare class Peer {
    * @returns {Promise<bool>} Whether the coin is spent on-chain.
    */
   isCoinSpent(coinId: Buffer, lastHeight: number | undefined | null, headerHash: Buffer): Promise<boolean>
+  /**
+   * Retrieves the current header hash corresponding to a given height.
+   *
+   * @param {u32} height - The height.
+   * @returns {Promise<Buffer>} The header hash.
+   */
+  getHeaderHash(height: number): Promise<Buffer>
 }

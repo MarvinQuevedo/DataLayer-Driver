@@ -775,6 +775,20 @@ impl Peer {
       .map_err(js)?,
     )
   }
+
+  #[napi]
+  /// Retrieves the current header hash corresponding to a given height.
+  ///
+  /// @param {u32} height - The height.
+  /// @returns {Promise<Buffer>} The header hash.
+  pub async fn get_header_hash(&self, height: u32) -> napi::Result<Buffer> {
+    Ok(
+      get_header_hash(&self.0.clone(), height)
+        .await
+        .map_err(js)?
+        .to_js(),
+    )
+  }
 }
 
 /// Selects coins using the knapsack algorithm.

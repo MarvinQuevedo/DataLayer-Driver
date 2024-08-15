@@ -9,6 +9,7 @@ use chia::client::Peer;
 use chia_protocol::Bytes;
 use chia_protocol::Coin;
 use chia_protocol::CoinStateFilters;
+use chia_protocol::RejectHeaderRequest;
 use chia_protocol::RejectPuzzleSolution;
 use chia_protocol::RequestCoinState;
 use chia_protocol::RequestPuzzleState;
@@ -709,6 +710,16 @@ pub async fn broadcast_spend_bundle(
   spend_bundle: SpendBundle,
 ) -> Result<TransactionAck, ClientError<()>> {
   peer.send_transaction(spend_bundle).await
+}
+
+pub async fn get_header_hash(
+  peer: &Peer,
+  height: u32,
+) -> Result<Bytes32, ClientError<RejectHeaderRequest>> {
+  peer
+    .request_block_header(height)
+    .await
+    .map(|resp| resp.header_hash())
 }
 
 pub async fn is_coin_spent(
