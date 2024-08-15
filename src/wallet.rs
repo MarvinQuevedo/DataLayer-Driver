@@ -737,12 +737,9 @@ pub async fn is_coin_spent(
     ))
     .await?;
 
-  Ok(
-    response
-      .coin_states
-      .first()
-      .ok_or(Error::UnknwonCoin())?
-      .spent_height
-      .is_some(),
-  )
+  if let Some(coin_state) = response.coin_states.first() {
+    return Ok(coin_state.spent_height.is_some());
+  }
+
+  return Ok(false);
 }
