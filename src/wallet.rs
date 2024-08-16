@@ -347,14 +347,38 @@ pub async fn sync_store_using_launcher_id(
   let first_info =
     DataStoreInfo::from_spend(ctx.allocator_mut(), &cs, &vec![]).map_err(|_| Error::Parse())?;
 
-  return sync_store(
+  let res = sync_store(
     peer,
     &first_info,
     last_height,
     last_header_hash,
     with_history,
   )
-  .await;
+  .await?;
+
+  // prepend root hash from launch
+  let root_hash_history = if let Some(mut res_root_hash_history) = res.root_hash_history {
+    let spent_timestamp = if let Some(spent_height) = last_coin_record.spent_height {
+      let block_header = peer
+        .request_block_header(spent_height)
+        .await
+        .map_err(|err| Error::RejectHeaderRequest(err))?;
+      block_header.foliage_transaction_block.unwrap().timestamp
+    } else {
+      0
+    };
+
+    res_root_hash_history.insert(0, (first_info.metadata.root_hash, spent_timestamp));
+    Some(res_root_hash_history)
+  } else {
+    None
+  };
+
+  Ok(SyncStoreResponse {
+    latest_info: res.latest_info,
+    latest_height: res.latest_height,
+    root_hash_history,
+  })
 }
 
 pub enum DataStoreInnerSpendInfo {
