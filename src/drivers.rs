@@ -1329,7 +1329,7 @@ pub mod tests {
       ),
     );
     let new_spend = datastore_spend(ctx, &src_datastore_info, inner_datastore_spend)?;
-    // print_spend_bundle_to_file(vec![new_spend.clone()], Signature::default(), "sb.debug");
+    // print_spend_bundle_to_file(vec![new_spend.clone()], Signature::default(), "sb.debug"); // todo: debug
 
     {
       let mut stats = TEST_STATS.lock().unwrap();

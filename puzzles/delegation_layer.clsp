@@ -59,7 +59,7 @@
             (x)
           )
           (morph_conditions
-            MOD_HASH INNER_PUZZLE_HASH
+            MOD_HASH LAUNCHER_ID INNER_PUZZLE_HASH
             (r conditions)
             new_merkle_root_info
           )
