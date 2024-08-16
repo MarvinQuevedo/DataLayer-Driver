@@ -101,8 +101,11 @@ pub fn spend_delegation_layer(
   let merkle_root = merkle_root_for_delegated_puzzles(&datastore_info.delegated_puzzles);
 
   let new_inner_puzzle_mod = ctx.delegation_layer_puzzle()?;
-  let new_inner_puzzle_args =
-    DelegationLayerArgs::new(datastore_info.owner_puzzle_hash, merkle_root.into());
+  let new_inner_puzzle_args = DelegationLayerArgs::new(
+    datastore_info.launcher_id,
+    datastore_info.owner_puzzle_hash,
+    merkle_root.into(),
+  );
 
   let new_inner_puzzle = CurriedProgram {
     program: new_inner_puzzle_mod,
@@ -331,10 +334,14 @@ impl LauncherExt for Launcher {
     NodePtr: ToClvm<NodePtr>,
     NftStateLayerArgs<TreeHash, TreeHash>: ToClvm<TreeHash> + ToTreeHash,
   {
+    let launcher_coin = self.coin();
+    let launcher_id = launcher_coin.coin_id();
+
     let inner_puzzle_hash: TreeHash = if info.delegated_puzzles.len() == 0 {
       info.owner_puzzle_hash
     } else {
       DelegationLayerArgs::curry_tree_hash(
+        launcher_id,
         info.owner_puzzle_hash.into(),
         merkle_root_for_delegated_puzzles(&info.delegated_puzzles),
       )
@@ -370,7 +377,6 @@ impl LauncherExt for Launcher {
       memos,
     };
 
-    let launcher_coin = self.coin();
     let (chained_spend, eve_coin) = self.spend(ctx, state_layer_hash.into(), kv_list)?;
 
     let proof: Proof = Proof::Eve(EveProof {
@@ -379,7 +385,7 @@ impl LauncherExt for Launcher {
     });
 
     let data_store_info: DataStoreInfo = DataStoreInfo {
-      launcher_id: launcher_coin.coin_id(),
+      launcher_id: launcher_id,
       coin: eve_coin,
       proof,
       metadata: info.metadata,
@@ -402,7 +408,12 @@ pub fn get_owner_create_coin_condition(
 ) -> Condition {
   let new_puzzle_hash = if new_delegated_puzzles.len() > 0 {
     let new_merkle_root = merkle_root_for_delegated_puzzles(&new_delegated_puzzles);
-    DelegationLayerArgs::curry_tree_hash(new_inner_puzzle_hash.clone(), new_merkle_root).into()
+    DelegationLayerArgs::curry_tree_hash(
+      launcher_id,
+      new_inner_puzzle_hash.clone(),
+      new_merkle_root,
+    )
+    .into()
   } else {
     new_inner_puzzle_hash.clone()
   };

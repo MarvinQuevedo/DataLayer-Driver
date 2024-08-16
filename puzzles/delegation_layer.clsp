@@ -13,6 +13,7 @@
 
 (mod (
     MOD_HASH
+    LAUNCHER_ID
     INNER_PUZZLE_HASH
     MERKLE_ROOT
     merkle_proof ; () if running inner puzzle
@@ -28,7 +29,7 @@
   (defconstant NEW_MERKLE_ROOT_CONDITION -13)
 
   ; only one odd CREATE_COIN enforced in upper layers
-  (defun morph_conditions (MOD_HASH INNER_PUZZLE_HASH conditions new_merkle_root_info)
+  (defun morph_conditions (MOD_HASH LAUNCHER_ID INNER_PUZZLE_HASH conditions new_merkle_root_info)
     (if conditions
       (if (= (f (f conditions)) NEW_MERKLE_ROOT_CONDITION)
         (morph_conditions
@@ -70,6 +71,7 @@
           CREATE_COIN
           (curry_hashes_inline MOD_HASH
             (sha256 1 MOD_HASH)
+            (sha256 1 LAUNCHER_ID)
             (sha256 1 INNER_PUZZLE_HASH)
             (sha256 1 (f new_merkle_root_info))
           )
@@ -80,16 +82,17 @@
     )
   )
 
- (defun main (MOD_HASH INNER_PUZZLE_HASH MERKLE_ROOT merkle_proof conditions puzzle_hash)
+ (defun main (MOD_HASH LAUNCHER_ID INNER_PUZZLE_HASH MERKLE_ROOT merkle_proof conditions puzzle_hash)
     (if (= puzzle_hash INNER_PUZZLE_HASH)
       conditions
       ; else
       (if (= MERKLE_ROOT (simplify_merkle_proof puzzle_hash merkle_proof))
         (morph_conditions
           MOD_HASH
+          LAUNCHER_ID
           INNER_PUZZLE_HASH
           conditions
-          (list MERKLE_ROOT) 
+          (list MERKLE_ROOT LAUNCHER_ID) 
         )
         ; else
         (x)
@@ -97,5 +100,5 @@
     )
   )
 
- (main MOD_HASH INNER_PUZZLE_HASH MERKLE_ROOT merkle_proof (a puzzle_reveal puzzle_solution) (sha256tree puzzle_reveal)) 
+ (main MOD_HASH LAUNCHER_ID INNER_PUZZLE_HASH MERKLE_ROOT merkle_proof (a puzzle_reveal puzzle_solution) (sha256tree puzzle_reveal)) 
 )
