@@ -351,6 +351,14 @@ export declare class Peer {
    */
   syncStore(storeInfo: DataStoreInfo, lastHeight: number | undefined | null, lastHeaderHash: Buffer, withHistory: boolean): Promise<SyncStoreResponse>
   /**
+   * Retrieves the fee estimate for a given target time.
+   *
+   * @param {Peer} peer - The peer connection to the Chia node.
+   * @param {number} targetTimeSeconds - The target time in seconds for the fee estimate.
+   * @returns {Promise<number>} The estimated fee in mojos per CLVM cost.
+   */
+  getFeeEstimate(peer: Peer, targetTimeSeconds: BigInt): Promise<BigInt>
+  /**
    * Synchronizes a store using its launcher ID.
    *
    * @param {Buffer} launcherId - The store's launcher/singleton ID.
