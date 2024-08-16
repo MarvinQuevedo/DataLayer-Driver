@@ -321,7 +321,7 @@ pub struct DataStoreMetadata {
   pub root_hash: Bytes32,
   pub label: Option<String>,
   pub description: Option<String>,
-  pub size: Option<u64>,
+  pub bytes: Option<u64>,
 }
 
 impl DataStoreMetadata {
@@ -330,7 +330,7 @@ impl DataStoreMetadata {
       root_hash,
       label: None,
       description: None,
-      size: None,
+      bytes: None,
     }
   }
 }
@@ -341,7 +341,7 @@ impl Default for DataStoreMetadata {
       root_hash: Bytes32::default(),
       label: None,
       description: None,
-      size: None,
+      bytes: None,
     }
   }
 }
@@ -357,7 +357,7 @@ impl<N> FromClvm<N> for DataStoreMetadata {
       match key.as_str() {
         "l" => metadata.label = Some(FromClvm::from_clvm(decoder, value_ptr.0)?),
         "d" => metadata.description = Some(FromClvm::from_clvm(decoder, value_ptr.0)?),
-        "s" => metadata.size = Some(FromClvm::from_clvm(decoder, value_ptr.0)?),
+        "b" => metadata.bytes = Some(FromClvm::from_clvm(decoder, value_ptr.0)?),
         _ => (),
       }
     }
@@ -378,8 +378,8 @@ impl<N> ToClvm<N> for DataStoreMetadata {
       items.push(("d", Raw(self.description.to_clvm(encoder)?)));
     }
 
-    if let Some(size) = self.size {
-      items.push(("s", Raw(size.to_clvm(encoder)?)));
+    if let Some(bytes) = self.bytes {
+      items.push(("b", Raw(bytes.to_clvm(encoder)?)));
     }
 
     (Raw(self.root_hash.to_clvm(encoder)?), items).to_clvm(encoder)
@@ -824,7 +824,7 @@ mod tests {
   use crate::{
     datastore_spend, get_memos, get_owner_create_coin_condition,
     spend_nft_state_layer_custom_metadata_updated,
-    tests::{secret_keys, Description, Hash, Label, Size},
+    tests::{secret_keys, Bytes, Description, Hash, Label},
     DataStoreMintInfo, DatastoreInnerSpend, LauncherExt,
   };
 
@@ -836,31 +836,31 @@ mod tests {
         (Hash::ZERO, Hash::ZERO, Hash::ZERO),
         (Label::NONE, Label::NONE, Label::NONE),
         (Description::NONE, Description::NONE, Description::NONE),
-        (Size::NONE, Size::NONE, Size::NONE)
+        (Bytes::NONE, Bytes::NONE, Bytes::NONE)
       ),
       (
         (Hash::ZERO, Hash::ZERO, Hash::SOME),
         (Label::NONE, Label::NONE, Label::SOME),
         (Description::NONE, Description::NONE, Description::SOME),
-        (Size::NONE, Size::NONE, Size::SOME)
+        (Bytes::NONE, Bytes::NONE, Bytes::SOME)
       ),
       (
         (Hash::ZERO, Hash::SOME, Hash::SOME),
         (Label::NONE, Label::SOME, Label::SOME),
         (Description::NONE, Description::SOME, Description::SOME),
-        (Size::NONE, Size::SOME, Size::SOME)
+        (Bytes::NONE, Bytes::SOME, Bytes::SOME)
       ),
       (
         (Hash::SOME, Hash::ZERO, Hash::ZERO),
         (Label::SOME, Label::NONE, Label::NONE),
         (Description::SOME, Description::NONE, Description::NONE),
-        (Size::SOME, Size::NONE, Size::NONE)
+        (Bytes::SOME, Bytes::NONE, Bytes::NONE)
       ),
       (
         (Hash::SOME, Hash::SOME, Hash::ZERO),
         (Label::SOME, Label::SOME, Label::NONE),
         (Description::SOME, Description::SOME, Description::NONE),
-        (Size::SOME, Size::SOME, Size::NONE)
+        (Bytes::SOME, Bytes::SOME, Bytes::NONE)
       ),
     ],
     src_with_writer => [true, false],
@@ -875,7 +875,7 @@ mod tests {
       (Hash, Hash, Hash),
       (Label, Label, Label),
       (Description, Description, Description),
-      (Size, Size, Size),
+      (Bytes, Bytes, Bytes),
     ),
     src_with_writer: bool,
     // src must have admin layer in this scenario
@@ -927,7 +927,7 @@ mod tests {
           root_hash: meta_transition.0 .0.value(),
           label: meta_transition.1 .0.value(),
           description: meta_transition.2 .0.value(),
-          size: meta_transition.3 .0.value(),
+          bytes: meta_transition.3 .0.value(),
         },
         owner_puzzle_hash: owner_puzzle_hash.into(),
         delegated_puzzles: src_delegated_puzzles.clone(),
@@ -962,7 +962,7 @@ mod tests {
         root_hash: meta_transition.0 .1.value(),
         label: meta_transition.1 .1.value(),
         description: meta_transition.2 .1.value(),
-        size: meta_transition.3 .1.value(),
+        bytes: meta_transition.3 .1.value(),
       };
       let new_metadata_condition = NewMetadataCondition::<i32, DataStoreMetadata, Bytes32, i32> {
         metadata_updater_reveal: 11,
@@ -1043,7 +1043,7 @@ mod tests {
         root_hash: meta_transition.0 .2.value(),
         label: meta_transition.1 .2.value(),
         description: meta_transition.2 .2.value(),
-        size: meta_transition.3 .2.value(),
+        bytes: meta_transition.3 .2.value(),
       };
 
       let new_metadata_condition = NewMetadataCondition::<i32, DataStoreMetadata, Bytes32, i32> {

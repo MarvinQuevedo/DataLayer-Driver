@@ -443,7 +443,7 @@ pub mod tests {
       run_block_generator::run_block_generator, solution_generator::solution_generator,
     },
   };
-  use chia_protocol::{Bytes32, Coin};
+  use chia_protocol::{Bytes as OgBytes, Bytes32, Coin};
   use chia_puzzles::standard::StandardArgs;
   use chia_sdk_driver::Launcher;
   use chia_sdk_test::{test_transaction, Simulator};
@@ -763,18 +763,18 @@ pub mod tests {
   }
 
   #[derive(PartialEq)]
-  pub enum Size {
+  pub enum Bytes {
     NONE,
     SOME,
     NEW,
   }
 
-  impl Size {
+  impl Bytes {
     pub fn value(&self) -> Option<u64> {
       match self {
-        Size::NONE => None,
-        Size::SOME => Some(1337),
-        Size::NEW => Some(42),
+        Bytes::NONE => None,
+        Bytes::SOME => Some(1337),
+        Bytes::NEW => Some(42),
       }
     }
   }
@@ -870,7 +870,7 @@ pub mod tests {
       root_hash: Hash::SOME.value(),
       label: Label::SOME.value(),
       description: Description::SOME.value(),
-      size: Size::SOME.value(),
+      bytes: Bytes::SOME.value(),
     };
     let new_metadata_condition = NewMetadataCondition::<i32, DataStoreMetadata, Bytes32, i32> {
       metadata_updater_reveal: 11,
@@ -997,7 +997,7 @@ pub mod tests {
       new_coin,
       owner_pk,
       Conditions::new()
-        .assert_puzzle_announcement(datastore_info.coin.puzzle_hash, &Bytes::new("$".into())),
+        .assert_puzzle_announcement(datastore_info.coin.puzzle_hash, &OgBytes::new("$".into())),
     )?;
 
     // finally, remove delegation layer altogether
@@ -1089,7 +1089,7 @@ pub mod tests {
             root_hash: Hash::ZERO.value(),
             label: Label::SOME.value(),
             description: Description::SOME.value(),
-            size: Size::SOME.value(),
+            bytes: Bytes::SOME.value(),
           }
         } else {
           DataStoreMetadata::default()
@@ -1153,13 +1153,13 @@ pub mod tests {
     dst_with_writer => [true, false],
     dst_with_oracle => [true, false],
     src_meta => [
-      (Hash::ZERO, Label::NONE, Description::NONE, Size::NONE),
-      (Hash::SOME, Label::SOME, Description::SOME, Size::SOME),
+      (Hash::ZERO, Label::NONE, Description::NONE, Bytes::NONE),
+      (Hash::SOME, Label::SOME, Description::SOME, Bytes::SOME),
     ],
     dst_meta => [
-      (Hash::ZERO, Label::NONE, Description::NONE, Size::NONE),
-      (Hash::ZERO, Label::SOME, Description::SOME, Size::SOME),
-      (Hash::ZERO, Label::NEW, Description::NEW, Size::NEW),
+      (Hash::ZERO, Label::NONE, Description::NONE, Bytes::NONE),
+      (Hash::ZERO, Label::SOME, Description::SOME, Bytes::SOME),
+      (Hash::ZERO, Label::NEW, Description::NEW, Bytes::NEW),
     ],
     dst_admin => [
       DstAdmin::None,
@@ -1169,14 +1169,14 @@ pub mod tests {
   )]
   #[tokio::test]
   async fn test_datastore_admin_transition(
-    src_meta: (Hash, Label, Description, Size),
+    src_meta: (Hash, Label, Description, Bytes),
     src_with_writer: bool,
     // src must have admin layer in this scenario
     src_with_oracle: bool,
     dst_with_writer: bool,
     dst_with_oracle: bool,
     dst_admin: DstAdmin,
-    dst_meta: (Hash, Label, Description, Size),
+    dst_meta: (Hash, Label, Description, Bytes),
   ) -> anyhow::Result<()> {
     let sim = Simulator::new().await?;
     let peer = sim.connect().await?;
@@ -1223,7 +1223,7 @@ pub mod tests {
           root_hash: src_meta.0.value(),
           label: src_meta.1.value(),
           description: src_meta.2.value(),
-          size: src_meta.3.value(),
+          bytes: src_meta.3.value(),
         },
         owner_puzzle_hash: owner_puzzle_hash.into(),
         delegated_puzzles: src_delegated_puzzles.clone(),
@@ -1291,7 +1291,7 @@ pub mod tests {
         root_hash: dst_meta.0.value(),
         label: dst_meta.1.value(),
         description: dst_meta.2.value(),
-        size: dst_meta.3.value(),
+        bytes: dst_meta.3.value(),
       };
       let new_metadata_condition = NewMetadataCondition::<i32, DataStoreMetadata, Bytes32, i32> {
         metadata_updater_reveal: 11,
@@ -1455,26 +1455,26 @@ pub mod tests {
     dst_with_writer => [true, false],
     dst_with_oracle => [true, false],
     src_meta => [
-      (Hash::ZERO, Label::NONE, Description::NONE, Size::NONE),
-      (Hash::SOME, Label::SOME, Description::SOME, Size::SOME),
+      (Hash::ZERO, Label::NONE, Description::NONE, Bytes::NONE),
+      (Hash::SOME, Label::SOME, Description::SOME, Bytes::SOME),
     ],
     dst_meta => [
-      (Hash::ZERO, Label::NONE, Description::NONE, Size::NONE),
-      (Hash::ZERO, Label::SOME, Description::SOME, Size::SOME),
-      (Hash::ZERO, Label::NEW, Description::NEW, Size::NEW),
+      (Hash::ZERO, Label::NONE, Description::NONE, Bytes::NONE),
+      (Hash::ZERO, Label::SOME, Description::SOME, Bytes::SOME),
+      (Hash::ZERO, Label::NEW, Description::NEW, Bytes::NEW),
     ],
     also_change_owner => [true, false],
   )]
   #[tokio::test]
   async fn test_datastore_owner_transition(
-    src_meta: (Hash, Label, Description, Size),
+    src_meta: (Hash, Label, Description, Bytes),
     src_with_admin: bool,
     src_with_writer: bool,
     src_with_oracle: bool,
     dst_with_admin: bool,
     dst_with_writer: bool,
     dst_with_oracle: bool,
-    dst_meta: (Hash, Label, Description, Size),
+    dst_meta: (Hash, Label, Description, Bytes),
     also_change_owner: bool,
   ) -> anyhow::Result<()> {
     let sim = Simulator::new().await?;
@@ -1524,7 +1524,7 @@ pub mod tests {
           root_hash: src_meta.0.value(),
           label: src_meta.1.value(),
           description: src_meta.2.value(),
-          size: src_meta.3.value(),
+          bytes: src_meta.3.value(),
         },
         owner_puzzle_hash: owner_puzzle_hash.into(),
         delegated_puzzles: src_delegated_puzzles.clone(),
@@ -1586,7 +1586,7 @@ pub mod tests {
         root_hash: dst_meta.0.value(),
         label: dst_meta.1.value(),
         description: dst_meta.2.value(),
-        size: dst_meta.3.value(),
+        bytes: dst_meta.3.value(),
       };
       let new_metadata_condition = NewMetadataCondition::<i32, DataStoreMetadata, Bytes32, i32> {
         metadata_updater_reveal: 11,
@@ -1748,31 +1748,31 @@ pub mod tests {
         (Hash::ZERO, Hash::ZERO),
         (Label::NONE, Label::SOME),
         (Description::NONE, Description::SOME),
-        (Size::NONE, Size::SOME)
+        (Bytes::NONE, Bytes::SOME)
       ),
       (
         (Hash::ZERO, Hash::SOME),
         (Label::NONE, Label::NONE),
         (Description::NONE, Description::NONE),
-        (Size::NONE, Size::NONE)
+        (Bytes::NONE, Bytes::NONE)
       ),
       (
         (Hash::ZERO, Hash::SOME),
         (Label::SOME, Label::SOME),
         (Description::SOME, Description::SOME),
-        (Size::SOME, Size::SOME)
+        (Bytes::SOME, Bytes::SOME)
       ),
       (
         (Hash::ZERO, Hash::ZERO),
         (Label::SOME, Label::NEW),
         (Description::SOME, Description::NEW),
-        (Size::SOME, Size::NEW)
+        (Bytes::SOME, Bytes::NEW)
       ),
       (
         (Hash::ZERO, Hash::ZERO),
         (Label::NONE, Label::NONE),
         (Description::NONE, Description::NONE),
-        (Size::NONE, Size::SOME)
+        (Bytes::NONE, Bytes::SOME)
       ),
     ],
   )]
@@ -1784,7 +1784,7 @@ pub mod tests {
       (Hash, Hash),
       (Label, Label),
       (Description, Description),
-      (Size, Size),
+      (Bytes, Bytes),
     ),
   ) -> anyhow::Result<()> {
     let sim = Simulator::new().await?;
@@ -1830,7 +1830,7 @@ pub mod tests {
           root_hash: meta_transition.0 .0.value(),
           label: meta_transition.1 .0.value(),
           description: meta_transition.2 .0.value(),
-          size: meta_transition.3 .0.value(),
+          bytes: meta_transition.3 .0.value(),
         },
         owner_puzzle_hash: owner_puzzle_hash.into(),
         delegated_puzzles: delegated_puzzles.clone(),
@@ -1856,7 +1856,7 @@ pub mod tests {
       root_hash: meta_transition.0 .1.value(),
       label: meta_transition.1 .1.value(),
       description: meta_transition.2 .1.value(),
-      size: meta_transition.3 .1.value(),
+      bytes: meta_transition.3 .1.value(),
     };
     let new_metadata_condition = NewMetadataCondition::<i32, DataStoreMetadata, Bytes32, i32> {
       metadata_updater_reveal: 11,
@@ -2016,17 +2016,17 @@ pub mod tests {
     with_admin_layer => [true, false],
     with_writer_layer => [true, false],
     meta => [
-      (Hash::ZERO, Label::NONE, Description::NONE, Size::NONE),
-      (Hash::ZERO, Label::NONE, Description::NONE, Size::SOME),
-      (Hash::ZERO, Label::NONE, Description::SOME, Size::SOME),
-      (Hash::ZERO, Label::SOME, Description::SOME, Size::SOME),
+      (Hash::ZERO, Label::NONE, Description::NONE, Bytes::NONE),
+      (Hash::ZERO, Label::NONE, Description::NONE, Bytes::SOME),
+      (Hash::ZERO, Label::NONE, Description::SOME, Bytes::SOME),
+      (Hash::ZERO, Label::SOME, Description::SOME, Bytes::SOME),
     ],
   )]
   #[tokio::test]
   async fn test_datastore_oracle_transition(
     with_admin_layer: bool,
     with_writer_layer: bool,
-    meta: (Hash, Label, Description, Size),
+    meta: (Hash, Label, Description, Bytes),
   ) -> anyhow::Result<()> {
     let sim = Simulator::new().await?;
     let peer = sim.connect().await?;
@@ -2073,7 +2073,7 @@ pub mod tests {
           root_hash: meta.0.value(),
           label: meta.1.value(),
           description: meta.2.value(),
-          size: meta.3.value(),
+          bytes: meta.3.value(),
         },
         owner_puzzle_hash: owner_puzzle_hash.into(),
         delegated_puzzles: delegated_puzzles.clone(),
@@ -2125,8 +2125,10 @@ pub mod tests {
     ctx.spend_p2_coin(
       new_coin,
       dude_pk,
-      Conditions::new()
-        .assert_puzzle_announcement(src_datastore_info.coin.puzzle_hash, &Bytes::new("$".into())),
+      Conditions::new().assert_puzzle_announcement(
+        src_datastore_info.coin.puzzle_hash,
+        &OgBytes::new("$".into()),
+      ),
     )?;
 
     // asserts
@@ -2241,8 +2243,8 @@ pub mod tests {
     with_writer_layer => [true, false],
     with_oracle_layer => [true, false],
     meta => [
-      (Hash::ZERO, Label::NONE, Description::NONE, Size::NONE),
-      (Hash::ZERO, Label::SOME, Description::SOME, Size::SOME),
+      (Hash::ZERO, Label::NONE, Description::NONE, Bytes::NONE),
+      (Hash::ZERO, Label::SOME, Description::SOME, Bytes::SOME),
     ],
   )]
   #[tokio::test]
@@ -2250,7 +2252,7 @@ pub mod tests {
     with_admin_layer: bool,
     with_writer_layer: bool,
     with_oracle_layer: bool,
-    meta: (Hash, Label, Description, Size),
+    meta: (Hash, Label, Description, Bytes),
   ) -> anyhow::Result<()> {
     let sim = Simulator::new().await?;
     let peer = sim.connect().await?;
@@ -2296,7 +2298,7 @@ pub mod tests {
           root_hash: meta.0.value(),
           label: meta.1.value(),
           description: meta.2.value(),
-          size: meta.3.value(),
+          bytes: meta.3.value(),
         },
         owner_puzzle_hash: owner_puzzle_hash.into(),
         delegated_puzzles: delegated_puzzles.clone(),

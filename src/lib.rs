@@ -336,12 +336,12 @@ pub fn new_eve_proof(eve_proof: EveProof) -> Proof {
 /// @property {Buffer} rootHash - Root hash.
 /// @property {Option<String>} label - Label (optional).
 /// @property {Option<String>} description - Description (optional).
-/// @property {Option<BigInt>} size - Size of the store (optional).
+/// @property {Option<BigInt>} bytes - Size of the store in bytes (optional).
 pub struct DataStoreMetadata {
   pub root_hash: Buffer,
   pub label: Option<String>,
   pub description: Option<String>,
-  pub size: Option<BigInt>,
+  pub bytes: Option<BigInt>,
 }
 
 impl FromJS<DataStoreMetadata> for RustDataStoreMetadata {
@@ -350,7 +350,7 @@ impl FromJS<DataStoreMetadata> for RustDataStoreMetadata {
       root_hash: RustBytes32::from_js(value.root_hash),
       label: value.label,
       description: value.description,
-      size: value.size.map(|s| u64::from_js(s)),
+      bytes: value.bytes.map(|s| u64::from_js(s)),
     }
   }
 }
@@ -361,7 +361,7 @@ impl ToJS<DataStoreMetadata> for RustDataStoreMetadata {
       root_hash: self.root_hash.to_js(),
       label: self.label.clone(),
       description: self.description.clone(),
-      size: self.size.map(|s| s.to_js()),
+      bytes: self.bytes.map(|s| s.to_js()),
     }
   }
 }
@@ -851,7 +851,7 @@ pub fn select_coins(all_coins: Vec<Coin>, total_amount: BigInt) -> napi::Result<
 /// @param {Buffer} rootHash - Root hash of the store.
 /// @param {Option<String>} label - Store label (optional).
 /// @param {Option<String>} description - Store description (optional).
-/// @param {Option<BigInt>} size - Store size (optional).
+/// @param {Option<BigInt>} bytes - Store size in bytes (optional).
 /// @param {Buffer} ownerPuzzleHash - Owner puzzle hash.
 /// @param {Vec<DelegatedPuzzle>} delegatedPuzzles - Delegated puzzles.
 /// @param {BigInt} fee - Fee to use for the transaction. Total amount - 1 - fee will be sent back to the minter.
@@ -862,7 +862,7 @@ pub fn mint_store(
   root_hash: Buffer,
   label: Option<String>,
   description: Option<String>,
-  size: Option<BigInt>,
+  bytes: Option<BigInt>,
   owner_puzzle_hash: Buffer,
   delegated_puzzles: Vec<DelegatedPuzzle>,
   fee: BigInt,
@@ -876,7 +876,7 @@ pub fn mint_store(
     RustBytes32::from_js(root_hash),
     label,
     description,
-    size.map(|s| u64::from_js(s)),
+    bytes.map(|s| u64::from_js(s)),
     RustBytes32::from_js(owner_puzzle_hash),
     delegated_puzzles
       .iter()
@@ -1113,7 +1113,7 @@ pub fn get_coin_id(coin: Coin) -> Buffer {
 /// @param {Buffer} newRootHash - New root hash.
 /// @param {Option<String>} newLabel - New label (optional).
 /// @param {Option<String>} newDescription - New description (optional).
-/// @param {Option<BigInt>} newSize - New size (optional).
+/// @param {Option<BigInt>} newBytes - New size in bytes (optional).
 /// @param {Option<Buffer>} ownerPublicKey - Owner public key.
 /// @param {Option<Buffer>} adminPublicKey - Admin public key.
 /// @param {Option<Buffer>} writerPublicKey - Writer public key.
@@ -1123,7 +1123,7 @@ pub fn update_store_metadata(
   new_root_hash: Buffer,
   new_label: Option<String>,
   new_description: Option<String>,
-  new_size: Option<BigInt>,
+  new_bytes: Option<BigInt>,
   owner_public_key: Option<Buffer>,
   admin_public_key: Option<Buffer>,
   writer_public_key: Option<Buffer>,
@@ -1150,7 +1150,7 @@ pub fn update_store_metadata(
     RustBytes32::from_js(new_root_hash),
     new_label,
     new_description,
-    new_size.map(|s| u64::from_js(s)),
+    new_bytes.map(|s| u64::from_js(s)),
     inner_spend_info,
   )
   .map_err(js)?;
