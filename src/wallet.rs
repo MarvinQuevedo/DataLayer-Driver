@@ -1,6 +1,7 @@
 use std::collections::HashMap;
 
 use chia::bls::sign;
+use chia::bls::verify;
 use chia::bls::PublicKey;
 use chia::bls::SecretKey;
 use chia::bls::Signature;
@@ -32,9 +33,11 @@ use chia_wallet_sdk::select_coins as select_coins_algo;
 use chia_wallet_sdk::CoinSelectionError;
 use chia_wallet_sdk::RequiredSignature;
 use chia_wallet_sdk::SignerError;
+use clvm_traits::clvm_tuple;
 use clvm_traits::FromClvmError;
 use clvm_traits::ToClvm;
 use clvm_traits::ToClvmError;
+use clvm_utils::tree_hash;
 use clvmr::Allocator;
 use thiserror::Error;
 
@@ -814,4 +817,22 @@ pub async fn is_coin_spent(
   }
 
   return Ok(false);
+}
+
+// https://github.com/Chia-Network/chips/blob/main/CHIPs/chip-0002.md#signmessage
+pub fn make_message(msg: Bytes) -> Bytes32 {
+  let mut alloc = Allocator::new();
+  let thing_ptr = clvm_tuple!("Chia Signed Message", msg)
+    .to_clvm(&mut alloc)
+    .expect("Could not serialize message");
+
+  tree_hash(&alloc, thing_ptr).into()
+}
+
+pub fn sign_message(message: Bytes, sk: SecretKey) -> Signature {
+  sign(&sk, &make_message(message))
+}
+
+pub fn verify_signature(message: Bytes, pk: PublicKey, sig: Signature) -> bool {
+  verify(&sig, &pk, &make_message(message))
 }

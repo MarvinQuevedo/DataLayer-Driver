@@ -10,14 +10,13 @@ mod wallet;
 use std::sync::Arc;
 
 use chia::bls::derive_keys::master_to_wallet_unhardened;
-use chia::bls::{sign, verify, SecretKey as RustSecretKey, Signature as RustSignature};
-use chia::client::Error as ClientError;
+use chia::bls::{SecretKey as RustSecretKey, Signature as RustSignature};
 use chia::client::Peer as RustPeer;
 use chia::{bls::PublicKey as RustPublicKey, traits::Streamable};
 use chia_protocol::CoinSpend as RustCoinSpend;
 use chia_protocol::Program as RustProgram;
 use chia_protocol::SpendBundle as RustSpendBundle;
-use chia_protocol::{Bytes, Coin as RustCoin};
+use chia_protocol::{Bytes as RustBytes, Coin as RustCoin};
 use chia_protocol::{Bytes32 as RustBytes32, NodeType};
 use chia_puzzles::standard::StandardArgs;
 use chia_puzzles::LineageProof as RustLineageProof;
@@ -38,7 +37,6 @@ use puzzles_info::{
   DataStoreInfo as RustDataStoreInfo, DataStoreMetadata as RustDataStoreMetadata,
   DelegatedPuzzle as RustDelegatedPuzzle, DelegatedPuzzleInfo as RustDelegatedPuzzleInfo,
 };
-use std::time::{SystemTime, UNIX_EPOCH};
 use wallet::SuccessResponse as RustSuccessResponse;
 use wallet::SyncStoreResponse as RustSyncStoreResponse;
 use wallet::UnspentCoinsResponse as RustUnspentCoinsResponse;
@@ -74,6 +72,18 @@ impl FromJS<Buffer> for RustProgram {
 }
 
 impl ToJS<Buffer> for RustProgram {
+  fn to_js(self: &Self) -> Buffer {
+    Buffer::from(self.to_vec())
+  }
+}
+
+impl FromJS<Buffer> for RustBytes {
+  fn from_js(value: Buffer) -> Self {
+    RustBytes::new(value.to_vec())
+  }
+}
+
+impl ToJS<Buffer> for RustBytes {
   fn to_js(self: &Self) -> Buffer {
     Buffer::from(self.to_vec())
   }
@@ -1222,24 +1232,21 @@ pub fn update_store_ownership(
 
 #[napi]
 pub fn sign_message(message: Buffer, private_key: Buffer) -> Result<Buffer> {
-  let sk = RustSecretKey::from_js(private_key);
-  let signed = sign(&sk, &message);
+  let signed = wallet::sign_message(
+    RustBytes::from_js(message),
+    RustSecretKey::from_js(private_key),
+  );
 
-  // Convert the Vec<u8> to a Buffer
-  Ok(Buffer::from(signed.to_bytes().to_vec()))
+  Ok(signed.to_js())
 }
 
 #[napi]
-pub fn verify_signed_message(
-  signature: Buffer,
-  public_key: Buffer,
-  message: Buffer,
-) -> Result<bool> {
-  let sig = RustSignature::from_js(signature);
-  let pk = RustPublicKey::from_js(public_key);
-  let is_valid = verify(&sig, &pk, &message);
-
-  Ok(is_valid)
+pub fn verify_signed_message(signature: Buffer, public_key: Buffer, message: Buffer) -> bool {
+  wallet::verify_signature(
+    RustBytes::from_js(message),
+    RustPublicKey::from_js(public_key),
+    RustSignature::from_js(signature),
+  )
 }
 
 #[napi]
