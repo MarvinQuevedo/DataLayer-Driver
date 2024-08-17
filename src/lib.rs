@@ -10,11 +10,11 @@ mod wallet;
 use std::sync::Arc;
 
 use chia::bls::derive_keys::master_to_wallet_unhardened;
-use chia::bls::{SecretKey as RustSecretKey, Signature as RustSignature};
+use chia::bls::{SecretKey as RustSecretKey, Signature as RustSignature, sign, verify};
 use chia::client::Peer as RustPeer;
 use chia::client::Error as ClientError;
 use chia::{bls::PublicKey as RustPublicKey, traits::Streamable};
-use chia_protocol::Coin as RustCoin;
+use chia_protocol::{Bytes, Coin as RustCoin};
 use chia_protocol::CoinSpend as RustCoinSpend;
 use chia_protocol::Program as RustProgram;
 use chia_protocol::SpendBundle as RustSpendBundle;
@@ -1233,6 +1233,31 @@ pub fn update_store_ownership(
   .map_err(js)?;
 
   Ok(res.to_js())
+}
+
+#[napi]
+pub fn sign_message(
+  message: Buffer,
+  private_key: Buffer,
+) -> Result<Buffer> {
+  let sk = RustSecretKey::from_js(private_key);
+  let signed = sign(&sk, &message);
+
+  // Convert the Vec<u8> to a Buffer
+  Ok(Buffer::from(signed.to_bytes().to_vec()))
+}
+
+#[napi]
+pub fn verify_signed_message(
+  sig: Buffer,
+  public_key: Buffer,
+  message: Buffer,
+) -> Result<bool> {
+  let sig = RustSignature::from_js(sig);
+  let public_key = RustPublicKey::from_js(public_key);
+  let is_valid = verify(&sig, &public_key, &message);
+
+  Ok(is_valid)
 }
 
 #[napi]
