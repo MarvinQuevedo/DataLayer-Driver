@@ -320,6 +320,24 @@ export declare function updateStoreOwnership(storeInfo: DataStoreInfo, newOwnerP
  * @returns {Vec<CoinSpend>} The coin spends that the owner can sign to melt the store.
  */
 export declare function meltStore(storeInfo: DataStoreInfo, ownerPublicKey: Buffer): Array<CoinSpend>
+/**
+ * Signs a message using a private key.
+ *
+ * @param {Buffer} message - The message to be signed.
+ * @param {Buffer} privateKey - The private key to sign the message with.
+ * @returns {Promise<Buffer>} The signed message as a Buffer.
+ */
+export declare function signMessage(message: Buffer, privateKey: Buffer): Buffer
+
+/**
+ * Verifies a signed message using a public key.
+ *
+ * @param {Buffer} sig - The signature to verify.
+ * @param {Buffer} publicKey - The public key to verify the signature with.
+ * @param {Buffer} message - The original message that was signed.
+ * @returns {Promise<boolean>} Whether the signature is valid.
+ */
+export declare function verifySignedMessage(sig: Buffer, publicKey: Buffer, message: Buffer): boolean
 export declare class Peer {
   /**
    * Creates a new Peer instance.
@@ -350,6 +368,14 @@ export declare class Peer {
    * @returns {Promise<SyncStoreResponse>} The sync store response.
    */
   syncStore(storeInfo: DataStoreInfo, lastHeight: number | undefined | null, lastHeaderHash: Buffer, withHistory: boolean): Promise<SyncStoreResponse>
+  /**
+   * Retrieves the fee estimate for a given target time.
+   *
+   * @param {Peer} peer - The peer connection to the Chia node.
+   * @param {number} targetTimeSeconds - The target time in seconds for the fee estimate.
+   * @returns {Promise<number>} The estimated fee in mojos per CLVM cost.
+   */
+  getFeeEstimate(peer: Peer, targetTimeSeconds: BigInt): Promise<BigInt>
   /**
    * Synchronizes a store using its launcher ID.
    *
