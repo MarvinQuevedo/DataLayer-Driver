@@ -539,7 +539,7 @@ pub mod tests {
     }
 
     pub fn print_stats(&self) {
-      debug_log!(
+      println!(
         "Launcher TX Cost - Cnt: {}, Min: {}, Max: {}, Avg: {}, Median: {}",
         self.cnt(&self.launcher_tx_costs),
         self.min(&self.launcher_tx_costs),
@@ -548,7 +548,7 @@ pub mod tests {
         self.median(&self.launcher_tx_costs),
       );
 
-      debug_log!(
+      println!(
         "Normal Spend TX Cost - Cnt: {}, Min: {}, Max: {}, Avg: {}, Median: {}",
         self.cnt(&self.normal_spend_tx_costs),
         self.min(&self.normal_spend_tx_costs),

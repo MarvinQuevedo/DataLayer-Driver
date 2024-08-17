@@ -12,7 +12,7 @@ use chia::consensus::gen::conditions::EmptyVisitor;
 use chia::consensus::gen::flags::MEMPOOL_MODE;
 use chia::consensus::gen::owned_conditions::OwnedSpendBundleConditions;
 use chia::consensus::gen::run_block_generator::run_block_generator;
-use chia::consensus::gen::solution_generator::solution_generator_backrefs;
+use chia::consensus::gen::solution_generator::solution_generator;
 use chia::consensus::gen::validation_error::ValidationErr;
 use chia_protocol::Bytes;
 use chia_protocol::Coin;
@@ -857,7 +857,7 @@ pub fn verify_signature(message: Bytes, pk: PublicKey, sig: Signature) -> bool {
 pub fn get_cost(coin_spends: Vec<CoinSpend>) -> Result<u64, Error> {
   let mut alloc = Allocator::new();
 
-  let generator = solution_generator_backrefs(
+  let generator = solution_generator(
     coin_spends
       .into_iter()
       .map(|cs| (cs.coin, cs.puzzle_reveal, cs.solution)),
