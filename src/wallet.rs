@@ -7,6 +7,13 @@ use chia::bls::SecretKey;
 use chia::bls::Signature;
 use chia::client::Error as ClientError;
 use chia::client::Peer;
+use chia::consensus::error::Error as ChiaConsensusError;
+use chia::consensus::gen::conditions::EmptyVisitor;
+use chia::consensus::gen::flags::MEMPOOL_MODE;
+use chia::consensus::gen::owned_conditions::OwnedSpendBundleConditions;
+use chia::consensus::gen::run_block_generator::run_block_generator;
+use chia::consensus::gen::solution_generator::solution_generator_backrefs;
+use chia::consensus::gen::validation_error::ValidationErr;
 use chia_protocol::Bytes;
 use chia_protocol::Coin;
 use chia_protocol::CoinStateFilters;
@@ -39,6 +46,7 @@ use clvm_traits::ToClvm;
 use clvm_traits::ToClvmError;
 use clvm_utils::tree_hash;
 use clvmr::Allocator;
+use std::io::Error as IoError;
 use thiserror::Error;
 
 use crate::datastore_spend;
@@ -85,6 +93,15 @@ pub enum Error {
 
   #[error("{0:?}")]
   ToClvm(#[from] ToClvmError),
+
+  #[error("{0:?}")]
+  Io(#[from] IoError),
+
+  #[error("{0:?}")]
+  Validation(#[from] ValidationErr),
+
+  #[error("{0:?}")]
+  ChiaConsensus(#[from] ChiaConsensusError),
 
   #[error("ParseError")]
   Parse(),
@@ -835,4 +852,24 @@ pub fn sign_message(message: Bytes, sk: SecretKey) -> Signature {
 
 pub fn verify_signature(message: Bytes, pk: PublicKey, sig: Signature) -> bool {
   verify(&sig, &pk, &make_message(message))
+}
+
+pub fn get_cost(coin_spends: Vec<CoinSpend>) -> Result<u64, Error> {
+  let mut alloc = Allocator::new();
+
+  let generator = solution_generator_backrefs(
+    coin_spends
+      .into_iter()
+      .map(|cs| (cs.coin, cs.puzzle_reveal, cs.solution)),
+  )
+  .map_err(|err| Error::Io(err))?;
+
+  let conds =
+    run_block_generator::<&[u8], EmptyVisitor>(&mut alloc, &generator, &[], u64::MAX, MEMPOOL_MODE)
+      .map_err(|err| Error::Validation(err))?;
+
+  let conds =
+    OwnedSpendBundleConditions::from(&alloc, conds).map_err(|err| Error::ChiaConsensus(err))?;
+
+  Ok(conds.cost)
 }

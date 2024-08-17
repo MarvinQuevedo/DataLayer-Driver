@@ -313,6 +313,14 @@ export declare function updateStoreMetadata(storeInfo: DataStoreInfo, newRootHas
  */
 export declare function updateStoreOwnership(storeInfo: DataStoreInfo, newOwnerPuzzleHash: Buffer | undefined | null, newDelegatedPuzzles: Array<DelegatedPuzzle>, ownerPublicKey?: Buffer | undefined | null, adminPublicKey?: Buffer | undefined | null): SuccessResponse
 /**
+ * Melts a store. The 1 mojo change will be used as a fee.
+ *
+ * @param {DataStoreInfo} storeInfo - Store information.
+ * @param {Buffer} ownerPublicKey - Owner's public key.
+ * @returns {Vec<CoinSpend>} The coin spends that the owner can sign to melt the store.
+ */
+export declare function meltStore(storeInfo: DataStoreInfo, ownerPublicKey: Buffer): Array<CoinSpend>
+/**
  * Signs a message using the provided private key.
  *
  * @param {Buffer} message - Message to sign, as bytes. "Chia Signed Message" will be prepended automatically, as per CHIP-2 - no need to add it before calling this function.
@@ -330,13 +338,19 @@ export declare function signMessage(message: Buffer, privateKey: Buffer): Buffer
  */
 export declare function verifySignedMessage(signature: Buffer, publicKey: Buffer, message: Buffer): boolean
 /**
- * Melts a store. The 1 mojo change will be used as a fee.
+ * Converts a synthetic key to its corresponding standard puzzle hash.
  *
- * @param {DataStoreInfo} storeInfo - Store information.
- * @param {Buffer} ownerPublicKey - Owner's public key.
- * @returns {Vec<CoinSpend>} The coin spends that the owner can sign to melt the store.
+ * @param {Buffer} syntheticKey - Synthetic key.
+ * @returns {Buffer} The standard puzzle (puzzle) hash.
  */
-export declare function meltStore(storeInfo: DataStoreInfo, ownerPublicKey: Buffer): Array<CoinSpend>
+export declare function syntheticKeyToPuzzleHash(syntheticKey: Buffer): Buffer
+/**
+ * Calculates the total cost of a given array of coin spends/
+ *
+ * @param {Vec<CoinSpend>} CoinSpend - Coin spends.
+ * @returns {BigInt} The cost of the coin spends.
+ */
+export declare function getCost(coinSpends: Array<CoinSpend>): bigint
 export declare class Peer {
   /**
    * Creates a new Peer instance.
@@ -348,14 +362,6 @@ export declare class Peer {
    * @returns {Promise<Peer>} A new Peer instance.
    */
   static new(nodeUri: string, networkId: string, certPath: string, keyPath: string): Promise<Peer>
-  /**
-   * Retrieves the fee estimate for a given target time.
-   *
-   * @param {Peer} peer - The peer connection to the Chia node.
-   * @param {BigInt} targetTimeSeconds - The target time in seconds from the current time for the fee estimate.
-   * @returns {Promise<BigInt>} The estimated fee in mojos per CLVM cost.
-   */
-  getFeeEstimate(targetTimeSeconds: bigint): Promise<bigint>
   /**
    * Retrieves all coins that are unspent on the chain. Note that coins part of spend bundles that are pending in the mempool will also be included.
    *
@@ -409,4 +415,12 @@ export declare class Peer {
    * @returns {Promise<Buffer>} The header hash.
    */
   getHeaderHash(height: number): Promise<Buffer>
+  /**
+   * Retrieves the fee estimate for a given target time.
+   *
+   * @param {Peer} peer - The peer connection to the Chia node.
+   * @param {BigInt} targetTimeSeconds - The target time in seconds from the current time for the fee estimate.
+   * @returns {Promise<BigInt>} The estimated fee in mojos per CLVM cost.
+   */
+  getFeeEstimate(targetTimeSeconds: bigint): Promise<bigint>
 }

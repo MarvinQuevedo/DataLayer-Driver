@@ -1290,6 +1290,24 @@ pub fn synthetic_key_to_puzzle_hash(synthetic_key: Buffer) -> Buffer {
   puzzle_hash.to_js()
 }
 
+#[napi]
+/// Calculates the total cost of a given array of coin spends/
+///
+/// @param {Vec<CoinSpend>} CoinSpend - Coin spends.
+/// @returns {BigInt} The cost of the coin spends.
+pub fn get_cost(coin_spends: Vec<CoinSpend>) -> napi::Result<BigInt> {
+  Ok(
+    wallet::get_cost(
+      coin_spends
+        .into_iter()
+        .map(RustCoinSpend::from_js)
+        .collect(),
+    )
+    .map_err(js)?
+    .to_js(),
+  )
+}
+
 fn js<T>(error: T) -> napi::Error
 where
   T: ToString,

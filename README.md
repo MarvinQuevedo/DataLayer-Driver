@@ -4,7 +4,7 @@ A collection of functions that can be used to interact with datastores on the Ch
 cd
 This library offers the following functions:
 - wallet: `selectCoins`, `addFee`, `signCoinSpends`
-- drivers: `mintStore`, `adminDelegatedPuzzleFromKey`, `writerDelegatedPuzzleFromKey`, `oracleDelegatedPuzzle`, `oracleSpend`, `updateStoreMetadata`, `updateStoreOwnership`, `meltStore`
+- drivers: `mintStore`, `adminDelegatedPuzzleFromKey`, `writerDelegatedPuzzleFromKey`, `oracleDelegatedPuzzle`, `oracleSpend`, `updateStoreMetadata`, `updateStoreOwnership`, `meltStore`, `getCost`
 - utils: `getCoinId`, `masterPublicKeyToWalletSyntheticKey`, `masterPublicKeyToFirstPuzzleHash`, `masterSecretKeyToWalletSyntheticSecretKey`, `secretKeyToPublicKey`, `puzzleHashToAddress`, `addressToPuzzleHash`, `newLineageProof`, `newEveProof`, `signMessage`, `verifySignedMessage`, `syntheticKeyToPuzzleHash`
 
 The `Peer` class also exposes the following methods: `getAllUnspentCoins`, `syncStore`, `syncStoreFromLauncherId`, `broadcastSpend`, `isCoinSpent`, `getHeaderHash`, `getFeeEstimate`.

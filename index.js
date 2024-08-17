@@ -310,7 +310,7 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { newLineageProof, newEveProof, Peer, selectCoins, mintStore, oracleSpend, addFee, masterPublicKeyToWalletSyntheticKey, masterPublicKeyToFirstPuzzleHash, masterSecretKeyToWalletSyntheticSecretKey, secretKeyToPublicKey, puzzleHashToAddress, addressToPuzzleHash, adminDelegatedPuzzleFromKey, writerDelegatedPuzzleFromKey, oracleDelegatedPuzzle, signCoinSpends, getCoinId, updateStoreMetadata, updateStoreOwnership, signMessage, verifySignedMessage, meltStore } = nativeBinding
+const { newLineageProof, newEveProof, Peer, selectCoins, mintStore, oracleSpend, addFee, masterPublicKeyToWalletSyntheticKey, masterPublicKeyToFirstPuzzleHash, masterSecretKeyToWalletSyntheticSecretKey, secretKeyToPublicKey, puzzleHashToAddress, addressToPuzzleHash, adminDelegatedPuzzleFromKey, writerDelegatedPuzzleFromKey, oracleDelegatedPuzzle, signCoinSpends, getCoinId, updateStoreMetadata, updateStoreOwnership, meltStore, signMessage, verifySignedMessage, syntheticKeyToPuzzleHash, getCost } = nativeBinding
 
 module.exports.newLineageProof = newLineageProof
 module.exports.newEveProof = newEveProof
@@ -332,6 +332,8 @@ module.exports.signCoinSpends = signCoinSpends
 module.exports.getCoinId = getCoinId
 module.exports.updateStoreMetadata = updateStoreMetadata
 module.exports.updateStoreOwnership = updateStoreOwnership
+module.exports.meltStore = meltStore
 module.exports.signMessage = signMessage
 module.exports.verifySignedMessage = verifySignedMessage
-module.exports.meltStore = meltStore
+module.exports.syntheticKeyToPuzzleHash = syntheticKeyToPuzzleHash
+module.exports.getCost = getCost
