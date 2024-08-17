@@ -688,19 +688,6 @@ impl Peer {
   }
 
   #[napi]
-  /// Retrieves the fee estimate for a given target time.
-  ///
-  /// @param {Peer} peer - The peer connection to the Chia node.
-  /// @param {BigInt} targetTimeSeconds - The target time in seconds from the current time for the fee estimate.
-  /// @returns {Promise<BigInt>} The estimated fee in mojos per CLVM cost.
-  pub async fn get_fee_estimate(&self, target_time_seconds: BigInt) -> napi::Result<BigInt> {
-    wallet::get_fee_estimate(&self.0.clone(), u64::from_js(target_time_seconds))
-      .await
-      .map_err(js)
-      .map(|fee| fee.to_js())
-  }
-
-  #[napi]
   /// Retrieves all coins that are unspent on the chain. Note that coins part of spend bundles that are pending in the mempool will also be included.
   ///
   /// @param {Buffer} puzzleHash - Puzzle hash of the wallet.
@@ -849,6 +836,19 @@ impl Peer {
         .map_err(js)?
         .to_js(),
     )
+  }
+
+  #[napi]
+  /// Retrieves the fee estimate for a given target time.
+  ///
+  /// @param {Peer} peer - The peer connection to the Chia node.
+  /// @param {BigInt} targetTimeSeconds - The target time in seconds from the current time for the fee estimate.
+  /// @returns {Promise<BigInt>} The estimated fee in mojos per CLVM cost.
+  pub async fn get_fee_estimate(&self, target_time_seconds: BigInt) -> napi::Result<BigInt> {
+    wallet::get_fee_estimate(&self.0.clone(), u64::from_js(target_time_seconds))
+      .await
+      .map_err(js)
+      .map(|fee| fee.to_js())
   }
 }
 
@@ -1231,6 +1231,25 @@ pub fn update_store_ownership(
 }
 
 #[napi]
+/// Melts a store. The 1 mojo change will be used as a fee.
+///
+/// @param {DataStoreInfo} storeInfo - Store information.
+/// @param {Buffer} ownerPublicKey - Owner's public key.
+/// @returns {Vec<CoinSpend>} The coin spends that the owner can sign to melt the store.
+pub fn melt_store(
+  store_info: DataStoreInfo,
+  owner_public_key: Buffer,
+) -> napi::Result<Vec<CoinSpend>> {
+  let res = wallet::melt_store(
+    &RustDataStoreInfo::from_js(store_info),
+    RustPublicKey::from_js(owner_public_key),
+  )
+  .map_err(js)?;
+
+  Ok(res.into_iter().map(|cs| cs.to_js()).collect())
+}
+
+#[napi]
 /// Signs a message using the provided private key.
 ///
 /// @param {Buffer} message - Message to sign, as bytes. "Chia Signed Message" will be prepended automatically, as per CHIP-2 - no need to add it before calling this function.
@@ -1260,22 +1279,15 @@ pub fn verify_signed_message(signature: Buffer, public_key: Buffer, message: Buf
 }
 
 #[napi]
-/// Melts a store. The 1 mojo change will be used as a fee.
+/// Converts a synthetic key to its corresponding standard puzzle hash.
 ///
-/// @param {DataStoreInfo} storeInfo - Store information.
-/// @param {Buffer} ownerPublicKey - Owner's public key.
-/// @returns {Vec<CoinSpend>} The coin spends that the owner can sign to melt the store.
-pub fn melt_store(
-  store_info: DataStoreInfo,
-  owner_public_key: Buffer,
-) -> napi::Result<Vec<CoinSpend>> {
-  let res = wallet::melt_store(
-    &RustDataStoreInfo::from_js(store_info),
-    RustPublicKey::from_js(owner_public_key),
-  )
-  .map_err(js)?;
+/// @param {Buffer} syntheticKey - Synthetic key.
+/// @returns {Buffer} The standard puzzle (puzzle) hash.
+pub fn synthetic_key_to_puzzle_hash(synthetic_key: Buffer) -> Buffer {
+  let puzzle_hash: RustBytes32 =
+    StandardArgs::curry_tree_hash(RustPublicKey::from_js(synthetic_key)).into();
 
-  Ok(res.into_iter().map(|cs| cs.to_js()).collect())
+  puzzle_hash.to_js()
 }
 
 fn js<T>(error: T) -> napi::Error

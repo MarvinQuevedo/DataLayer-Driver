@@ -312,7 +312,22 @@ export declare function updateStoreMetadata(storeInfo: DataStoreInfo, newRootHas
  * @returns {SuccessResponse} The success response, which includes coin spends and information about the new datastore.
  */
 export declare function updateStoreOwnership(storeInfo: DataStoreInfo, newOwnerPuzzleHash: Buffer | undefined | null, newDelegatedPuzzles: Array<DelegatedPuzzle>, ownerPublicKey?: Buffer | undefined | null, adminPublicKey?: Buffer | undefined | null): SuccessResponse
+/**
+ * Signs a message using the provided private key.
+ *
+ * @param {Buffer} message - Message to sign, as bytes. "Chia Signed Message" will be prepended automatically, as per CHIP-2 - no need to add it before calling this function.
+ * @param {Buffer} private_key - Private key to sign the message with. No derivation is done.
+ * @returns {Buffer} The signature.
+ */
 export declare function signMessage(message: Buffer, privateKey: Buffer): Buffer
+/**
+ * Verifies a signed message using the provided public key.
+ *
+ * @param {Buffer} signature - Th signature to be verified.
+ * @param {Buffer} public_key - Public key corresponding to the private key that was used to sign the message.
+ * @param {Buffer} message - Message that was signed, as bytes. "Chia Signed Message" will be prepended automatically, as per CHIP-2 - no need to add it before calling this function.
+ * @returns {Buffer} Boolean - true indicates that the signature is valid, while false indicates that it is not.
+ */
 export declare function verifySignedMessage(signature: Buffer, publicKey: Buffer, message: Buffer): boolean
 /**
  * Melts a store. The 1 mojo change will be used as a fee.
