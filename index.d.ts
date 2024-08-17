@@ -423,4 +423,10 @@ export declare class Peer {
    * @returns {Promise<BigInt>} The estimated fee in mojos per CLVM cost.
    */
   getFeeEstimate(targetTimeSeconds: bigint): Promise<bigint>
+  /**
+   * Retrieves the peer's peak.
+   *
+   * @returns {Option<u32>} A tuple consiting of the latest synced block's height, as reported by the peer. Null if the peer has not yet reported a peak.
+   */
+  getPeak(): Promise<number | null>
 }

@@ -13,11 +13,12 @@ use chia::bls::derive_keys::master_to_wallet_unhardened;
 use chia::bls::{SecretKey as RustSecretKey, Signature as RustSignature};
 use chia::client::Peer as RustPeer;
 use chia::{bls::PublicKey as RustPublicKey, traits::Streamable};
-use chia_protocol::CoinSpend as RustCoinSpend;
+use chia_client::PeerEvent;
 use chia_protocol::Program as RustProgram;
 use chia_protocol::SpendBundle as RustSpendBundle;
 use chia_protocol::{Bytes as RustBytes, Coin as RustCoin};
 use chia_protocol::{Bytes32 as RustBytes32, NodeType};
+use chia_protocol::{CoinSpend as RustCoinSpend, NewPeakWallet};
 use chia_puzzles::standard::StandardArgs;
 use chia_puzzles::LineageProof as RustLineageProof;
 use chia_puzzles::Proof as RustProof;
@@ -37,6 +38,7 @@ use puzzles_info::{
   DataStoreInfo as RustDataStoreInfo, DataStoreMetadata as RustDataStoreMetadata,
   DelegatedPuzzle as RustDelegatedPuzzle, DelegatedPuzzleInfo as RustDelegatedPuzzleInfo,
 };
+use tokio::sync::Mutex;
 use wallet::SuccessResponse as RustSuccessResponse;
 use wallet::SyncStoreResponse as RustSyncStoreResponse;
 use wallet::UnspentCoinsResponse as RustUnspentCoinsResponse;
@@ -657,7 +659,10 @@ impl ToJS<UnspentCoinsResponse> for RustUnspentCoinsResponse {
 }
 
 #[napi]
-pub struct Peer(Arc<RustPeer>);
+pub struct Peer {
+  inner: Arc<RustPeer>,
+  peak: Arc<Mutex<Option<NewPeakWallet>>>,
+}
 
 #[napi]
 impl Peer {
@@ -684,7 +689,22 @@ impl Peer {
       .await
       .map_err(js)?;
 
-    Ok(Self(Arc::new(peer)))
+    let inner = Arc::new(peer);
+    let peak = Arc::new(Mutex::new(None));
+
+    let inner_clone = inner.clone();
+    let peak_clone = peak.clone();
+    tokio::spawn(async move {
+      let mut receiver = inner_clone.receiver().resubscribe();
+      while let Ok(event) = receiver.recv().await {
+        if let PeerEvent::NewPeakWallet(new_peak) = event {
+          let mut peak_guard = peak_clone.lock().await;
+          *peak_guard = Some(new_peak);
+        }
+      }
+    });
+
+    Ok(Self { inner, peak })
   }
 
   #[napi]
@@ -701,7 +721,7 @@ impl Peer {
     previous_header_hash: Buffer,
   ) -> napi::Result<UnspentCoinsResponse> {
     let resp = get_unspent_coins(
-      &self.0.clone(),
+      &self.inner.clone(),
       RustBytes32::from_js(puzzle_hash),
       previous_height,
       RustBytes32::from_js(previous_header_hash),
@@ -728,7 +748,7 @@ impl Peer {
     with_history: bool,
   ) -> napi::Result<SyncStoreResponse> {
     let res = sync_store(
-      &self.0.clone(),
+      &self.inner.clone(),
       &RustDataStoreInfo::from_js(store_info),
       last_height,
       RustBytes32::from_js(last_header_hash),
@@ -756,7 +776,7 @@ impl Peer {
     with_history: bool,
   ) -> napi::Result<SyncStoreResponse> {
     let res = sync_store_using_launcher_id(
-      &self.0.clone(),
+      &self.inner.clone(),
       RustBytes32::from_js(launcher_id),
       last_height,
       RustBytes32::from_js(last_header_hash),
@@ -791,7 +811,7 @@ impl Peer {
     );
 
     Ok(
-      wallet::broadcast_spend_bundle(&self.0.clone(), spend_bundle)
+      wallet::broadcast_spend_bundle(&self.inner.clone(), spend_bundle)
         .await
         .map_err(js)?
         .error
@@ -814,7 +834,7 @@ impl Peer {
   ) -> napi::Result<bool> {
     Ok(
       is_coin_spent(
-        &self.0.clone(),
+        &self.inner.clone(),
         RustBytes32::from_js(coin_id),
         last_height,
         RustBytes32::from_js(header_hash),
@@ -831,7 +851,7 @@ impl Peer {
   /// @returns {Promise<Buffer>} The header hash.
   pub async fn get_header_hash(&self, height: u32) -> napi::Result<Buffer> {
     Ok(
-      get_header_hash(&self.0.clone(), height)
+      get_header_hash(&self.inner.clone(), height)
         .await
         .map_err(js)?
         .to_js(),
@@ -845,10 +865,20 @@ impl Peer {
   /// @param {BigInt} targetTimeSeconds - The target time in seconds from the current time for the fee estimate.
   /// @returns {Promise<BigInt>} The estimated fee in mojos per CLVM cost.
   pub async fn get_fee_estimate(&self, target_time_seconds: BigInt) -> napi::Result<BigInt> {
-    wallet::get_fee_estimate(&self.0.clone(), u64::from_js(target_time_seconds))
+    wallet::get_fee_estimate(&self.inner.clone(), u64::from_js(target_time_seconds))
       .await
       .map_err(js)
       .map(|fee| fee.to_js())
+  }
+
+  #[napi]
+  /// Retrieves the peer's peak.
+  ///
+  /// @returns {Option<u32>} A tuple consiting of the latest synced block's height, as reported by the peer. Null if the peer has not yet reported a peak.
+  pub async fn get_peak(&self) -> napi::Result<Option<u32>> {
+    let peak_guard = self.peak.lock().await;
+    let peak: Option<NewPeakWallet> = peak_guard.clone();
+    Ok(peak.map(|p| p.height))
   }
 }
 
