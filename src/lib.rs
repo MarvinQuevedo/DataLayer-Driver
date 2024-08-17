@@ -1249,13 +1249,13 @@ pub fn sign_message(
 
 #[napi]
 pub fn verify_signed_message(
-  sig: Buffer,
+  signature: Buffer,
   public_key: Buffer,
   message: Buffer,
 ) -> Result<bool> {
-  let sig = RustSignature::from_js(sig);
-  let public_key = RustPublicKey::from_js(public_key);
-  let is_valid = verify(&sig, &public_key, &message);
+  let sig = RustSignature::from_js(signature);
+  let pk = RustPublicKey::from_js(public_key);
+  let is_valid = verify(&sig, &pk, &message);
 
   Ok(is_valid)
 }
