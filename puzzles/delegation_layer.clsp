@@ -33,7 +33,7 @@
     (if conditions
       (if (= (f (f conditions)) NEW_MERKLE_ROOT_CONDITION)
         (morph_conditions
-          MOD_HASH INNER_PUZZLE_HASH
+          MOD_HASH LAUNCHER_ID INNER_PUZZLE_HASH
           (r conditions)
           (r (f conditions))
         )
