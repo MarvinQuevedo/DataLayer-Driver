@@ -774,28 +774,24 @@ pub async fn get_header_hash(
 
 pub async fn get_fee_estimate(
   peer: &Peer,
-  target_time_seconds: u64
+  target_time_seconds: u64,
 ) -> Result<u64, ClientError<String>> {
-  let time_targets = vec![target_time_seconds];
-
-  // Call the request_fee_estimates function with the specified time target
   let fee_estimate_group = peer
-      .request_fee_estimates(time_targets)
-      .await
-      .map_err(|e| ClientError::Rejection(format!("Request failed: {:?}", e)))?;
+    .request_fee_estimates(vec![target_time_seconds])
+    .await
+    .map_err(|e| ClientError::Rejection(format!("Request failed: {:?}", e)))?;
 
-  // Check if there is an error in the response
   if let Some(error_message) = fee_estimate_group.error {
-      return Err(ClientError::Rejection(error_message));
+    return Err(ClientError::Rejection(error_message));
   }
 
-  // Extract the first fee estimate from the response
   if let Some(first_estimate) = fee_estimate_group.estimates.first() {
-      return Ok(first_estimate.estimated_fee_rate.mojos_per_clvm_cost);
+    return Ok(first_estimate.estimated_fee_rate.mojos_per_clvm_cost);
   }
 
-  // If no estimates are found, return a custom error
-  Err(ClientError::Rejection("No fee estimates available".to_string()))
+  Err(ClientError::Rejection(
+    "No fee estimates available".to_string(),
+  ))
 }
 
 pub async fn is_coin_spent(

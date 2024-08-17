@@ -10,14 +10,14 @@ mod wallet;
 use std::sync::Arc;
 
 use chia::bls::derive_keys::master_to_wallet_unhardened;
-use chia::bls::{SecretKey as RustSecretKey, Signature as RustSignature, sign, verify};
-use chia::client::Peer as RustPeer;
+use chia::bls::{sign, verify, SecretKey as RustSecretKey, Signature as RustSignature};
 use chia::client::Error as ClientError;
+use chia::client::Peer as RustPeer;
 use chia::{bls::PublicKey as RustPublicKey, traits::Streamable};
-use chia_protocol::{Bytes, Coin as RustCoin};
 use chia_protocol::CoinSpend as RustCoinSpend;
 use chia_protocol::Program as RustProgram;
 use chia_protocol::SpendBundle as RustSpendBundle;
+use chia_protocol::{Bytes, Coin as RustCoin};
 use chia_protocol::{Bytes32 as RustBytes32, NodeType};
 use chia_puzzles::standard::StandardArgs;
 use chia_puzzles::LineageProof as RustLineageProof;
@@ -32,13 +32,13 @@ pub use debug::*;
 pub use drivers::*;
 pub use merkle_tree::*;
 use napi::bindgen_prelude::*;
-use std::time::{SystemTime, UNIX_EPOCH};
 pub use puzzles::*;
 pub use puzzles_info::*;
 use puzzles_info::{
   DataStoreInfo as RustDataStoreInfo, DataStoreMetadata as RustDataStoreMetadata,
   DelegatedPuzzle as RustDelegatedPuzzle, DelegatedPuzzleInfo as RustDelegatedPuzzleInfo,
 };
+use std::time::{SystemTime, UNIX_EPOCH};
 use wallet::SuccessResponse as RustSuccessResponse;
 use wallet::SyncStoreResponse as RustSyncStoreResponse;
 use wallet::UnspentCoinsResponse as RustUnspentCoinsResponse;
@@ -684,25 +684,10 @@ impl Peer {
   /// @param {BigInt} targetTimeSeconds - The target time in seconds from the current time for the fee estimate.
   /// @returns {Promise<BigInt>} The estimated fee in mojos per CLVM cost.
   pub async fn get_fee_estimate(&self, target_time_seconds: BigInt) -> napi::Result<BigInt> {
-      // Convert the target_time_seconds BigInt to u64
-      let target_time_seconds_u64: u64 = target_time_seconds.get_u64().1;
-  
-      // Get the current time as a Unix timestamp in seconds
-      let current_time = SystemTime::now().duration_since(UNIX_EPOCH)
-          .expect("Time went backwards")
-          .as_secs();
-  
-      // Calculate the target Unix timestamp
-      let target_timestamp = current_time + target_time_seconds_u64;
-  
-      // Call the Rust get_fee_estimate function with the calculated Unix timestamp
-      match wallet::get_fee_estimate(&self.0.clone(), target_timestamp).await {
-          Ok(fee_estimate) => Ok(BigInt::from(fee_estimate)),
-          Err(ClientError::Rejection(error_message)) => {
-              Err(napi::Error::from_reason(format!("Fee estimate rejection: {}", error_message)))
-          }
-          Err(e) => Err(napi::Error::from_reason(format!("Failed to request fee estimates: {:?}", e))),
-      }
+    wallet::get_fee_estimate(&self.0.clone(), u64::from_js(target_time_seconds))
+      .await
+      .map_err(js)
+      .map(|fee| fee.to_js())
   }
 
   #[napi]
@@ -1236,10 +1221,7 @@ pub fn update_store_ownership(
 }
 
 #[napi]
-pub fn sign_message(
-  message: Buffer,
-  private_key: Buffer,
-) -> Result<Buffer> {
+pub fn sign_message(message: Buffer, private_key: Buffer) -> Result<Buffer> {
   let sk = RustSecretKey::from_js(private_key);
   let signed = sign(&sk, &message);
 
