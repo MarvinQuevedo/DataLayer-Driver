@@ -862,7 +862,7 @@ impl Peer {
   /// Retrieves the fee estimate for a given target time.
   ///
   /// @param {Peer} peer - The peer connection to the Chia node.
-  /// @param {BigInt} targetTimeSeconds - The target time in seconds from the current time for the fee estimate.
+  /// @param {BigInt} targetTimeSeconds - Time delta: The target time in seconds from the current time for the fee estimate.
   /// @returns {Promise<BigInt>} The estimated fee in mojos per CLVM cost.
   pub async fn get_fee_estimate(&self, target_time_seconds: BigInt) -> napi::Result<BigInt> {
     wallet::get_fee_estimate(&self.inner.clone(), u64::from_js(target_time_seconds))

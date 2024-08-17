@@ -47,6 +47,7 @@ use clvm_traits::ToClvmError;
 use clvm_utils::tree_hash;
 use clvmr::Allocator;
 use std::io::Error as IoError;
+use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
 use crate::datastore_spend;
@@ -796,6 +797,12 @@ pub async fn get_fee_estimate(
   peer: &Peer,
   target_time_seconds: u64,
 ) -> Result<u64, ClientError<String>> {
+  let target_time_seconds = target_time_seconds
+    + SystemTime::now()
+      .duration_since(UNIX_EPOCH)
+      .expect("Time went backwards")
+      .as_secs();
+
   let fee_estimate_group = peer
     .request_fee_estimates(vec![target_time_seconds])
     .await
@@ -806,6 +813,10 @@ pub async fn get_fee_estimate(
   }
 
   if let Some(first_estimate) = fee_estimate_group.estimates.first() {
+    if let Some(error_message) = &first_estimate.error {
+      return Err(ClientError::Rejection(error_message.clone()));
+    }
+
     return Ok(first_estimate.estimated_fee_rate.mojos_per_clvm_cost);
   }
 

@@ -419,7 +419,7 @@ export declare class Peer {
    * Retrieves the fee estimate for a given target time.
    *
    * @param {Peer} peer - The peer connection to the Chia node.
-   * @param {BigInt} targetTimeSeconds - The target time in seconds from the current time for the fee estimate.
+   * @param {BigInt} targetTimeSeconds - Time delta: The target time in seconds from the current time for the fee estimate.
    * @returns {Promise<BigInt>} The estimated fee in mojos per CLVM cost.
    */
   getFeeEstimate(targetTimeSeconds: bigint): Promise<bigint>
