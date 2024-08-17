@@ -1231,16 +1231,26 @@ pub fn update_store_ownership(
 }
 
 #[napi]
-pub fn sign_message(message: Buffer, private_key: Buffer) -> Result<Buffer> {
-  let signed = wallet::sign_message(
+/// Signs a message using the provided private key.
+///
+/// @param {Buffer} message - Message to sign, as bytes. "Chia Signed Message" will be prepended automatically, as per CHIP-2 - no need to add it before calling this function.
+/// @param {Buffer} private_key - Private key to sign the message with. No derivation is done.
+/// @returns {Buffer} The signature.
+pub fn sign_message(message: Buffer, private_key: Buffer) -> Buffer {
+  wallet::sign_message(
     RustBytes::from_js(message),
     RustSecretKey::from_js(private_key),
-  );
-
-  Ok(signed.to_js())
+  )
+  .to_js()
 }
 
 #[napi]
+/// Verifies a signed message using the provided public key.
+///
+/// @param {Buffer} signature - Th signature to be verified.
+/// @param {Buffer} public_key - Public key corresponding to the private key that was used to sign the message.
+/// @param {Buffer} message - Message that was signed, as bytes. "Chia Signed Message" will be prepended automatically, as per CHIP-2 - no need to add it before calling this function.
+/// @returns {Buffer} Boolean - true indicates that the signature is valid, while false indicates that it is not.
 pub fn verify_signed_message(signature: Buffer, public_key: Buffer, message: Buffer) -> bool {
   wallet::verify_signature(
     RustBytes::from_js(message),

@@ -79,13 +79,13 @@ export declare function newEveProof(eveProof: EveProof): Proof
  * @property {Buffer} rootHash - Root hash.
  * @property {Option<String>} label - Label (optional).
  * @property {Option<String>} description - Description (optional).
- * @property {Option<BigInt>} size - Size of the store (optional).
+ * @property {Option<BigInt>} bytes - Size of the store in bytes (optional).
  */
 export interface DataStoreMetadata {
   rootHash: Buffer
   label?: string
   description?: string
-  size?: bigint
+  bytes?: bigint
 }
 /**
  * Represents information about a delegated puzzle. Note that this struct can represent all three types of delegated puzzles, but only represents one at a time.
@@ -180,13 +180,13 @@ export declare function selectCoins(allCoins: Array<Coin>, totalAmount: bigint):
  * @param {Buffer} rootHash - Root hash of the store.
  * @param {Option<String>} label - Store label (optional).
  * @param {Option<String>} description - Store description (optional).
- * @param {Option<BigInt>} size - Store size (optional).
+ * @param {Option<BigInt>} bytes - Store size in bytes (optional).
  * @param {Buffer} ownerPuzzleHash - Owner puzzle hash.
  * @param {Vec<DelegatedPuzzle>} delegatedPuzzles - Delegated puzzles.
  * @param {BigInt} fee - Fee to use for the transaction. Total amount - 1 - fee will be sent back to the minter.
  * @returns {SuccessResponse} The success response, which includes coin spends and information about the new datastore.
  */
-export declare function mintStore(minterSyntheticKey: Buffer, selectedCoins: Array<Coin>, rootHash: Buffer, label: string | undefined | null, description: string | undefined | null, size: bigint | undefined | null, ownerPuzzleHash: Buffer, delegatedPuzzles: Array<DelegatedPuzzle>, fee: bigint): SuccessResponse
+export declare function mintStore(minterSyntheticKey: Buffer, selectedCoins: Array<Coin>, rootHash: Buffer, label: string | undefined | null, description: string | undefined | null, bytes: bigint | undefined | null, ownerPuzzleHash: Buffer, delegatedPuzzles: Array<DelegatedPuzzle>, fee: bigint): SuccessResponse
 /**
  * Spends a store in oracle mode.
  *
@@ -294,13 +294,13 @@ export declare function getCoinId(coin: Coin): Buffer
  * @param {Buffer} newRootHash - New root hash.
  * @param {Option<String>} newLabel - New label (optional).
  * @param {Option<String>} newDescription - New description (optional).
- * @param {Option<BigInt>} newSize - New size (optional).
+ * @param {Option<BigInt>} newBytes - New size in bytes (optional).
  * @param {Option<Buffer>} ownerPublicKey - Owner public key.
  * @param {Option<Buffer>} adminPublicKey - Admin public key.
  * @param {Option<Buffer>} writerPublicKey - Writer public key.
  * @returns {SuccessResponse} The success response, which includes coin spends and information about the new datastore.
  */
-export declare function updateStoreMetadata(storeInfo: DataStoreInfo, newRootHash: Buffer, newLabel?: string | undefined | null, newDescription?: string | undefined | null, newSize?: bigint | undefined | null, ownerPublicKey?: Buffer | undefined | null, adminPublicKey?: Buffer | undefined | null, writerPublicKey?: Buffer | undefined | null): SuccessResponse
+export declare function updateStoreMetadata(storeInfo: DataStoreInfo, newRootHash: Buffer, newLabel?: string | undefined | null, newDescription?: string | undefined | null, newBytes?: bigint | undefined | null, ownerPublicKey?: Buffer | undefined | null, adminPublicKey?: Buffer | undefined | null, writerPublicKey?: Buffer | undefined | null): SuccessResponse
 /**
  * Updates the ownership of a store. Either the admin or owner public key must be provided.
  *
@@ -312,6 +312,8 @@ export declare function updateStoreMetadata(storeInfo: DataStoreInfo, newRootHas
  * @returns {SuccessResponse} The success response, which includes coin spends and information about the new datastore.
  */
 export declare function updateStoreOwnership(storeInfo: DataStoreInfo, newOwnerPuzzleHash: Buffer | undefined | null, newDelegatedPuzzles: Array<DelegatedPuzzle>, ownerPublicKey?: Buffer | undefined | null, adminPublicKey?: Buffer | undefined | null): SuccessResponse
+export declare function signMessage(message: Buffer, privateKey: Buffer): Buffer
+export declare function verifySignedMessage(signature: Buffer, publicKey: Buffer, message: Buffer): boolean
 /**
  * Melts a store. The 1 mojo change will be used as a fee.
  *
@@ -320,24 +322,6 @@ export declare function updateStoreOwnership(storeInfo: DataStoreInfo, newOwnerP
  * @returns {Vec<CoinSpend>} The coin spends that the owner can sign to melt the store.
  */
 export declare function meltStore(storeInfo: DataStoreInfo, ownerPublicKey: Buffer): Array<CoinSpend>
-/**
- * Signs a message using a private key.
- *
- * @param {Buffer} message - The message to be signed.
- * @param {Buffer} privateKey - The private key to sign the message with.
- * @returns {Promise<Buffer>} The signed message as a Buffer.
- */
-export declare function signMessage(message: Buffer, privateKey: Buffer): Buffer
-
-/**
- * Verifies a signed message using a public key.
- *
- * @param {Buffer} sig - The signature to verify.
- * @param {Buffer} publicKey - The public key to verify the signature with.
- * @param {Buffer} message - The original message that was signed.
- * @returns {Promise<boolean>} Whether the signature is valid.
- */
-export declare function verifySignedMessage(sig: Buffer, publicKey: Buffer, message: Buffer): boolean
 export declare class Peer {
   /**
    * Creates a new Peer instance.
@@ -349,6 +333,14 @@ export declare class Peer {
    * @returns {Promise<Peer>} A new Peer instance.
    */
   static new(nodeUri: string, networkId: string, certPath: string, keyPath: string): Promise<Peer>
+  /**
+   * Retrieves the fee estimate for a given target time.
+   *
+   * @param {Peer} peer - The peer connection to the Chia node.
+   * @param {BigInt} targetTimeSeconds - The target time in seconds from the current time for the fee estimate.
+   * @returns {Promise<BigInt>} The estimated fee in mojos per CLVM cost.
+   */
+  getFeeEstimate(targetTimeSeconds: bigint): Promise<bigint>
   /**
    * Retrieves all coins that are unspent on the chain. Note that coins part of spend bundles that are pending in the mempool will also be included.
    *
@@ -369,14 +361,6 @@ export declare class Peer {
    */
   syncStore(storeInfo: DataStoreInfo, lastHeight: number | undefined | null, lastHeaderHash: Buffer, withHistory: boolean): Promise<SyncStoreResponse>
   /**
-   * Retrieves the fee estimate for a given target time.
-   *
-   * @param {Peer} peer - The peer connection to the Chia node.
-   * @param {number} targetTimeSeconds - The target time in seconds for the fee estimate.
-   * @returns {Promise<number>} The estimated fee in mojos per CLVM cost.
-   */
-  getFeeEstimate(peer: Peer, targetTimeSeconds: BigInt): Promise<BigInt>
-  /**
    * Synchronizes a store using its launcher ID.
    *
    * @param {Buffer} launcherId - The store's launcher/singleton ID.
@@ -386,7 +370,6 @@ export declare class Peer {
    * @returns {Promise<SyncStoreResponse>} The sync store response.
    */
   syncStoreFromLauncherId(launcherId: Buffer, lastHeight: number | undefined | null, lastHeaderHash: Buffer, withHistory: boolean): Promise<SyncStoreResponse>
-  
   /**
    * Broadcasts a spend bundle to the mempool.
    *
