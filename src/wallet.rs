@@ -685,8 +685,8 @@ pub enum TargetNetwork {
 impl TargetNetwork {
   fn get_constants(&self) -> ConsensusConstants {
     match self {
-      TargetNetwork::Mainnet => MAINNET_CONSTANTS,
-      TargetNetwork::Testnet11 => MAINNET_CONSTANTS,
+      TargetNetwork::Mainnet => MAINNET_CONSTANTS.to_owned(),
+      TargetNetwork::Testnet11 => MAINNET_CONSTANTS.to_owned(),
     }
   }
 }
