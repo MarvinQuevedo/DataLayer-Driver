@@ -11,7 +11,6 @@ use chia::clvm_traits::clvm_tuple;
 use chia::clvm_traits::ToClvm;
 use chia::clvm_utils::tree_hash;
 use chia::consensus::consensus_constants::ConsensusConstants;
-use chia::consensus::consensus_constants::TEST_CONSTANTS;
 use chia::consensus::gen::conditions::EmptyVisitor;
 use chia::consensus::gen::flags::MEMPOOL_MODE;
 use chia::consensus::gen::owned_conditions::OwnedSpendBundleConditions;
@@ -51,6 +50,7 @@ use chia_wallet_sdk::SignerError;
 use chia_wallet_sdk::SpendContext;
 use chia_wallet_sdk::StandardLayer;
 use chia_wallet_sdk::WriterLayer;
+use chia_wallet_sdk::MAINNET_CONSTANTS;
 use clvmr::sha2::Sha256;
 use clvmr::Allocator;
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -685,8 +685,8 @@ pub enum TargetNetwork {
 impl TargetNetwork {
   fn get_constants(&self) -> ConsensusConstants {
     match self {
-      TargetNetwork::Mainnet => TEST_CONSTANTS,
-      TargetNetwork::Testnet11 => TEST_CONSTANTS,
+      TargetNetwork::Mainnet => MAINNET_CONSTANTS,
+      TargetNetwork::Testnet11 => MAINNET_CONSTANTS,
     }
   }
 }
