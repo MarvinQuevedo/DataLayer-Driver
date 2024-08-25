@@ -89,11 +89,11 @@ const successResponse = await mintStore(
   );
  ```
  
- The code above is used to mint stores. Note that a success response not only contains unsigned coin spends, but also returns a new `DataStoreInfo` object that can be used to sync or spend the store in the future. Note that some drivers will not require coins, only the information of the store being spent:
+ The code above is used to mint stores. Note that a success response not only contains unsigned coin spends, but also returns a new `DataStore` object that can be used to sync or spend the store in the future. Note that some drivers will not require coins, only the information of the store being spent:
  
  ```js
  const resp = meltStore(
-    parseDataStoreInfo(info),
+    parseDataStore(info),
     ownerPublicKey
   );
 ```
@@ -107,8 +107,10 @@ const resp = await addFee(serverKey, selectedCoins, coin_ids, BigInt(fee));
 Before broadcasting transactions, you'll usually need to sign the coin spends. The `signCoinSpends` function was created for that purpose:
 
 ```js
-const sig = signCoinSpends(coinSpends, [getPrivateSyntheticKey()], NETWORK_AGG_SIG_DATA);
+const sig = signCoinSpends(coinSpends, [getPrivateSyntheticKey()], true);
 ```
+
+Note that `true` indicates that the transaction is being signed for testnet11, while `false` indicates mainnet.
 
 Broadcasting a bundle is as easy as:
 
@@ -184,7 +186,7 @@ const {
 } = await peer.syncStoreFromLauncherId(launcherId, MIN_HEIGHT, MIN_HEIGHT_HEADER_HASH, false);
 ```
 
-If you already have a `DataStoreInfo` object, you can use it to 'bootstrap' the syncing process and minimize the time it takes to fetch the latest info:
+If you already have a `DataStore` object, you can use it to 'bootstrap' the syncing process and minimize the time it takes to fetch the latest info:
 
 
 ```js
