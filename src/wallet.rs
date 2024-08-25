@@ -7,15 +7,17 @@ use chia::bls::SecretKey;
 use chia::bls::Signature;
 use chia::client::Error as ClientError;
 use chia::client::Peer;
+use chia::clvm_traits::clvm_tuple;
 use chia::clvm_traits::ToClvm;
+use chia::clvm_utils::tree_hash;
 use chia::consensus::consensus_constants::ConsensusConstants;
 use chia::consensus::consensus_constants::TEST_CONSTANTS;
-use chia::consensus::error::Error as ChiaConsensusError;
 use chia::consensus::gen::conditions::EmptyVisitor;
 use chia::consensus::gen::flags::MEMPOOL_MODE;
 use chia::consensus::gen::owned_conditions::OwnedSpendBundleConditions;
 use chia::consensus::gen::run_block_generator::run_block_generator;
 use chia::consensus::gen::solution_generator::solution_generator;
+use chia::consensus::gen::validation_error::ValidationErr;
 use chia::protocol::Bytes;
 use chia::protocol::Coin;
 use chia::protocol::CoinStateFilters;
@@ -75,9 +77,6 @@ pub enum WalletError {
   #[error("{0:?}")]
   Driver(#[from] DriverError),
 
-  #[error("{0:?}")]
-  ChiaConsensus(#[from] ChiaConsensusError),
-
   #[error("ParseError")]
   Parse(),
 
@@ -86,6 +85,12 @@ pub enum WalletError {
 
   #[error("Permission error: puzzle can't perform this action")]
   Permission(),
+
+  #[error("Io error: {0}")]
+  Io(std::io::Error),
+
+  #[error("Validation error: {0}")]
+  Validation(#[from] ValidationErr),
 }
 
 pub struct UnspentCoinsResponse {
@@ -784,7 +789,7 @@ pub async fn is_coin_spent(
   coin_id: Bytes32,
   last_height: Option<u32>,
   last_header_hash: Bytes32,
-) -> Result<bool, Error> {
+) -> Result<bool, WalletError> {
   let response = peer
     .request::<RespondCoinState, RequestCoinState>(RequestCoinState::new(
       vec![coin_id],
@@ -802,24 +807,26 @@ pub async fn is_coin_spent(
 }
 
 // https://github.com/Chia-Network/chips/blob/main/CHIPs/chip-0002.md#signmessage
-pub fn make_message(msg: Bytes) -> Bytes32 {
+pub fn make_message(msg: Bytes) -> Result<Bytes32, WalletError> {
   let mut alloc = Allocator::new();
-  let thing_ptr = clvm_tuple!("Chia Signed Message", msg)
-    .to_clvm(&mut alloc)
-    .expect("Could not serialize message");
+  let thing_ptr = clvm_tuple!("Chia Signed Message", msg).to_clvm(&mut alloc)?;
 
-  tree_hash(&alloc, thing_ptr).into()
+  Ok(tree_hash(&alloc, thing_ptr).into())
 }
 
-pub fn sign_message(message: Bytes, sk: SecretKey) -> Signature {
-  sign(&sk, &make_message(message))
+pub fn sign_message(message: Bytes, sk: SecretKey) -> Result<Signature, WalletError> {
+  Ok(sign(&sk, &make_message(message)?))
 }
 
-pub fn verify_signature(message: Bytes, pk: PublicKey, sig: Signature) -> bool {
-  verify(&sig, &pk, &make_message(message))
+pub fn verify_signature(
+  message: Bytes,
+  pk: PublicKey,
+  sig: Signature,
+) -> Result<bool, WalletError> {
+  Ok(verify(&sig, &pk, &make_message(message)?))
 }
 
-pub fn get_cost(coin_spends: Vec<CoinSpend>) -> Result<u64, Error> {
+pub fn get_cost(coin_spends: Vec<CoinSpend>) -> Result<u64, WalletError> {
   let mut alloc = Allocator::new();
 
   let generator = solution_generator(
@@ -827,14 +834,18 @@ pub fn get_cost(coin_spends: Vec<CoinSpend>) -> Result<u64, Error> {
       .into_iter()
       .map(|cs| (cs.coin, cs.puzzle_reveal, cs.solution)),
   )
-  .map_err(|err| Error::Io(err))?;
+  .map_err(WalletError::Io)?;
 
-  let conds =
-    run_block_generator::<&[u8], EmptyVisitor>(&mut alloc, &generator, &[], u64::MAX, MEMPOOL_MODE)
-      .map_err(|err| Error::Validation(err))?;
+  let conds = run_block_generator::<&[u8], EmptyVisitor, _>(
+    &mut alloc,
+    &generator,
+    &[],
+    u64::MAX,
+    MEMPOOL_MODE,
+    &TargetNetwork::Mainnet.get_constants(),
+  )?;
 
-  let conds =
-    OwnedSpendBundleConditions::from(&alloc, conds).map_err(|err| Error::ChiaConsensus(err))?;
+  let conds = OwnedSpendBundleConditions::from(&alloc, conds);
 
   Ok(conds.cost)
 }
