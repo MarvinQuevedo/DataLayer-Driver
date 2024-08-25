@@ -37,6 +37,8 @@ use chia_wallet_sdk::Launcher;
 use chia_wallet_sdk::RequiredSignature;
 use chia_wallet_sdk::SignerError;
 use chia_wallet_sdk::SpendContext;
+use chia_wallet_sdk::StandardLayer;
+use chia_wallet_sdk::WriterLayer;
 use clvmr::sha2::Sha256;
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
@@ -388,60 +390,43 @@ pub enum DataStoreInnerSpendInfo {
 fn update_store_with_conditions(
   ctx: &mut SpendContext,
   conditions: Conditions,
-  store: DataStore,
+  datastore: DataStore,
   inner_spend_info: DataStoreInnerSpendInfo,
   allow_admin: bool,
   allow_writer: bool,
 ) -> Result<SuccessResponse, WalletError> {
   let inner_datastore_spend = match inner_spend_info {
-    // todo: if no CREATE_COINs, re-create with same params
-    DataStoreInnerSpendInfo::Owner(pk) => DatastoreInnerSpend::OwnerPuzzleSpend(
-      conditions
-        .p2_spend(ctx, pk)
-        .map_err(|err| Error::Spend(err))?,
-    ),
+    DataStoreInnerSpendInfo::Owner(pk) => StandardLayer::new(pk).spend(ctx, conditions)?,
     DataStoreInnerSpendInfo::Admin(pk) => {
       if !allow_admin {
-        return Err(Error::Permission());
+        return Err(WalletError::Permission());
       }
 
-      let (dp, _) = DelegatedPuzzle::from_admin_pk(ctx, pk).map_err(|err| Error::Spend(err))?;
-      DatastoreInnerSpend::DelegatedPuzzleSpend(
-        dp,
-        conditions
-          .p2_spend(ctx, pk)
-          .map_err(|err| Error::Spend(err))?,
-      )
+      StandardLayer::new(pk).spend(ctx, conditions)?
     }
     DataStoreInnerSpendInfo::Writer(pk) => {
       if !allow_writer {
-        return Err(Error::Permission());
+        return Err(WalletError::Permission());
       }
 
-      let (dp, _) = DelegatedPuzzle::from_writer_pk(ctx, pk).map_err(|err| Error::Spend(err))?;
-      DatastoreInnerSpend::DelegatedPuzzleSpend(
-        dp,
-        conditions
-          .p2_spend(ctx, pk)
-          .map_err(|err| Error::Spend(err))?,
-      )
+      WriterLayer::new(StandardLayer::new(pk)).spend(ctx, conditions)?
     }
   };
 
-  let new_spend =
-    datastore_spend(ctx, &store_info, inner_datastore_spend).map_err(|err| Error::Spend(err))?;
-  ctx.insert_coin_spend(new_spend.clone());
+  let parent_delegated_puzzles = datastore.info.delegated_puzzles.clone();
+  let new_spend = datastore.spend(ctx, inner_datastore_spend)?;
 
-  let new_info = DataStoreInfo::from_spend(
-    ctx.allocator_mut(),
+  let new_datastore = DataStore::<DataStoreMetadata>::from_spend(
+    &mut ctx.allocator,
     &new_spend,
-    &store_info.delegated_puzzles.clone(),
-  )
-  .map_err(|_| Error::Parse())?;
+    parent_delegated_puzzles,
+  )?
+  .ok_or(WalletError::Parse())?;
+  ctx.insert(new_spend);
 
   Ok(SuccessResponse {
-    coin_spends: ctx.take_spends(),
-    new_info,
+    coin_spends: ctx.take(),
+    new_datastore,
   })
 }
 
