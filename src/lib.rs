@@ -1,6 +1,6 @@
 mod wallet;
 
-use chia::bls::PublicKey as RustPublicKey;
+use chia::bls::{master_to_wallet_unhardened, PublicKey as RustPublicKey};
 use chia::bls::{SecretKey as RustSecretKey, Signature as RustSignature};
 use chia::client::Peer as RustPeer;
 use chia::client::PeerEvent;
@@ -14,7 +14,7 @@ use chia::puzzles::LineageProof as RustLineageProof;
 use chia::puzzles::Proof as RustProof;
 use chia::puzzles::{DeriveSynthetic, EveProof as RustEveProof};
 use chia_wallet_sdk::{
-  connect_peer, create_tls_connector, decode_address, encode_address, load_ssl_cert,
+  connect_peer, create_tls_connector, decode_address, encode_address, load_ssl_cert, SpendContext,
 };
 use chia_wallet_sdk::{
   DataStore as RustDataStore, DataStoreInfo as RustDataStoreInfo,
@@ -667,15 +667,15 @@ impl FromJS<UnspentCoinsResponse> for RustUnspentCoinsResponse {
 }
 
 impl ToJS<UnspentCoinsResponse> for RustUnspentCoinsResponse {
-  fn to_js(&self) -> StdResult<UnspentCoinsResponse, ConversionError> {
+  fn to_js(&self) -> StdResult<UnspentCoinsResponse, napi::Error> {
     Ok(UnspentCoinsResponse {
       coins: self
         .coins
         .iter()
         .map(RustCoin::to_js)
-        .collect::<StdResult<Vec<Coin>, ConversionError>>()?,
+        .collect::<StdResult<Vec<Coin>, napi::Error>>()?,
       last_height: self.last_height,
-      last_header_hash: self.last_header_hash.to_js(),
+      last_header_hash: self.last_header_hash.to_js()?,
     })
   }
 }
@@ -807,7 +807,7 @@ impl Peer {
     .await
     .map_err(js)?;
 
-    res.to_js().map_err(js)
+    res.to_js()
   }
 
   #[napi]
@@ -821,15 +821,17 @@ impl Peer {
     coin_spends: Vec<CoinSpend>,
     sigs: Vec<Buffer>,
   ) -> napi::Result<String> {
+    let mut agg_sig = RustSignature::default();
+    for sig in sigs.into_iter() {
+      agg_sig += &RustSignature::from_js(sig)?;
+    }
+
     let spend_bundle = RustSpendBundle::new(
       coin_spends
         .into_iter()
         .map(RustCoinSpend::from_js)
-        .collect::<StdResult<Vec<RustCoinSpend>, ConversionError>>()?,
-      sigs
-        .into_iter()
-        .map(|js_sig| RustSignature::from_js(js_sig))
-        .fold(RustSignature::default(), |acc, sig| acc + &sig)?,
+        .collect::<StdResult<Vec<RustCoinSpend>, napi::Error>>()?,
+      agg_sig,
     );
 
     Ok(
@@ -856,9 +858,9 @@ impl Peer {
   ) -> napi::Result<bool> {
     is_coin_spent(
       &self.inner.clone(),
-      RustBytes32::from_js(coin_id).map_err(js)?,
+      RustBytes32::from_js(coin_id)?,
       last_height,
-      RustBytes32::from_js(header_hash).map_err(js)?,
+      RustBytes32::from_js(header_hash)?,
     )
     .await
     .map_err(js)
@@ -874,7 +876,6 @@ impl Peer {
       .await
       .map_err(js)?
       .to_js()
-      .map_err(js)
   }
 
   #[napi]
@@ -884,14 +885,10 @@ impl Peer {
   /// @param {BigInt} targetTimeSeconds - Time delta: The target time in seconds from the current time for the fee estimate.
   /// @returns {Promise<BigInt>} The estimated fee in mojos per CLVM cost.
   pub async fn get_fee_estimate(&self, target_time_seconds: BigInt) -> napi::Result<BigInt> {
-    wallet::get_fee_estimate(
-      &self.inner.clone(),
-      u64::from_js(target_time_seconds).map_err(js)?,
-    )
-    .await
-    .map_err(js)
-    .map(|fee| fee.to_js())
-    .map_err(js)
+    wallet::get_fee_estimate(&self.inner.clone(), u64::from_js(target_time_seconds)?)
+      .await
+      .map_err(js)?
+      .to_js()
   }
 
   #[napi]
@@ -911,17 +908,17 @@ impl Peer {
 /// @param {BigInt} totalAmount - Amount needed for the transaction, including fee.
 /// @returns {Vec<Coin>} Array of selected coins.
 #[napi]
-fn select_coins(all_coins: Vec<Coin>, total_amount: BigInt) -> napi::Result<Vec<Coin>> {
+pub fn select_coins(all_coins: Vec<Coin>, total_amount: BigInt) -> napi::Result<Vec<Coin>> {
   let coins: Vec<RustCoin> = all_coins
     .into_iter()
     .map(|c| RustCoin::from_js(c))
-    .collect::<StdResult<Vec<RustCoin>, ConversionError>>()?;
-  let selected_coins = wallet::select_coins(coins, u64::from_js(total_amount)).map_err(js)?;
+    .collect::<StdResult<Vec<RustCoin>, napi::Error>>()?;
+  let selected_coins = wallet::select_coins(coins, u64::from_js(total_amount)?).map_err(js)?;
 
   selected_coins
     .into_iter()
     .map(|c| c.to_js())
-    .collect::<StdResult<Vec<Coin>, ConversionError>>()
+    .collect::<StdResult<Vec<Coin>, napi::Error>>()
 }
 
 #[napi]
@@ -937,7 +934,7 @@ fn select_coins(all_coins: Vec<Coin>, total_amount: BigInt) -> napi::Result<Vec<
 /// @param {Vec<DelegatedPuzzle>} delegatedPuzzles - Delegated puzzles.
 /// @param {BigInt} fee - Fee to use for the transaction. Total amount - 1 - fee will be sent back to the minter.
 /// @returns {SuccessResponse} The success response, which includes coin spends and information about the new datastore.
-fn mint_store(
+pub fn mint_store(
   minter_synthetic_key: Buffer,
   selected_coins: Vec<Coin>,
   root_hash: Buffer,
@@ -949,25 +946,29 @@ fn mint_store(
   fee: BigInt,
 ) -> napi::Result<SuccessResponse> {
   let response = wallet::mint_store(
-    RustPublicKey::from_js(minter_synthetic_key).map_err(js)?,
+    RustPublicKey::from_js(minter_synthetic_key)?,
     selected_coins
       .into_iter()
       .map(|c| RustCoin::from_js(c))
-      .collect::<StdResult<Vec<RustCoin>, ConversionError>>()?,
-    RustBytes32::from_js(root_hash).map_err(js)?,
+      .collect::<StdResult<Vec<RustCoin>, napi::Error>>()?,
+    RustBytes32::from_js(root_hash)?,
     label,
     description,
-    bytes.map(|s| u64::from_js(s)),
-    RustBytes32::from_js(owner_puzzle_hash).map_err(js)?,
+    if let Some(bytes) = bytes {
+      Some(u64::from_js(bytes)?)
+    } else {
+      None
+    },
+    RustBytes32::from_js(owner_puzzle_hash)?,
     delegated_puzzles
-      .iter()
-      .map(|dp| RustDelegatedPuzzle::from_js(dp.clone()))
-      .collect::<StdResult<Vec<RustDelegatedPuzzle>, ConversionError>>()?,
+      .into_iter()
+      .map(|dp| RustDelegatedPuzzle::from_js(dp))
+      .collect::<StdResult<Vec<RustDelegatedPuzzle>, napi::Error>>()?,
     u64::from_js(fee).map_err(js)?,
   )
   .map_err(js)?;
 
-  Ok(response.to_js())
+  response.to_js()
 }
 
 #[napi]
@@ -978,24 +979,24 @@ fn mint_store(
 /// @param {DataStore} store - Up-to-daye store information.
 /// @param {BigInt} fee - Transaction fee to use.
 /// @returns {SuccessResponse} The success response, which includes coin spends and information about the new datastore.
-fn oracle_spend(
+pub fn oracle_spend(
   spender_synthetic_key: Buffer,
   selected_coins: Vec<Coin>,
   store: DataStore,
   fee: BigInt,
 ) -> napi::Result<SuccessResponse> {
   let response = wallet::oracle_spend(
-    RustPublicKey::from_js(spender_synthetic_key),
+    RustPublicKey::from_js(spender_synthetic_key)?,
     selected_coins
       .into_iter()
       .map(|c| RustCoin::from_js(c))
-      .collect(),
-    &RustDataStoreInfo::from_js(store_info),
-    u64::from_js(fee),
+      .collect::<StdResult<Vec<RustCoin>, napi::Error>>()?,
+    RustDataStore::from_js(store)?,
+    u64::from_js(fee)?,
   )
   .map_err(js)?;
 
-  Ok(response.to_js())
+  response.to_js()
 }
 
 #[napi]
@@ -1013,20 +1014,23 @@ pub fn add_fee(
   fee: BigInt,
 ) -> napi::Result<Vec<CoinSpend>> {
   let response = wallet::add_fee(
-    RustPublicKey::from_js(spender_synthetic_key),
+    RustPublicKey::from_js(spender_synthetic_key)?,
     selected_coins
       .into_iter()
       .map(|c| RustCoin::from_js(c))
-      .collect(),
+      .collect::<StdResult<Vec<RustCoin>, napi::Error>>()?,
     assert_coin_ids
       .into_iter()
       .map(|cid| RustBytes32::from_js(cid))
-      .collect(),
-    u64::from_js(fee),
+      .collect::<StdResult<Vec<RustBytes32>, napi::Error>>()?,
+    u64::from_js(fee)?,
   )
   .map_err(js)?;
 
-  Ok(response.into_iter().map(|cs| cs.to_js()).collect())
+  response
+    .into_iter()
+    .map(|cs| cs.to_js())
+    .collect::<StdResult<Vec<CoinSpend>, napi::Error>>()
 }
 
 #[napi]
@@ -1034,8 +1038,8 @@ pub fn add_fee(
 ///
 /// @param {Buffer} publicKey - Master public key.
 /// @returns {Buffer} The (first) wallet synthetic key.
-pub fn master_public_key_to_wallet_synthetic_key(public_key: Buffer) -> Buffer {
-  let public_key = RustPublicKey::from_js(public_key);
+pub fn master_public_key_to_wallet_synthetic_key(public_key: Buffer) -> napi::Result<Buffer> {
+  let public_key = RustPublicKey::from_js(public_key)?;
   let wallet_pk = master_to_wallet_unhardened(&public_key, 0).derive_synthetic();
   wallet_pk.to_js()
 }
@@ -1045,8 +1049,8 @@ pub fn master_public_key_to_wallet_synthetic_key(public_key: Buffer) -> Buffer {
 ///
 /// @param {Buffer} publicKey - Master public key.
 /// @returns {Buffer} The first wallet puzzle hash.
-pub fn master_public_key_to_first_puzzle_hash(public_key: Buffer) -> Buffer {
-  let public_key = RustPublicKey::from_js(public_key);
+pub fn master_public_key_to_first_puzzle_hash(public_key: Buffer) -> napi::Result<Buffer> {
+  let public_key = RustPublicKey::from_js(public_key)?;
   let wallet_pk = master_to_wallet_unhardened(&public_key, 0).derive_synthetic();
 
   let puzzle_hash: RustBytes32 = StandardArgs::curry_tree_hash(wallet_pk).into();
@@ -1059,8 +1063,10 @@ pub fn master_public_key_to_first_puzzle_hash(public_key: Buffer) -> Buffer {
 ///
 /// @param {Buffer} secretKey - Master secret key.
 /// @returns {Buffer} The (first) wallet synthetic secret key.
-pub fn master_secret_key_to_wallet_synthetic_secret_key(secret_key: Buffer) -> Buffer {
-  let secret_key = RustSecretKey::from_js(secret_key);
+pub fn master_secret_key_to_wallet_synthetic_secret_key(
+  secret_key: Buffer,
+) -> napi::Result<Buffer> {
+  let secret_key = RustSecretKey::from_js(secret_key)?;
   let wallet_sk = master_to_wallet_unhardened(&secret_key, 0).derive_synthetic();
   wallet_sk.to_js()
 }
@@ -1070,8 +1076,8 @@ pub fn master_secret_key_to_wallet_synthetic_secret_key(secret_key: Buffer) -> B
 ///
 /// @param {Buffer} secretKey - The secret key.
 /// @returns {Buffer} The public key.
-pub fn secret_key_to_public_key(secret_key: Buffer) -> Buffer {
-  let secret_key = RustSecretKey::from_js(secret_key);
+pub fn secret_key_to_public_key(secret_key: Buffer) -> napi::Result<Buffer> {
+  let secret_key = RustSecretKey::from_js(secret_key)?;
   secret_key.public_key().to_js()
 }
 
@@ -1082,7 +1088,7 @@ pub fn secret_key_to_public_key(secret_key: Buffer) -> Buffer {
 /// @param {String} prefix - Address prefix (e.g., 'txch').
 /// @returns {Promise<String>} The converted address.
 pub fn puzzle_hash_to_address(puzzle_hash: Buffer, prefix: String) -> napi::Result<String> {
-  let puzzle_hash = RustBytes32::from_js(puzzle_hash);
+  let puzzle_hash = RustBytes32::from_js(puzzle_hash)?;
 
   encode_address(puzzle_hash.into(), &prefix).map_err(js)
 }
@@ -1094,9 +1100,9 @@ pub fn puzzle_hash_to_address(puzzle_hash: Buffer, prefix: String) -> napi::Resu
 /// @returns {Promise<Buffer>} The puzzle hash.
 pub fn address_to_puzzle_hash(address: String) -> napi::Result<Buffer> {
   let (puzzle_hash, _) = decode_address(&address).map_err(js)?;
-  let puzzle_hash: RustBytes32 = RustBytes32::from_bytes(&puzzle_hash).map_err(js)?;
+  let puzzle_hash: RustBytes32 = RustBytes32::new(puzzle_hash);
 
-  Ok(puzzle_hash.to_js())
+  puzzle_hash.to_js()
 }
 
 #[napi]
@@ -1105,12 +1111,9 @@ pub fn address_to_puzzle_hash(address: String) -> napi::Result<Buffer> {
 /// @param {Buffer} syntheticKey - Synthetic key.
 /// @returns {Promise<DelegatedPuzzle>} The delegated puzzle.
 pub fn admin_delegated_puzzle_from_key(synthetic_key: Buffer) -> napi::Result<DelegatedPuzzle> {
-  let synthetic_key = RustPublicKey::from_js(synthetic_key);
+  let synthetic_key = RustPublicKey::from_js(synthetic_key)?;
 
-  let ctx: &mut SpendContext = &mut SpendContext::new();
-  let (admin_dp, _) = RustDelegatedPuzzle::from_admin_pk(ctx, synthetic_key).map_err(js)?;
-
-  Ok(admin_dp.to_js())
+  RustDelegatedPuzzle::Admin(StandardArgs::curry_tree_hash(synthetic_key)).to_js()
 }
 
 #[napi]
@@ -1119,12 +1122,9 @@ pub fn admin_delegated_puzzle_from_key(synthetic_key: Buffer) -> napi::Result<De
 /// @param {Buffer} syntheticKey - Synthetic key.
 /// /// @returns {Promise<DelegatedPuzzle>} The delegated puzzle.
 pub fn writer_delegated_puzzle_from_key(synthetic_key: Buffer) -> napi::Result<DelegatedPuzzle> {
-  let synthetic_key = RustPublicKey::from_js(synthetic_key);
+  let synthetic_key = RustPublicKey::from_js(synthetic_key)?;
 
-  let ctx: &mut SpendContext = &mut SpendContext::new();
-  let (writer_dp, _) = RustDelegatedPuzzle::from_writer_pk(ctx, synthetic_key).map_err(js)?;
-
-  Ok(writer_dp.to_js())
+  RustDelegatedPuzzle::Writer(StandardArgs::curry_tree_hash(synthetic_key)).to_js()
 }
 
 #[napi]
@@ -1137,16 +1137,10 @@ pub fn oracle_delegated_puzzle(
   oracle_puzzle_hash: Buffer,
   oracle_fee: BigInt,
 ) -> napi::Result<DelegatedPuzzle> {
-  let oracle_puzzle_hash = RustBytes32::from_js(oracle_puzzle_hash);
-  let oracle_fee = u64::from_js(oracle_fee);
+  let oracle_puzzle_hash = RustBytes32::from_js(oracle_puzzle_hash)?;
+  let oracle_fee = u64::from_js(oracle_fee)?;
 
-  let allocator: &mut Allocator = &mut Allocator::new();
-
-  Ok(
-    RustDelegatedPuzzle::new_oracle(allocator, oracle_puzzle_hash, oracle_fee)
-      .map_err(js)?
-      .to_js(),
-  )
+  RustDelegatedPuzzle::Oracle(oracle_puzzle_hash, oracle_fee).to_js()
 }
 
 #[napi]
@@ -1154,26 +1148,34 @@ pub fn oracle_delegated_puzzle(
 ///
 /// @param {Vec<CoinSpend>} coinSpends - The coin spends to sign.
 /// @param {Vec<Buffer>} privateKeys - The private/secret keys to be used for signing.
-/// @param {Buffer} aggSigData - Aggregated signature data. For testnet11 and mainnet, this is the same as the genesis challenge.
+/// @param {Buffer} forTestner - Set to true to sign spends for testnet11, false for mainnet.
 /// @returns {Promise<Buffer>} The signature.
 pub fn sign_coin_spends(
   coin_spends: Vec<CoinSpend>,
   private_keys: Vec<Buffer>,
-  agg_sig_data: Buffer,
+  for_testnet: bool,
 ) -> napi::Result<Buffer> {
   let coin_spends = coin_spends
     .iter()
     .map(|cs| RustCoinSpend::from_js(cs.clone()))
-    .collect();
+    .collect::<StdResult<Vec<RustCoinSpend>, napi::Error>>()?;
   let private_keys = private_keys
     .iter()
     .map(|sk| RustSecretKey::from_js(sk.clone()))
-    .collect();
-  let agg_sig_data = RustBytes32::from_js(agg_sig_data);
+    .collect::<StdResult<Vec<RustSecretKey>, napi::Error>>()?;
 
-  let sig = wallet::sign_coin_spends(coin_spends, private_keys, agg_sig_data).map_err(js)?;
+  let sig = wallet::sign_coin_spends(
+    coin_spends,
+    private_keys,
+    if for_testnet {
+      TargetNetwork::Testnet11
+    } else {
+      TargetNetwork::Mainnet
+    },
+  )
+  .map_err(js)?;
 
-  Ok(sig.to_js())
+  sig.to_js()
 }
 
 #[napi]

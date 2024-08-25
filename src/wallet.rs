@@ -681,7 +681,7 @@ pub fn secret_key_to_synthetic_key(sk: SecretKey) -> SecretKey {
 }
 
 #[derive(Debug, Clone, Copy)]
-enum TargetNetwork {
+pub enum TargetNetwork {
   Mainnet,
   Testnet11,
 }
