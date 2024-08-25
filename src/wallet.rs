@@ -482,14 +482,14 @@ pub fn update_store_ownership(
 }
 
 pub fn update_store_metadata(
-  store_info: DataStoreInfo,
+  datastore: DataStore,
   new_root_hash: Bytes32,
   new_label: Option<String>,
   new_description: Option<String>,
   new_bytes: Option<u64>,
-  inner_spend_info: DataStoreInnerSpendInfo,
-) -> Result<SuccessResponse, Error> {
-  let mut ctx = SpendContext::new();
+  inner_spend_info: DataStoreInnerSpend,
+) -> Result<SuccessResponse, WalletError> {
+  let ctx = &mut SpendContext::new();
 
   let new_metadata = DataStoreMetadata {
     root_hash: new_root_hash,
@@ -497,34 +497,25 @@ pub fn update_store_metadata(
     description: new_description,
     bytes: new_bytes,
   };
-  let new_metadata_condition = NewMetadataCondition::<i32, DataStoreMetadata, Bytes32, i32> {
-    metadata_updater_reveal: 11,
-    metadata_updater_solution: DefaultMetadataSolution {
-      metadata_part: DefaultMetadataSolutionMetadataList {
-        new_metadata: new_metadata,
-        new_metadata_updater_ph: DL_METADATA_UPDATER_PUZZLE_HASH.into(),
-      },
-      conditions: 0,
-    },
-  }
-  .to_clvm(ctx.allocator_mut())
-  .map_err(|err| Error::ToClvm(err))?;
-  let new_metadata_condition = match inner_spend_info {
-    DataStoreInnerSpendInfo::Owner(_) => Conditions::new()
-      .condition(Condition::Other(new_metadata_condition))
-      .condition(get_owner_create_coin_condition(
-        store_info.launcher_id,
-        &store_info.owner_puzzle_hash,
-        &store_info.delegated_puzzles,
+  let mut new_metadata_condition = Conditions::new().with(
+    DataStore::<DataStoreMetadata>::new_metadata_condition(ctx, new_metadata)?,
+  );
+
+  if let DataStoreInnerSpend::Owner(_) = inner_spend_info {
+    new_metadata_condition =
+      new_metadata_condition.with(DataStore::<DataStoreMetadata>::owner_create_coin_condition(
+        ctx,
+        datastore.info.launcher_id,
+        datastore.info.owner_puzzle_hash,
+        datastore.info.delegated_puzzles.clone(),
         false,
-      )),
-    _ => Conditions::new().condition(Condition::Other(new_metadata_condition)),
-  };
+      )?);
+  }
 
   update_store_with_conditions(
-    &mut ctx,
+    ctx,
     new_metadata_condition,
-    store_info,
+    datastore,
     inner_spend_info,
     true,
     true,
@@ -532,10 +523,10 @@ pub fn update_store_metadata(
 }
 
 pub fn melt_store(
-  store_info: &DataStoreInfo,
+  datastore: &DataStore,
   owner_pk: PublicKey,
-) -> Result<Vec<CoinSpend>, Error> {
-  let mut ctx = SpendContext::new();
+) -> Result<Vec<CoinSpend>, WalletError> {
+  let ctx = &mut SpendContext::new();
 
   let melt_conditions = Conditions::new().conditions(&vec![
     Condition::ReserveFee(ReserveFee { amount: 1 }),
