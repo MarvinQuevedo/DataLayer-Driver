@@ -106,11 +106,8 @@ pub async fn get_unspent_coins(
   previous_header_hash: Bytes32,
 ) -> Result<UnspentCoinsResponse, WalletError> {
   let mut coins: Vec<Coin> = vec![];
-  let mut last_height: u32 = if previous_height.is_some() {
-    previous_height.unwrap()
-  } else {
-    0
-  };
+  let mut last_height: u32 = previous_height.unwrap_or_default();
+
   let mut last_header_hash: Bytes32 = previous_header_hash;
 
   loop {
@@ -159,6 +156,7 @@ pub fn select_coins(coins: Vec<Coin>, total_amount: u64) -> Result<Vec<Coin>, Co
   select_coins_algo(coins.into_iter().collect(), total_amount.into())
 }
 
+#[allow(clippy::too_many_arguments)]
 pub fn mint_store(
   minter_synthetic_key: PublicKey,
   selected_coins: Vec<Coin>,
@@ -177,7 +175,7 @@ pub fn mint_store(
 
   let mut ctx = SpendContext::new();
 
-  let lead_coin = selected_coins[0].clone();
+  let lead_coin = selected_coins[0];
   let lead_coin_name = lead_coin.coin_id();
 
   let mut hasher = Sha256::new();
@@ -250,8 +248,7 @@ pub async fn sync_store(
     .coin_states
     .into_iter()
     .next()
-    .ok_or(WalletError::UnknwonCoin())?
-    .clone();
+    .ok_or(WalletError::UnknwonCoin())?;
 
   let mut ctx = SpendContext::new(); // just to run puzzles more easily
 
@@ -262,7 +259,7 @@ pub async fn sync_store(
         last_coin_record.spent_height.unwrap(),
       )
       .await
-      .map_err(|err| WalletError::RejectPuzzleSolution(err))?;
+      .map_err(WalletError::RejectPuzzleSolution)?;
 
     let cs = CoinSpend {
       coin: last_coin_record.coin,
@@ -282,7 +279,7 @@ pub async fn sync_store(
       let block_header = peer
         .request_block_header(last_coin_record.spent_height.unwrap())
         .await
-        .map_err(|err| WalletError::RejectHeaderRequest(err))?;
+        .map_err(WalletError::RejectHeaderRequest)?;
       history.push((
         new_store.info.metadata.root_hash,
         block_header.foliage_transaction_block.unwrap().timestamp,
@@ -302,8 +299,7 @@ pub async fn sync_store(
       .coin_states
       .into_iter()
       .next()
-      .ok_or(WalletError::UnknwonCoin())?
-      .clone();
+      .ok_or(WalletError::UnknwonCoin())?;
     latest_store = new_store;
   }
 
@@ -335,8 +331,7 @@ pub async fn sync_store_using_launcher_id(
     .coin_states
     .into_iter()
     .next()
-    .ok_or(WalletError::UnknwonCoin())?
-    .clone();
+    .ok_or(WalletError::UnknwonCoin())?;
 
   let mut ctx = SpendContext::new(); // just to run puzzles more easily
 
@@ -348,7 +343,7 @@ pub async fn sync_store_using_launcher_id(
         .ok_or(WalletError::UnknwonCoin())?,
     )
     .await
-    .map_err(|err| WalletError::RejectPuzzleSolution(err))?;
+    .map_err(WalletError::RejectPuzzleSolution)?;
 
   let cs = CoinSpend {
     coin: last_coin_record.coin,
@@ -375,7 +370,7 @@ pub async fn sync_store_using_launcher_id(
       let block_header = peer
         .request_block_header(spent_height)
         .await
-        .map_err(|err| WalletError::RejectHeaderRequest(err))?;
+        .map_err(WalletError::RejectHeaderRequest)?;
       block_header.foliage_transaction_block.unwrap().timestamp
     } else {
       0
@@ -558,11 +553,11 @@ pub fn oracle_spend(
   datastore: DataStore,
   fee: u64,
 ) -> Result<SuccessResponse, WalletError> {
-  let Some(DelegatedPuzzle::Oracle(oracle_ph, oracle_fee)) =
-    datastore.info.delegated_puzzles.iter().find(|dp| match dp {
-      DelegatedPuzzle::Oracle(_, _) => true,
-      _ => false,
-    })
+  let Some(DelegatedPuzzle::Oracle(oracle_ph, oracle_fee)) = datastore
+    .info
+    .delegated_puzzles
+    .iter()
+    .find(|dp| matches!(dp, DelegatedPuzzle::Oracle(_, _)))
   else {
     return Err(WalletError::Permission());
   };
@@ -573,7 +568,7 @@ pub fn oracle_spend(
 
   let ctx = &mut SpendContext::new();
 
-  let lead_coin = selected_coins[0].clone();
+  let lead_coin = selected_coins[0];
   let lead_coin_name = lead_coin.coin_id();
 
   let mut hasher = Sha256::new();
@@ -610,7 +605,7 @@ pub fn oracle_spend(
   }
   ctx.spend_p2_coin(lead_coin, spender_synthetic_key, lead_coin_conditions)?;
 
-  let inner_datastore_spend = OracleLayer::new(oracle_ph.clone(), oracle_fee.clone())
+  let inner_datastore_spend = OracleLayer::new(*oracle_ph, *oracle_fee)
     .ok_or(DriverError::OddOracleFee)?
     .construct_spend(ctx, ())?;
 
@@ -639,7 +634,7 @@ pub fn add_fee(
 
   let mut ctx = SpendContext::new();
 
-  let lead_coin = selected_coins[0].clone();
+  let lead_coin = selected_coins[0];
   let lead_coin_name = lead_coin.coin_id();
 
   let mut hasher = Sha256::new();
@@ -724,11 +719,8 @@ pub fn sign_coin_spends(
   for required in required_signatures {
     let sk = key_pairs.get(&required.public_key());
 
-    match sk {
-      Some(sk) => {
-        sig += &sign(sk, required.final_message());
-      }
-      None => {}
+    if let Some(sk) = sk {
+      sig += &sign(sk, required.final_message());
     }
   }
 
@@ -803,7 +795,7 @@ pub async fn is_coin_spent(
     return Ok(coin_state.spent_height.is_some());
   }
 
-  return Ok(false);
+  Ok(false)
 }
 
 // https://github.com/Chia-Network/chips/blob/main/CHIPs/chip-0002.md#signmessage
@@ -817,7 +809,7 @@ pub fn make_message(msg: Bytes) -> Result<Bytes32, WalletError> {
 }
 
 pub fn sign_message(message: Bytes, sk: SecretKey) -> Result<Signature, WalletError> {
-  Ok(sign(&sk, &make_message(message)?))
+  Ok(sign(&sk, make_message(message)?))
 }
 
 pub fn verify_signature(
@@ -825,7 +817,7 @@ pub fn verify_signature(
   pk: PublicKey,
   sig: Signature,
 ) -> Result<bool, WalletError> {
-  Ok(verify(&sig, &pk, &make_message(message)?))
+  Ok(verify(&sig, &pk, make_message(message)?))
 }
 
 pub fn get_cost(coin_spends: Vec<CoinSpend>) -> Result<u64, WalletError> {
