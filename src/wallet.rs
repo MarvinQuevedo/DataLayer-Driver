@@ -37,6 +37,7 @@ use chia_wallet_sdk::DataStoreMetadata;
 use chia_wallet_sdk::DelegatedPuzzle;
 use chia_wallet_sdk::DriverError;
 use chia_wallet_sdk::Launcher;
+use chia_wallet_sdk::MeltSingleton;
 use chia_wallet_sdk::NewMerkleRootCondition;
 use chia_wallet_sdk::RequiredSignature;
 use chia_wallet_sdk::SignerError;
@@ -426,10 +427,9 @@ fn update_store_with_conditions(
     parent_delegated_puzzles,
   )?
   .ok_or(WalletError::Parse())?;
-  ctx.insert(new_spend);
 
   Ok(SuccessResponse {
-    coin_spends: ctx.take(),
+    coin_spends: vec![new_spend],
     new_datastore,
   })
 }
@@ -523,33 +523,24 @@ pub fn update_store_metadata(
 }
 
 pub fn melt_store(
-  datastore: &DataStore,
+  datastore: DataStore,
   owner_pk: PublicKey,
 ) -> Result<Vec<CoinSpend>, WalletError> {
   let ctx = &mut SpendContext::new();
 
-  let melt_conditions = Conditions::new().conditions(&vec![
-    Condition::ReserveFee(ReserveFee { amount: 1 }),
-    Condition::Other(
-      MeltCondition {
-        fake_puzzle_hash: Bytes32::default(),
-      }
-      .to_clvm(ctx.allocator_mut())
-      .map_err(|err| Error::ToClvm(err))?,
-    ),
-  ]);
+  let melt_conditions = Conditions::new()
+    .with(Condition::reserve_fee(1))
+    .with(Condition::other(
+      MeltSingleton {}
+        .to_clvm(&mut ctx.allocator)
+        .map_err(DriverError::ToClvm)?,
+    ));
 
-  let inner_datastore_spend = DatastoreInnerSpend::OwnerPuzzleSpend(
-    melt_conditions
-      .p2_spend(&mut ctx, owner_pk)
-      .map_err(|err| Error::Spend(err))?,
-  );
+  let inner_datastore_spend = StandardLayer::new(owner_pk).spend(ctx, melt_conditions)?;
 
-  let new_spend = datastore_spend(&mut ctx, &store_info, inner_datastore_spend)
-    .map_err(|err| Error::Spend(err))?;
-  ctx.insert_coin_spend(new_spend.clone());
+  let new_spend = datastore.spend(ctx, inner_datastore_spend)?;
 
-  Ok(ctx.take_spends())
+  Ok(vec![new_spend])
 }
 
 pub fn oracle_spend(
