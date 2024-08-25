@@ -14,13 +14,12 @@ use chia::puzzles::LineageProof as RustLineageProof;
 use chia::puzzles::Proof as RustProof;
 use chia::puzzles::{DeriveSynthetic, EveProof as RustEveProof};
 use chia_wallet_sdk::{
-  connect_peer, create_tls_connector, decode_address, encode_address, load_ssl_cert, SpendContext,
+  connect_peer, create_tls_connector, decode_address, encode_address, load_ssl_cert,
 };
 use chia_wallet_sdk::{
   DataStore as RustDataStore, DataStoreInfo as RustDataStoreInfo,
   DataStoreMetadata as RustDataStoreMetadata, DelegatedPuzzle as RustDelegatedPuzzle,
 };
-use clvmr::Allocator;
 use napi::bindgen_prelude::*;
 use std::result::Result as StdResult;
 use std::sync::Arc;
@@ -425,7 +424,7 @@ impl FromJS<DelegatedPuzzle> for RustDelegatedPuzzle {
         (value.oracle_payment_puzzle_hash, value.oracle_fee)
       {
         RustDelegatedPuzzle::Oracle(
-          RustBytes32::from_js(oracle_payment_puzzle_hash)?.into(),
+          RustBytes32::from_js(oracle_payment_puzzle_hash)?,
           u64::from_js(oracle_fee)?,
         )
       } else {
@@ -439,7 +438,7 @@ impl ToJS<DelegatedPuzzle> for RustDelegatedPuzzle {
   fn to_js(&self) -> StdResult<DelegatedPuzzle, napi::Error> {
     match self {
       RustDelegatedPuzzle::Admin(admin_inner_puzzle_hash) => {
-        let admin_inner_puzzle_hash: RustBytes32 = admin_inner_puzzle_hash.clone().into();
+        let admin_inner_puzzle_hash: RustBytes32 = (*admin_inner_puzzle_hash).into();
 
         Ok(DelegatedPuzzle {
           admin_inner_puzzle_hash: Some(admin_inner_puzzle_hash.to_js()?),
@@ -449,7 +448,7 @@ impl ToJS<DelegatedPuzzle> for RustDelegatedPuzzle {
         })
       }
       RustDelegatedPuzzle::Writer(writer_inner_puzzle_hash) => {
-        let writer_inner_puzzle_hash: RustBytes32 = writer_inner_puzzle_hash.clone().into();
+        let writer_inner_puzzle_hash: RustBytes32 = (*writer_inner_puzzle_hash).into();
 
         Ok(DelegatedPuzzle {
           admin_inner_puzzle_hash: None,
@@ -459,7 +458,7 @@ impl ToJS<DelegatedPuzzle> for RustDelegatedPuzzle {
         })
       }
       RustDelegatedPuzzle::Oracle(oracle_payment_puzzle_hash, oracle_fee) => {
-        let oracle_payment_puzzle_hash: RustBytes32 = oracle_payment_puzzle_hash.clone().into();
+        let oracle_payment_puzzle_hash: RustBytes32 = *oracle_payment_puzzle_hash;
 
         Ok(DelegatedPuzzle {
           admin_inner_puzzle_hash: None,
@@ -911,7 +910,7 @@ impl Peer {
 pub fn select_coins(all_coins: Vec<Coin>, total_amount: BigInt) -> napi::Result<Vec<Coin>> {
   let coins: Vec<RustCoin> = all_coins
     .into_iter()
-    .map(|c| RustCoin::from_js(c))
+    .map(RustCoin::from_js)
     .collect::<StdResult<Vec<RustCoin>, napi::Error>>()?;
   let selected_coins = wallet::select_coins(coins, u64::from_js(total_amount)?).map_err(js)?;
 
@@ -921,6 +920,7 @@ pub fn select_coins(all_coins: Vec<Coin>, total_amount: BigInt) -> napi::Result<
     .collect::<StdResult<Vec<Coin>, napi::Error>>()
 }
 
+#[allow(clippy::too_many_arguments)]
 #[napi]
 /// Mints a new datastore.
 ///
@@ -949,7 +949,7 @@ pub fn mint_store(
     RustPublicKey::from_js(minter_synthetic_key)?,
     selected_coins
       .into_iter()
-      .map(|c| RustCoin::from_js(c))
+      .map(RustCoin::from_js)
       .collect::<StdResult<Vec<RustCoin>, napi::Error>>()?,
     RustBytes32::from_js(root_hash)?,
     label,
@@ -962,7 +962,7 @@ pub fn mint_store(
     RustBytes32::from_js(owner_puzzle_hash)?,
     delegated_puzzles
       .into_iter()
-      .map(|dp| RustDelegatedPuzzle::from_js(dp))
+      .map(RustDelegatedPuzzle::from_js)
       .collect::<StdResult<Vec<RustDelegatedPuzzle>, napi::Error>>()?,
     u64::from_js(fee).map_err(js)?,
   )
@@ -989,7 +989,7 @@ pub fn oracle_spend(
     RustPublicKey::from_js(spender_synthetic_key)?,
     selected_coins
       .into_iter()
-      .map(|c| RustCoin::from_js(c))
+      .map(RustCoin::from_js)
       .collect::<StdResult<Vec<RustCoin>, napi::Error>>()?,
     RustDataStore::from_js(store)?,
     u64::from_js(fee)?,
@@ -1017,11 +1017,11 @@ pub fn add_fee(
     RustPublicKey::from_js(spender_synthetic_key)?,
     selected_coins
       .into_iter()
-      .map(|c| RustCoin::from_js(c))
+      .map(RustCoin::from_js)
       .collect::<StdResult<Vec<RustCoin>, napi::Error>>()?,
     assert_coin_ids
       .into_iter()
-      .map(|cid| RustBytes32::from_js(cid))
+      .map(RustBytes32::from_js)
       .collect::<StdResult<Vec<RustBytes32>, napi::Error>>()?,
     u64::from_js(fee)?,
   )
@@ -1187,6 +1187,7 @@ pub fn get_coin_id(coin: Coin) -> napi::Result<Buffer> {
   RustCoin::from_js(coin)?.coin_id().to_js()
 }
 
+#[allow(clippy::too_many_arguments)]
 #[napi]
 /// Updates the metadata of a store. Either the owner, admin, or writer public key must be provided.
 ///
@@ -1261,8 +1262,8 @@ pub fn update_store_ownership(
 ) -> napi::Result<SuccessResponse> {
   let store = RustDataStore::from_js(store)?;
   let new_owner_puzzle_hash = new_owner_puzzle_hash
-    .map(|v| RustBytes32::from_js(v))
-    .unwrap_or_else(|| Ok(store.info.owner_puzzle_hash.clone()))?;
+    .map(RustBytes32::from_js)
+    .unwrap_or_else(|| Ok(store.info.owner_puzzle_hash))?;
 
   let inner_spend_info = match (owner_public_key, admin_public_key) {
     (Some(owner_public_key), None) => {
@@ -1283,7 +1284,7 @@ pub fn update_store_ownership(
     new_owner_puzzle_hash,
     new_delegated_puzzles
       .into_iter()
-      .map(|dp| RustDelegatedPuzzle::from_js(dp))
+      .map(RustDelegatedPuzzle::from_js)
       .collect::<StdResult<Vec<RustDelegatedPuzzle>, napi::Error>>()?,
     inner_spend_info,
   )
