@@ -37,8 +37,10 @@ use chia_wallet_sdk::DataStoreMetadata;
 use chia_wallet_sdk::DelegatedPuzzle;
 use chia_wallet_sdk::DriverError;
 use chia_wallet_sdk::Launcher;
+use chia_wallet_sdk::Layer;
 use chia_wallet_sdk::MeltSingleton;
 use chia_wallet_sdk::NewMerkleRootCondition;
+use chia_wallet_sdk::OracleLayer;
 use chia_wallet_sdk::RequiredSignature;
 use chia_wallet_sdk::SignerError;
 use chia_wallet_sdk::SpendContext;
@@ -546,80 +548,77 @@ pub fn melt_store(
 pub fn oracle_spend(
   spender_synthetic_key: PublicKey,
   selected_coins: Vec<Coin>,
-  store_info: &DataStoreInfo,
+  datastore: DataStore,
   fee: u64,
-) -> Result<SuccessResponse, Error> {
-  let oracle_delegated_puzzle = store_info
-    .delegated_puzzles
-    .iter()
-    .find(|dp| match dp.puzzle_info {
-      DelegatedPuzzleInfo::Oracle(_, _) => true,
+) -> Result<SuccessResponse, WalletError> {
+  let Some(DelegatedPuzzle::Oracle(oracle_ph, oracle_fee)) =
+    datastore.info.delegated_puzzles.iter().find(|dp| match dp {
+      DelegatedPuzzle::Oracle(_, _) => true,
       _ => false,
     })
-    .ok_or(Error::Permission())?;
-
-  let (oracle_ph, oracle_fee) = match oracle_delegated_puzzle.puzzle_info {
-    DelegatedPuzzleInfo::Oracle(ph, fee) => (ph, fee),
-    _ => unreachable!(),
+  else {
+    return Err(WalletError::Permission());
   };
 
   let spender_puzzle_hash: Bytes32 = StandardArgs::curry_tree_hash(spender_synthetic_key).into();
 
   let total_amount = oracle_fee + fee;
 
-  let mut ctx = SpendContext::new();
+  let ctx = &mut SpendContext::new();
 
   let lead_coin = selected_coins[0].clone();
   let lead_coin_name = lead_coin.coin_id();
+
+  let mut hasher = Sha256::new();
+  hasher.update(lead_coin_name);
+  hasher.update([0; 1]);
+  let lead_ann_id = Bytes32::new(hasher.finalize());
+
   for coin in selected_coins.iter().skip(1) {
-    ctx
-      .spend_p2_coin(
-        *coin,
-        spender_synthetic_key,
-        Conditions::new().assert_coin_announcement(lead_coin_name, [0; 1]),
-      )
-      .map_err(|err| Error::Spend(err))?;
+    ctx.spend_p2_coin(
+      *coin,
+      spender_synthetic_key,
+      Conditions::new().assert_coin_announcement(lead_ann_id),
+    )?;
   }
 
-  let assert_oracle_conds = Conditions::new()
-    .assert_puzzle_announcement(store_info.coin.puzzle_hash, &Bytes::new("$".into()));
+  let mut hasher2 = Sha256::new();
+  hasher2.update(datastore.coin.puzzle_hash);
+  hasher2.update(Bytes::new("$".into()));
+  let oracle_ann_id = Bytes32::new(hasher2.finalize());
+
+  let assert_oracle_conds = Conditions::new().assert_puzzle_announcement(oracle_ann_id);
 
   let total_amount_from_coins = selected_coins.iter().map(|c| c.amount).sum::<u64>();
 
   let mut lead_coin_conditions = assert_oracle_conds;
   if total_amount_from_coins > total_amount {
-    lead_coin_conditions =
-      lead_coin_conditions.create_coin(spender_puzzle_hash, total_amount_from_coins - total_amount);
+    lead_coin_conditions = lead_coin_conditions.create_coin(
+      spender_puzzle_hash,
+      total_amount_from_coins - total_amount,
+      vec![spender_puzzle_hash.into()],
+    );
   }
   if fee > 0 {
     lead_coin_conditions = lead_coin_conditions.reserve_fee(fee);
   }
   ctx.spend_p2_coin(lead_coin, spender_synthetic_key, lead_coin_conditions)?;
 
-  let oracle_puzzle_ptr =
-    DelegatedPuzzle::oracle_layer_full_puzzle(ctx.allocator_mut(), oracle_ph, oracle_fee)
-      .map_err(|err| Error::ToClvm(err))?;
-  let inner_datastore_spend = DatastoreInnerSpend::DelegatedPuzzleSpend(
-    *oracle_delegated_puzzle,
-    Spend::new(
-      oracle_puzzle_ptr, // oracle puzzle always available
-      ctx.allocator().nil(),
-    ),
-  );
+  let inner_datastore_spend = OracleLayer::new(oracle_ph.clone(), oracle_fee.clone())
+    .ok_or(DriverError::OddOracleFee)?
+    .construct_spend(ctx, ())?;
 
-  let new_spend = datastore_spend(&mut ctx, store_info, inner_datastore_spend)?;
-  ctx.insert_coin_spend(new_spend.clone());
+  let parent_delegated_puzzles = datastore.info.delegated_puzzles.clone();
+  let new_spend = datastore.spend(ctx, inner_datastore_spend)?;
 
-  let new_datastore_info = DataStoreInfo::from_spend(
-    ctx.allocator_mut(),
-    &new_spend,
-    &store_info.delegated_puzzles.clone(),
-  )
-  .map_err(|_| Error::Parse())?;
+  let new_datastore =
+    DataStore::from_spend(&mut ctx.allocator, &new_spend, parent_delegated_puzzles)?
+      .ok_or(WalletError::Parse())?;
+  ctx.insert(new_spend.clone());
 
   Ok(SuccessResponse {
-    coin_spends: ctx.take_spends(),
-    new_info: new_datastore_info,
+    coin_spends: ctx.take(),
+    new_datastore,
   })
 }
 
