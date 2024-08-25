@@ -809,7 +809,9 @@ pub async fn is_coin_spent(
 // https://github.com/Chia-Network/chips/blob/main/CHIPs/chip-0002.md#signmessage
 pub fn make_message(msg: Bytes) -> Result<Bytes32, WalletError> {
   let mut alloc = Allocator::new();
-  let thing_ptr = clvm_tuple!("Chia Signed Message", msg).to_clvm(&mut alloc)?;
+  let thing_ptr = clvm_tuple!("Chia Signed Message", msg)
+    .to_clvm(&mut alloc)
+    .map_err(DriverError::ToClvm)?;
 
   Ok(tree_hash(&alloc, thing_ptr).into())
 }
@@ -839,7 +841,7 @@ pub fn get_cost(coin_spends: Vec<CoinSpend>) -> Result<u64, WalletError> {
   let conds = run_block_generator::<&[u8], EmptyVisitor, _>(
     &mut alloc,
     &generator,
-    &[],
+    [],
     u64::MAX,
     MEMPOOL_MODE,
     &TargetNetwork::Mainnet.get_constants(),

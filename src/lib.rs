@@ -1,43 +1,29 @@
-#![deny(clippy::all)]
-
-mod debug;
-mod drivers;
-mod merkle_tree;
-mod puzzles;
-mod puzzles_info;
 mod wallet;
 
-use std::sync::Arc;
-
-use chia::bls::derive_keys::master_to_wallet_unhardened;
+use chia::bls::PublicKey as RustPublicKey;
 use chia::bls::{SecretKey as RustSecretKey, Signature as RustSignature};
 use chia::client::Peer as RustPeer;
-use chia::{bls::PublicKey as RustPublicKey, traits::Streamable};
-use chia_client::PeerEvent;
-use chia_protocol::Program as RustProgram;
-use chia_protocol::SpendBundle as RustSpendBundle;
-use chia_protocol::{Bytes as RustBytes, Coin as RustCoin};
-use chia_protocol::{Bytes32 as RustBytes32, NodeType};
-use chia_protocol::{CoinSpend as RustCoinSpend, NewPeakWallet};
-use chia_puzzles::standard::StandardArgs;
-use chia_puzzles::LineageProof as RustLineageProof;
-use chia_puzzles::Proof as RustProof;
-use chia_puzzles::{DeriveSynthetic, EveProof as RustEveProof};
-use chia_sdk_driver::SpendContext;
+use chia::client::PeerEvent;
+use chia::protocol::Program as RustProgram;
+use chia::protocol::SpendBundle as RustSpendBundle;
+use chia::protocol::{Bytes as RustBytes, Coin as RustCoin};
+use chia::protocol::{Bytes32 as RustBytes32, NodeType};
+use chia::protocol::{CoinSpend as RustCoinSpend, NewPeakWallet};
+use chia::puzzles::standard::StandardArgs;
+use chia::puzzles::LineageProof as RustLineageProof;
+use chia::puzzles::Proof as RustProof;
+use chia::puzzles::{DeriveSynthetic, EveProof as RustEveProof};
 use chia_wallet_sdk::{
   connect_peer, create_tls_connector, decode_address, encode_address, load_ssl_cert,
 };
-use clvmr::Allocator;
-pub use debug::*;
-pub use drivers::*;
-pub use merkle_tree::*;
-use napi::bindgen_prelude::*;
-pub use puzzles::*;
-pub use puzzles_info::*;
-use puzzles_info::{
-  DataStoreInfo as RustDataStoreInfo, DataStoreMetadata as RustDataStoreMetadata,
-  DelegatedPuzzle as RustDelegatedPuzzle, DelegatedPuzzleInfo as RustDelegatedPuzzleInfo,
+use chia_wallet_sdk::{
+  DataStore as RustDataStore, DataStoreInfo as RustDataStoreInfo,
+  DataStoreMetadata as RustDataStoreMetadata, DelegatedPuzzle as RustDelegatedPuzzle,
 };
+use clvmr::Allocator;
+use napi::bindgen_prelude::*;
+use std::sync::Arc;
+use thiserror::Error;
 use tokio::sync::Mutex;
 use wallet::SuccessResponse as RustSuccessResponse;
 use wallet::SyncStoreResponse as RustSyncStoreResponse;
@@ -47,22 +33,40 @@ pub use wallet::*;
 #[macro_use]
 extern crate napi_derive;
 
+#[derive(Error, Debug)]
+pub enum ConversionError {
+  #[error("Expected different byte length {0}")]
+  DifferentLength(u32),
+
+  #[error("Invalid public key")]
+  InvalidPublicKey,
+
+  #[error("Invalid private key")]
+  InvalidPrivateKey,
+}
+
 pub trait FromJS<T> {
-  fn from_js(value: T) -> Self;
+  fn from_js(value: T) -> Result<Self, ConversionError>;
 }
 
 pub trait ToJS<T> {
-  fn to_js(self: &Self) -> T;
+  fn to_js(&self) -> Result<T, ConversionError>;
 }
 
 impl FromJS<Buffer> for RustBytes32 {
-  fn from_js(value: Buffer) -> Self {
-    RustBytes32::from_bytes(&value.to_vec()).expect("Bytes32 value should be 32 bytes long")
+  fn from_js(value: Buffer) -> Result<Self, ConversionError> {
+    let bytes = value
+      .to_vec()
+      .try_into()
+      .map_err(|_| ConversionError::DifferentLength(32))
+      .map_err(js)?;
+
+    Ok(RustBytes32::new(bytes))
   }
 }
 
 impl ToJS<Buffer> for RustBytes32 {
-  fn to_js(self: &Self) -> Buffer {
+  fn to_js(&self) -> Buffer {
     Buffer::from(self.to_vec())
   }
 }
@@ -74,7 +78,7 @@ impl FromJS<Buffer> for RustProgram {
 }
 
 impl ToJS<Buffer> for RustProgram {
-  fn to_js(self: &Self) -> Buffer {
+  fn to_js(&self) -> Buffer {
     Buffer::from(self.to_vec())
   }
 }
@@ -86,7 +90,7 @@ impl FromJS<Buffer> for RustBytes {
 }
 
 impl ToJS<Buffer> for RustBytes {
-  fn to_js(self: &Self) -> Buffer {
+  fn to_js(&self) -> Buffer {
     Buffer::from(self.to_vec())
   }
 }
@@ -100,7 +104,7 @@ impl FromJS<Buffer> for RustPublicKey {
 }
 
 impl ToJS<Buffer> for RustPublicKey {
-  fn to_js(self: &Self) -> Buffer {
+  fn to_js(&self) -> Buffer {
     Buffer::from(self.to_bytes().to_vec())
   }
 }
@@ -114,7 +118,7 @@ impl FromJS<Buffer> for RustSecretKey {
 }
 
 impl ToJS<Buffer> for RustSecretKey {
-  fn to_js(self: &Self) -> Buffer {
+  fn to_js(&self) -> Buffer {
     Buffer::from(self.to_bytes().to_vec())
   }
 }
@@ -128,7 +132,7 @@ impl FromJS<Buffer> for RustSignature {
 }
 
 impl ToJS<Buffer> for RustSignature {
-  fn to_js(self: &Self) -> Buffer {
+  fn to_js(&self) -> Buffer {
     Buffer::from(self.to_bytes().to_vec())
   }
 }
@@ -153,7 +157,7 @@ impl FromJS<BigInt> for u64 {
 }
 
 impl ToJS<BigInt> for u64 {
-  fn to_js(self: &Self) -> BigInt {
+  fn to_js(&self) -> BigInt {
     BigInt::from(*self)
   }
 }
@@ -169,7 +173,7 @@ impl FromJS<Coin> for RustCoin {
 }
 
 impl ToJS<Coin> for RustCoin {
-  fn to_js(self: &Self) -> Coin {
+  fn to_js(&self) -> Coin {
     Coin {
       parent_coin_info: self.parent_coin_info.to_js(),
       puzzle_hash: self.puzzle_hash.to_js(),
@@ -202,7 +206,7 @@ impl FromJS<CoinSpend> for RustCoinSpend {
 }
 
 impl ToJS<CoinSpend> for RustCoinSpend {
-  fn to_js(self: &Self) -> CoinSpend {
+  fn to_js(&self) -> CoinSpend {
     CoinSpend {
       coin: self.coin.to_js(),
       puzzle_reveal: self.puzzle_reveal.to_js(),
@@ -227,7 +231,7 @@ pub struct LineageProof {
 impl FromJS<LineageProof> for RustLineageProof {
   fn from_js(value: LineageProof) -> Self {
     RustLineageProof {
-      parent_parent_coin_id: RustBytes32::from_js(value.parent_parent_coin_id),
+      parent_parent_coin_info: RustBytes32::from_js(value.parent_parent_coin_id),
       parent_inner_puzzle_hash: RustBytes32::from_js(value.parent_inner_puzzle_hash),
       parent_amount: u64::from_js(value.parent_amount),
     }
@@ -235,9 +239,9 @@ impl FromJS<LineageProof> for RustLineageProof {
 }
 
 impl ToJS<LineageProof> for RustLineageProof {
-  fn to_js(self: &Self) -> LineageProof {
+  fn to_js(self) -> LineageProof {
     LineageProof {
-      parent_parent_coin_id: self.parent_parent_coin_id.to_js(),
+      parent_parent_coin_id: self.parent_parent_coin_info.to_js(),
       parent_inner_puzzle_hash: self.parent_inner_puzzle_hash.to_js(),
       parent_amount: self.parent_amount.to_js(),
     }
@@ -258,17 +262,17 @@ pub struct EveProof {
 impl FromJS<EveProof> for RustEveProof {
   fn from_js(value: EveProof) -> Self {
     RustEveProof {
-      parent_coin_info: RustBytes32::from_js(value.parent_coin_info),
-      amount: u64::from_js(value.amount),
+      parent_parent_coin_info: RustBytes32::from_js(value.parent_coin_info),
+      parent_amount: u64::from_js(value.amount),
     }
   }
 }
 
 impl ToJS<EveProof> for RustEveProof {
-  fn to_js(self: &Self) -> EveProof {
+  fn to_js(&self) -> EveProof {
     EveProof {
-      parent_coin_info: self.parent_coin_info.to_js(),
-      amount: self.amount.to_js(),
+      parent_coin_info: self.parent_parent_coin_info.to_js(),
+      amount: self.parent_amount.to_js(),
     }
   }
 }
@@ -305,7 +309,7 @@ impl FromJS<Proof> for RustProof {
 }
 
 impl ToJS<Proof> for RustProof {
-  fn to_js(self: &Self) -> Proof {
+  fn to_js(&self) -> Proof {
     match self {
       RustProof::Lineage(lineage_proof) => Proof {
         lineage_proof: Some(lineage_proof.to_js()),
@@ -370,7 +374,7 @@ impl FromJS<DataStoreMetadata> for RustDataStoreMetadata {
 }
 
 impl ToJS<DataStoreMetadata> for RustDataStoreMetadata {
-  fn to_js(self: &Self) -> DataStoreMetadata {
+  fn to_js(&self) -> DataStoreMetadata {
     DataStoreMetadata {
       root_hash: self.root_hash.to_js(),
       label: self.label.clone(),
