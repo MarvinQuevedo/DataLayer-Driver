@@ -228,7 +228,7 @@ impl ToJS<CoinSpend> for RustCoinSpend {
 #[derive(Clone)]
 /// Represents a lineage proof that can be used to spend a singleton.
 ///
-/// @property {Buffer} parentParentCoinId - Parent coin's parent coin info/name/ID.
+/// @property {Buffer} parentParentCoinInfo - Parent coin's parent coin info/name/ID.
 /// @property {Buffer} parentInnerPuzzleHash - Parent coin's inner puzzle hash.
 /// @property {BigInt} parentAmount - Parent coin's amount.
 pub struct LineageProof {
@@ -261,8 +261,8 @@ impl ToJS<LineageProof> for RustLineageProof {
 #[derive(Clone)]
 /// Represents an eve proof that can be used to spend a singleton. Parent coin is the singleton launcher.
 ///
-/// @property {Buffer} parentCoinInfo - Parent coin's name.
-/// @property {BigInt} amount - Parent coin's amount.
+/// @property {Buffer} parentParentCoinInfo - Parent coin's name.
+/// @property {BigInt} parentAmount - Parent coin's amount.
 pub struct EveProof {
   pub parent_parent_coin_info: Buffer,
   pub parent_amount: BigInt,
@@ -434,24 +434,36 @@ impl FromJS<DelegatedPuzzle> for RustDelegatedPuzzle {
 impl ToJS<DelegatedPuzzle> for RustDelegatedPuzzle {
   fn to_js(&self) -> StdResult<DelegatedPuzzle, ConversionError> {
     match self {
-      RustDelegatedPuzzle::Admin(admin_inner_puzzle_hash) => Ok(DelegatedPuzzle {
-        admin_inner_puzzle_hash: Some(admin_inner_puzzle_hash.into().to_js()?),
-        writer_inner_puzzle_hash: None,
-        oracle_payment_puzzle_hash: None,
-        oracle_fee: None,
-      }),
-      RustDelegatedPuzzle::Writer(writer_inner_puzzle_hash) => Ok(DelegatedPuzzle {
-        admin_inner_puzzle_hash: None,
-        writer_inner_puzzle_hash: Some(writer_inner_puzzle_hash.into().to_js()?),
-        oracle_payment_puzzle_hash: None,
-        oracle_fee: None,
-      }),
-      RustDelegatedPuzzle::Oracle(oracle_payment_puzzle_hash, oracle_fee) => Ok(DelegatedPuzzle {
-        admin_inner_puzzle_hash: None,
-        writer_inner_puzzle_hash: None,
-        oracle_payment_puzzle_hash: Some(oracle_payment_puzzle_hash.to_js()?),
-        oracle_fee: Some(oracle_fee.to_js()?),
-      }),
+      RustDelegatedPuzzle::Admin(admin_inner_puzzle_hash) => {
+        let admin_inner_puzzle_hash: RustBytes32 = admin_inner_puzzle_hash.clone().into();
+
+        Ok(DelegatedPuzzle {
+          admin_inner_puzzle_hash: Some(admin_inner_puzzle_hash.to_js()?),
+          writer_inner_puzzle_hash: None,
+          oracle_payment_puzzle_hash: None,
+          oracle_fee: None,
+        })
+      }
+      RustDelegatedPuzzle::Writer(writer_inner_puzzle_hash) => {
+        let writer_inner_puzzle_hash: RustBytes32 = writer_inner_puzzle_hash.clone().into();
+
+        Ok(DelegatedPuzzle {
+          admin_inner_puzzle_hash: None,
+          writer_inner_puzzle_hash: Some(writer_inner_puzzle_hash.to_js()?),
+          oracle_payment_puzzle_hash: None,
+          oracle_fee: None,
+        })
+      }
+      RustDelegatedPuzzle::Oracle(oracle_payment_puzzle_hash, oracle_fee) => {
+        let oracle_payment_puzzle_hash: RustBytes32 = oracle_payment_puzzle_hash.clone().into();
+
+        Ok(DelegatedPuzzle {
+          admin_inner_puzzle_hash: None,
+          writer_inner_puzzle_hash: None,
+          oracle_payment_puzzle_hash: Some(oracle_payment_puzzle_hash.to_js()?),
+          oracle_fee: Some(oracle_fee.to_js()?),
+        })
+      }
     }
   }
 }
@@ -466,7 +478,7 @@ impl ToJS<DelegatedPuzzle> for RustDelegatedPuzzle {
 /// @property {DataStoreMetadata} metadata - This store's metadata.
 /// @property {Buffer} ownerPuzzleHash - The puzzle hash of the owner puzzle.
 /// @property {Vec<DelegatedPuzzle>} delegatedPuzzles - This store's delegated puzzles. An empty list usually indicates a 'vanilla' store.
-pub struct DataStoreInfo {
+pub struct DataStore {
   pub coin: Coin,
   // singleton layer
   pub launcher_id: Buffer,
@@ -478,37 +490,42 @@ pub struct DataStoreInfo {
   pub delegated_puzzles: Vec<DelegatedPuzzle>, // if empty, there is no delegation layer
 }
 
-impl FromJS<DataStoreInfo> for RustDataStoreInfo {
-  fn from_js(value: DataStoreInfo) -> Self {
-    RustDataStoreInfo {
-      coin: RustCoin::from_js(value.coin),
-      launcher_id: RustBytes32::from_js(value.launcher_id),
-      proof: RustProof::from_js(value.proof),
-      metadata: RustDataStoreMetadata::from_js(value.metadata),
-      owner_puzzle_hash: RustBytes32::from_js(value.owner_puzzle_hash),
-      delegated_puzzles: value
-        .delegated_puzzles
-        .into_iter()
-        .map(RustDelegatedPuzzle::from_js)
-        .collect(),
-    }
+impl FromJS<DataStore> for RustDataStore {
+  fn from_js(value: DataStore) -> StdResult<Self, ConversionError> {
+    Ok(RustDataStore {
+      coin: RustCoin::from_js(value.coin)?,
+      proof: RustProof::from_js(value.proof)?,
+
+      info: RustDataStoreInfo {
+        launcher_id: RustBytes32::from_js(value.launcher_id)?,
+        metadata: RustDataStoreMetadata::from_js(value.metadata)?,
+        owner_puzzle_hash: RustBytes32::from_js(value.owner_puzzle_hash)?,
+        delegated_puzzles: value
+          .delegated_puzzles
+          .into_iter()
+          .map(RustDelegatedPuzzle::from_js)
+          .collect::<StdResult<Vec<RustDelegatedPuzzle>, ConversionError>>()?,
+      },
+    })
   }
 }
 
-impl ToJS<DataStoreInfo> for RustDataStoreInfo {
-  fn to_js(self: &Self) -> DataStoreInfo {
-    DataStoreInfo {
-      coin: self.coin.to_js(),
-      launcher_id: self.launcher_id.to_js(),
-      proof: self.proof.to_js(),
-      metadata: self.metadata.to_js(),
-      owner_puzzle_hash: self.owner_puzzle_hash.to_js(),
+impl ToJS<DataStore> for RustDataStore {
+  fn to_js(&self) -> StdResult<DataStore, ConversionError> {
+    Ok(DataStore {
+      coin: self.coin.to_js()?,
+      proof: self.proof.to_js()?,
+
+      launcher_id: self.info.launcher_id.to_js()?,
+      metadata: self.info.metadata.to_js()?,
+      owner_puzzle_hash: self.info.owner_puzzle_hash.to_js()?,
       delegated_puzzles: self
+        .info
         .delegated_puzzles
         .iter()
         .map(RustDelegatedPuzzle::to_js)
-        .collect(),
-    }
+        .collect::<StdResult<Vec<DelegatedPuzzle>, ConversionError>>()?,
+    })
   }
 }
 
@@ -516,89 +533,106 @@ impl ToJS<DataStoreInfo> for RustDataStoreInfo {
 // Represents a driver response indicating success.
 ///
 /// @property {Vec<CoinSpend>} coinSpends - Coin spends that can be used to spend the provided store.
-/// @property {DataStoreInfo} newInfo - New data store information after the spend is confirmed.
+/// @property {DataStore} newStore - New data store information after the spend is confirmed.
 pub struct SuccessResponse {
   pub coin_spends: Vec<CoinSpend>,
-  pub new_info: DataStoreInfo,
+  pub new_store: DataStore,
 }
 
 impl FromJS<SuccessResponse> for RustSuccessResponse {
-  fn from_js(value: SuccessResponse) -> Self {
-    RustSuccessResponse {
+  fn from_js(value: SuccessResponse) -> StdResult<Self, ConversionError> {
+    Ok(RustSuccessResponse {
       coin_spends: value
         .coin_spends
         .into_iter()
         .map(RustCoinSpend::from_js)
-        .collect(),
-      new_info: RustDataStoreInfo::from_js(value.new_info),
-    }
+        .collect::<StdResult<Vec<RustCoinSpend>, ConversionError>>()?,
+      new_datastore: RustDataStore::from_js(value.new_store)?,
+    })
   }
 }
 
 impl ToJS<SuccessResponse> for RustSuccessResponse {
-  fn to_js(self: &Self) -> SuccessResponse {
-    SuccessResponse {
-      coin_spends: self.coin_spends.iter().map(RustCoinSpend::to_js).collect(),
-      new_info: self.new_info.to_js(),
-    }
+  fn to_js(&self) -> StdResult<SuccessResponse, ConversionError> {
+    Ok(SuccessResponse {
+      coin_spends: self
+        .coin_spends
+        .iter()
+        .map(RustCoinSpend::to_js)
+        .collect::<StdResult<Vec<CoinSpend>, ConversionError>>()?,
+      new_store: self.new_datastore.to_js()?,
+    })
   }
 }
 
 #[napi(object)]
 /// Represents a response from synchronizing a store.
 ///
-/// @property {DataStoreInfo} latestInfo - Latest data store information.
+/// @property {DataStore} latestStore - Latest data store information.
 /// @property {Option<Vec<Buffer>>} rootHashes - When synced with whistory, this list will contain all of the store's previous root hashes. Otherwise null.
 /// @property {Option<Vec<BigInt>>} rootHashesTimestamps - Timestamps of the root hashes (see `rootHashes`).
 /// @property {u32} latestHeight - Latest sync height.
 pub struct SyncStoreResponse {
-  pub latest_info: DataStoreInfo,
+  pub latest_store: DataStore,
   pub root_hashes: Option<Vec<Buffer>>,
   pub root_hashes_timestamps: Option<Vec<BigInt>>,
   pub latest_height: u32,
 }
 
 impl FromJS<SyncStoreResponse> for RustSyncStoreResponse {
-  fn from_js(value: SyncStoreResponse) -> Self {
+  fn from_js(value: SyncStoreResponse) -> StdResult<Self, ConversionError> {
     let mut root_hash_history = None;
 
-    if value.root_hashes.is_some() && value.root_hashes_timestamps.is_some() {
+    if let (Some(root_hashes), Some(root_hashes_timestamps)) =
+      (value.root_hashes, value.root_hashes_timestamps)
+    {
       let mut v = vec![];
 
-      for (root_hash, timestamp) in value
-        .root_hashes
-        .unwrap()
+      for (root_hash, timestamp) in root_hashes
         .into_iter()
-        .zip(value.root_hashes_timestamps.unwrap().into_iter())
+        .zip(root_hashes_timestamps.into_iter())
       {
-        v.push((RustBytes32::from_js(root_hash), u64::from_js(timestamp)));
+        v.push((RustBytes32::from_js(root_hash)?, u64::from_js(timestamp)?));
       }
 
       root_hash_history = Some(v);
     }
 
-    RustSyncStoreResponse {
-      latest_info: RustDataStoreInfo::from_js(value.latest_info),
+    Ok(RustSyncStoreResponse {
+      latest_store: RustDataStore::from_js(value.latest_store)?,
       latest_height: value.latest_height,
       root_hash_history,
-    }
+    })
   }
 }
-
 impl ToJS<SyncStoreResponse> for RustSyncStoreResponse {
-  fn to_js(self: &Self) -> SyncStoreResponse {
-    SyncStoreResponse {
-      latest_info: self.latest_info.to_js(),
+  fn to_js(&self) -> StdResult<SyncStoreResponse, ConversionError> {
+    let root_hashes = self
+      .root_hash_history
+      .as_ref()
+      .map(|v| {
+        v.iter()
+          .map(|(rh, _)| rh.to_js())
+          .collect::<StdResult<Vec<Buffer>, ConversionError>>()
+      })
+      .transpose()?;
+
+    let root_hashes_timestamps = self
+      .root_hash_history
+      .as_ref()
+      .map(|v| {
+        v.iter()
+          .map(|(_, ts)| ts.to_js())
+          .collect::<StdResult<Vec<BigInt>, ConversionError>>()
+      })
+      .transpose()?;
+
+    Ok(SyncStoreResponse {
+      latest_store: self.latest_store.to_js()?,
       latest_height: self.latest_height,
-      root_hashes: self
-        .root_hash_history
-        .as_ref()
-        .map(|v| v.iter().map(|(rh, _)| rh.to_js()).collect()),
-      root_hashes_timestamps: self
-        .root_hash_history
-        .as_ref()
-        .map(|v| v.iter().map(|(_, ts)| ts.to_js()).collect()),
-    }
+      root_hashes,
+      root_hashes_timestamps,
+    })
   }
 }
 
@@ -615,22 +649,29 @@ pub struct UnspentCoinsResponse {
 }
 
 impl FromJS<UnspentCoinsResponse> for RustUnspentCoinsResponse {
-  fn from_js(value: UnspentCoinsResponse) -> Self {
-    RustUnspentCoinsResponse {
-      coins: value.coins.into_iter().map(RustCoin::from_js).collect(),
+  fn from_js(value: UnspentCoinsResponse) -> StdResult<Self, ConversionError> {
+    Ok(RustUnspentCoinsResponse {
+      coins: value
+        .coins
+        .into_iter()
+        .map(RustCoin::from_js)
+        .collect::<StdResult<Vec<RustCoin>, ConversionError>>()?,
       last_height: value.last_height,
-      last_header_hash: RustBytes32::from_js(value.last_header_hash),
-    }
-  }
+      last_header_hash: RustBytes32::from_js(value.last_header_hash)?,
+    })
 }
 
 impl ToJS<UnspentCoinsResponse> for RustUnspentCoinsResponse {
-  fn to_js(self: &Self) -> UnspentCoinsResponse {
-    UnspentCoinsResponse {
-      coins: self.coins.iter().map(RustCoin::to_js).collect(),
+  fn to_js(&self) -> StdResult<UnspentCoinsResponse, ConversionError> {
+    Ok(UnspentCoinsResponse {
+      coins: self
+        .coins
+        .iter()
+        .map(RustCoin::to_js)
+        .collect::<StdResult<Vec<Coin>, ConversionError>>()?,
       last_height: self.last_height,
       last_header_hash: self.last_header_hash.to_js(),
-    }
+    })
   }
 }
 
