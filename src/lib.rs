@@ -50,10 +50,15 @@ pub enum ConversionError {
 
   #[error("Missing proof")]
   MissingProof,
+
+  #[error("Missing delegated puzzle info")]
+  MissingDelegatedPuzzleInfo,
 }
 
 pub trait FromJS<T> {
-  fn from_js(value: T) -> StdResult<Self, ConversionError>;
+  fn from_js(value: T) -> StdResult<Self, ConversionError>
+  where
+    Self: Sized;
 }
 
 pub trait ToJS<T> {
@@ -243,7 +248,7 @@ impl FromJS<LineageProof> for RustLineageProof {
 }
 
 impl ToJS<LineageProof> for RustLineageProof {
-  fn to_js(self) -> StdResult<LineageProof, ConversionError> {
+  fn to_js(&self) -> StdResult<LineageProof, ConversionError> {
     Ok(LineageProof {
       parent_parent_coin_info: self.parent_parent_coin_info.to_js()?,
       parent_inner_puzzle_hash: self.parent_inner_puzzle_hash.to_js()?,
@@ -307,17 +312,17 @@ impl FromJS<Proof> for RustProof {
 }
 
 impl ToJS<Proof> for RustProof {
-  fn to_js(&self) -> Proof {
-    match self {
+  fn to_js(&self) -> StdResult<Proof, ConversionError> {
+    Ok(match self {
       RustProof::Lineage(lineage_proof) => Proof {
-        lineage_proof: Some(lineage_proof.to_js()),
+        lineage_proof: Some(lineage_proof.to_js()?),
         eve_proof: None,
       },
       RustProof::Eve(eve_proof) => Proof {
         lineage_proof: None,
-        eve_proof: Some(eve_proof.to_js()),
+        eve_proof: Some(eve_proof.to_js()?),
       },
-    }
+    })
   }
 }
 
@@ -361,24 +366,32 @@ pub struct DataStoreMetadata {
 }
 
 impl FromJS<DataStoreMetadata> for RustDataStoreMetadata {
-  fn from_js(value: DataStoreMetadata) -> Self {
-    RustDataStoreMetadata {
-      root_hash: RustBytes32::from_js(value.root_hash),
+  fn from_js(value: DataStoreMetadata) -> StdResult<Self, ConversionError> {
+    Ok(RustDataStoreMetadata {
+      root_hash: RustBytes32::from_js(value.root_hash)?,
       label: value.label,
       description: value.description,
-      bytes: value.bytes.map(|s| u64::from_js(s)),
-    }
+      bytes: if let Some(bytes) = value.bytes {
+        Some(u64::from_js(bytes)?)
+      } else {
+        None
+      },
+    })
   }
 }
 
 impl ToJS<DataStoreMetadata> for RustDataStoreMetadata {
-  fn to_js(&self) -> DataStoreMetadata {
-    DataStoreMetadata {
-      root_hash: self.root_hash.to_js(),
+  fn to_js(&self) -> StdResult<DataStoreMetadata, ConversionError> {
+    Ok(DataStoreMetadata {
+      root_hash: self.root_hash.to_js()?,
       label: self.label.clone(),
       description: self.description.clone(),
-      bytes: self.bytes.map(|s| s.to_js()),
-    }
+      bytes: if let Some(bytes) = self.bytes {
+        Some(bytes.to_js()?)
+      } else {
+        None
+      },
+    })
   }
 }
 
@@ -390,94 +403,55 @@ impl ToJS<DataStoreMetadata> for RustDataStoreMetadata {
 /// @property {Option<Buffer>} writerInnerPuzzleHash - Writer inner puzzle hash, if this is a writer delegated puzzle.
 /// @property {Option<Buffer>} oraclePaymentPuzzleHash - Oracle payment puzzle hash, if this is an oracle delegated puzzle.
 /// @property {Option<BigInt>} oracleFee - Oracle fee, if this is an oracle delegated puzzle.
-pub struct DelegatedPuzzleInfo {
+pub struct DelegatedPuzzle {
   pub admin_inner_puzzle_hash: Option<Buffer>,
   pub writer_inner_puzzle_hash: Option<Buffer>,
   pub oracle_payment_puzzle_hash: Option<Buffer>,
   pub oracle_fee: Option<BigInt>,
 }
 
-impl FromJS<DelegatedPuzzleInfo> for RustDelegatedPuzzleInfo {
-  fn from_js(value: DelegatedPuzzleInfo) -> Self {
-    if value.admin_inner_puzzle_hash.is_some() {
-      RustDelegatedPuzzleInfo::Admin(RustBytes32::from_js(
-        value
-          .admin_inner_puzzle_hash
-          .expect("error parsing admin inner puzzle hash as Bytes32"),
-      ))
-    } else if value.writer_inner_puzzle_hash.is_some() {
-      RustDelegatedPuzzleInfo::Writer(RustBytes32::from_js(
-        value
-          .writer_inner_puzzle_hash
-          .expect("error parsing writer inner puzzle hash as Bytes32"),
-      ))
-    } else {
-      RustDelegatedPuzzleInfo::Oracle(
-        RustBytes32::from_js(
-          value
-            .oracle_payment_puzzle_hash
-            .expect("error parsing oracle payment puzzle hash as Bytes32"),
-        ),
-        u64::from_js(value.oracle_fee.expect("error parsing oracle fee as u64")),
-      )
-    }
-  }
-}
-
-impl ToJS<DelegatedPuzzleInfo> for RustDelegatedPuzzleInfo {
-  fn to_js(self: &Self) -> DelegatedPuzzleInfo {
-    match self {
-      RustDelegatedPuzzleInfo::Admin(admin_inner_puzzle_hash) => DelegatedPuzzleInfo {
-        admin_inner_puzzle_hash: Some(admin_inner_puzzle_hash.to_js()),
-        writer_inner_puzzle_hash: None,
-        oracle_payment_puzzle_hash: None,
-        oracle_fee: None,
-      },
-      RustDelegatedPuzzleInfo::Writer(writer_inner_puzzle_hash) => DelegatedPuzzleInfo {
-        admin_inner_puzzle_hash: None,
-        writer_inner_puzzle_hash: Some(writer_inner_puzzle_hash.to_js()),
-        oracle_payment_puzzle_hash: None,
-        oracle_fee: None,
-      },
-      RustDelegatedPuzzleInfo::Oracle(oracle_payment_puzzle_hash, oracle_fee) => {
-        DelegatedPuzzleInfo {
-          admin_inner_puzzle_hash: None,
-          writer_inner_puzzle_hash: None,
-          oracle_payment_puzzle_hash: Some(oracle_payment_puzzle_hash.to_js()),
-          oracle_fee: Some(oracle_fee.to_js()),
-        }
-      }
-    }
-  }
-}
-
-#[napi(object)]
-#[derive(Clone)]
-/// Represents a delegated puzzle. Note that utilities such as `admin_delegated_puzzle_from_key` should be used to create this object.
-///
-/// @property {Buffer} puzzleHash - The full puzzle hash of the delegated puzzle (filter where applicable + inner puzzle).
-/// @property {DelegatedPuzzleInfo} puzzleInfo - Delegated puzzle information.
-pub struct DelegatedPuzzle {
-  pub puzzle_hash: Buffer,
-  pub puzzle_info: DelegatedPuzzleInfo,
-}
-
 impl FromJS<DelegatedPuzzle> for RustDelegatedPuzzle {
-  fn from_js(value: DelegatedPuzzle) -> Self {
-    let puzzle_info = RustDelegatedPuzzleInfo::from_js(value.puzzle_info);
-
-    RustDelegatedPuzzle {
-      puzzle_hash: RustBytes32::from_js(value.puzzle_hash),
-      puzzle_info: puzzle_info,
-    }
+  fn from_js(value: DelegatedPuzzle) -> StdResult<Self, ConversionError> {
+    Ok(
+      if let Some(admin_inner_puzzle_hash) = value.admin_inner_puzzle_hash {
+        RustDelegatedPuzzle::Admin(RustBytes32::from_js(admin_inner_puzzle_hash)?.into())
+      } else if let Some(writer_inner_puzzle_hash) = value.writer_inner_puzzle_hash {
+        RustDelegatedPuzzle::Writer(RustBytes32::from_js(writer_inner_puzzle_hash)?.into())
+      } else if let (Some(oracle_payment_puzzle_hash), Some(oracle_fee)) =
+        (value.oracle_payment_puzzle_hash, value.oracle_fee)
+      {
+        RustDelegatedPuzzle::Oracle(
+          RustBytes32::from_js(oracle_payment_puzzle_hash)?.into(),
+          u64::from_js(oracle_fee)?,
+        )
+      } else {
+        return Err(ConversionError::MissingDelegatedPuzzleInfo);
+      },
+    )
   }
 }
 
 impl ToJS<DelegatedPuzzle> for RustDelegatedPuzzle {
-  fn to_js(self: &Self) -> DelegatedPuzzle {
-    DelegatedPuzzle {
-      puzzle_hash: self.puzzle_hash.to_js(),
-      puzzle_info: self.puzzle_info.to_js(),
+  fn to_js(&self) -> StdResult<DelegatedPuzzle, ConversionError> {
+    match self {
+      RustDelegatedPuzzle::Admin(admin_inner_puzzle_hash) => Ok(DelegatedPuzzle {
+        admin_inner_puzzle_hash: Some(admin_inner_puzzle_hash.into().to_js()?),
+        writer_inner_puzzle_hash: None,
+        oracle_payment_puzzle_hash: None,
+        oracle_fee: None,
+      }),
+      RustDelegatedPuzzle::Writer(writer_inner_puzzle_hash) => Ok(DelegatedPuzzle {
+        admin_inner_puzzle_hash: None,
+        writer_inner_puzzle_hash: Some(writer_inner_puzzle_hash.into().to_js()?),
+        oracle_payment_puzzle_hash: None,
+        oracle_fee: None,
+      }),
+      RustDelegatedPuzzle::Oracle(oracle_payment_puzzle_hash, oracle_fee) => Ok(DelegatedPuzzle {
+        admin_inner_puzzle_hash: None,
+        writer_inner_puzzle_hash: None,
+        oracle_payment_puzzle_hash: Some(oracle_payment_puzzle_hash.to_js()?),
+        oracle_fee: Some(oracle_fee.to_js()?),
+      }),
     }
   }
 }
