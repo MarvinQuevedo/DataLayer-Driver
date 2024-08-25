@@ -7,6 +7,7 @@ use chia::bls::SecretKey;
 use chia::bls::Signature;
 use chia::client::Error as ClientError;
 use chia::client::Peer;
+use chia::clvm_traits::ToClvm;
 use chia::consensus::error::Error as ChiaConsensusError;
 use chia::consensus::gen::conditions::EmptyVisitor;
 use chia::consensus::gen::flags::MEMPOOL_MODE;
@@ -26,14 +27,17 @@ use chia::protocol::SpendBundle;
 use chia::protocol::TransactionAck;
 use chia::protocol::{Bytes32, CoinSpend};
 use chia::puzzles::standard::StandardArgs;
+use chia_wallet_sdk::get_merkle_tree;
 use chia_wallet_sdk::select_coins as select_coins_algo;
 use chia_wallet_sdk::CoinSelectionError;
+use chia_wallet_sdk::Condition;
 use chia_wallet_sdk::Conditions;
 use chia_wallet_sdk::DataStore;
 use chia_wallet_sdk::DataStoreMetadata;
 use chia_wallet_sdk::DelegatedPuzzle;
 use chia_wallet_sdk::DriverError;
 use chia_wallet_sdk::Launcher;
+use chia_wallet_sdk::NewMerkleRootCondition;
 use chia_wallet_sdk::RequiredSignature;
 use chia_wallet_sdk::SignerError;
 use chia_wallet_sdk::SpendContext;
@@ -380,7 +384,7 @@ pub async fn sync_store_using_launcher_id(
   })
 }
 
-pub enum DataStoreInnerSpendInfo {
+pub enum DataStoreInnerSpend {
   Owner(PublicKey),
   Admin(PublicKey),
   Writer(PublicKey),
@@ -391,20 +395,20 @@ fn update_store_with_conditions(
   ctx: &mut SpendContext,
   conditions: Conditions,
   datastore: DataStore,
-  inner_spend_info: DataStoreInnerSpendInfo,
+  inner_spend_info: DataStoreInnerSpend,
   allow_admin: bool,
   allow_writer: bool,
 ) -> Result<SuccessResponse, WalletError> {
   let inner_datastore_spend = match inner_spend_info {
-    DataStoreInnerSpendInfo::Owner(pk) => StandardLayer::new(pk).spend(ctx, conditions)?,
-    DataStoreInnerSpendInfo::Admin(pk) => {
+    DataStoreInnerSpend::Owner(pk) => StandardLayer::new(pk).spend(ctx, conditions)?,
+    DataStoreInnerSpend::Admin(pk) => {
       if !allow_admin {
         return Err(WalletError::Permission());
       }
 
       StandardLayer::new(pk).spend(ctx, conditions)?
     }
-    DataStoreInnerSpendInfo::Writer(pk) => {
+    DataStoreInnerSpend::Writer(pk) => {
       if !allow_writer {
         return Err(WalletError::Permission());
       }
@@ -431,51 +435,46 @@ fn update_store_with_conditions(
 }
 
 pub fn update_store_ownership(
-  store_info: DataStoreInfo,
+  datastore: DataStore,
   new_owner_puzzle_hash: Bytes32,
   new_delegated_puzzles: Vec<DelegatedPuzzle>,
-  inner_spend_info: DataStoreInnerSpendInfo,
-) -> Result<SuccessResponse, Error> {
-  let mut ctx = SpendContext::new();
+  inner_spend_info: DataStoreInnerSpend,
+) -> Result<SuccessResponse, WalletError> {
+  let ctx = &mut SpendContext::new();
 
   let update_condition: Condition = match inner_spend_info {
-    DataStoreInnerSpendInfo::Owner(_) => get_owner_create_coin_condition(
-      store_info.launcher_id,
-      &new_owner_puzzle_hash,
-      &new_delegated_puzzles,
+    DataStoreInnerSpend::Owner(_) => DataStore::<DataStoreMetadata>::owner_create_coin_condition(
+      ctx,
+      datastore.info.launcher_id,
+      new_owner_puzzle_hash,
+      new_delegated_puzzles,
       true,
-    ),
-    DataStoreInnerSpendInfo::Admin(_) => {
-      let leaves: Vec<Bytes32> = new_delegated_puzzles
-        .clone()
-        .iter()
-        .map(|dp| dp.puzzle_hash)
-        .collect();
-      let merkle_tree = MerkleTree::new(&leaves);
-      let new_merkle_root = merkle_tree.get_root();
+    )?,
+    DataStoreInnerSpend::Admin(_) => {
+      let merkle_tree = get_merkle_tree(ctx, new_delegated_puzzles.clone())?;
 
       let new_merkle_root_condition = NewMerkleRootCondition {
-        new_merkle_root,
-        memos: get_memos(
-          store_info.launcher_id,
+        new_merkle_root: merkle_tree.root,
+        memos: DataStore::<DataStoreMetadata>::get_recreation_memos(
+          datastore.info.launcher_id,
           new_owner_puzzle_hash.into(),
           new_delegated_puzzles,
         ),
       }
-      .to_clvm(ctx.allocator_mut())
-      .map_err(|err| Error::ToClvm(err))?;
+      .to_clvm(&mut ctx.allocator)
+      .map_err(DriverError::ToClvm)?;
 
       Condition::Other(new_merkle_root_condition)
     }
-    _ => return Err(Error::Permission()),
+    _ => return Err(WalletError::Permission()),
   };
 
-  let update_conditions = Conditions::new().condition(update_condition);
+  let update_conditions = Conditions::new().with(update_condition);
 
   update_store_with_conditions(
-    &mut ctx,
+    ctx,
     update_conditions,
-    store_info,
+    datastore,
     inner_spend_info,
     true,
     false,
