@@ -8,6 +8,8 @@ use chia::bls::Signature;
 use chia::client::Error as ClientError;
 use chia::client::Peer;
 use chia::clvm_traits::ToClvm;
+use chia::consensus::consensus_constants::ConsensusConstants;
+use chia::consensus::consensus_constants::TEST_CONSTANTS;
 use chia::consensus::error::Error as ChiaConsensusError;
 use chia::consensus::gen::conditions::EmptyVisitor;
 use chia::consensus::gen::flags::MEMPOOL_MODE;
@@ -27,6 +29,7 @@ use chia::protocol::SpendBundle;
 use chia::protocol::TransactionAck;
 use chia::protocol::{Bytes32, CoinSpend};
 use chia::puzzles::standard::StandardArgs;
+use chia::puzzles::DeriveSynthetic;
 use chia_wallet_sdk::get_merkle_tree;
 use chia_wallet_sdk::select_coins as select_coins_algo;
 use chia_wallet_sdk::CoinSelectionError;
@@ -47,6 +50,7 @@ use chia_wallet_sdk::SpendContext;
 use chia_wallet_sdk::StandardLayer;
 use chia_wallet_sdk::WriterLayer;
 use clvmr::sha2::Sha256;
+use clvmr::Allocator;
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
@@ -162,6 +166,7 @@ pub fn mint_store(
   fee: u64,
 ) -> Result<SuccessResponse, WalletError> {
   let minter_puzzle_hash: Bytes32 = StandardArgs::curry_tree_hash(minter_synthetic_key).into();
+  let total_amount_from_coins = selected_coins.iter().map(|c| c.amount).sum::<u64>();
 
   let total_amount = fee + 1;
 
@@ -175,14 +180,12 @@ pub fn mint_store(
   hasher.update([0; 1]);
   let lead_ann_id = Bytes32::new(hasher.finalize());
 
-  for coin in selected_coins.iter().skip(1) {
-    ctx
-      .spend_p2_coin(
-        *coin,
-        minter_synthetic_key,
-        Conditions::new().assert_coin_announcement(lead_ann_id),
-      )
-      .map_err(|err| WalletError::Driver(err))?;
+  for coin in selected_coins.into_iter().skip(1) {
+    ctx.spend_p2_coin(
+      coin,
+      minter_synthetic_key,
+      Conditions::new().assert_coin_announcement(lead_ann_id),
+    )?;
   }
 
   let (launch_singleton, datastore) = Launcher::new(lead_coin_name, 1).mint_datastore(
@@ -197,7 +200,6 @@ pub fn mint_store(
     delegated_puzzles,
   )?;
 
-  let total_amount_from_coins = selected_coins.iter().map(|c| c.amount).sum::<u64>();
   let lead_coin_conditions = if total_amount_from_coins > total_amount {
     launch_singleton.create_coin(
       minter_puzzle_hash,
@@ -574,9 +576,10 @@ pub fn oracle_spend(
   hasher.update([0; 1]);
   let lead_ann_id = Bytes32::new(hasher.finalize());
 
-  for coin in selected_coins.iter().skip(1) {
+  let total_amount_from_coins = selected_coins.iter().map(|c| c.amount).sum::<u64>();
+  for coin in selected_coins.into_iter().skip(1) {
     ctx.spend_p2_coin(
-      *coin,
+      coin,
       spender_synthetic_key,
       Conditions::new().assert_coin_announcement(lead_ann_id),
     )?;
@@ -588,8 +591,6 @@ pub fn oracle_spend(
   let oracle_ann_id = Bytes32::new(hasher2.finalize());
 
   let assert_oracle_conds = Conditions::new().assert_puzzle_announcement(oracle_ann_id);
-
-  let total_amount_from_coins = selected_coins.iter().map(|c| c.amount).sum::<u64>();
 
   let mut lead_coin_conditions = assert_oracle_conds;
   if total_amount_from_coins > total_amount {
@@ -627,46 +628,43 @@ pub fn add_fee(
   selected_coins: Vec<Coin>,
   coin_ids: Vec<Bytes32>,
   fee: u64,
-) -> Result<Vec<CoinSpend>, Error> {
+) -> Result<Vec<CoinSpend>, WalletError> {
   let spender_puzzle_hash: Bytes32 = StandardArgs::curry_tree_hash(spender_synthetic_key).into();
+  let total_amount_from_coins = selected_coins.iter().map(|c| c.amount).sum::<u64>();
 
   let mut ctx = SpendContext::new();
 
   let lead_coin = selected_coins[0].clone();
   let lead_coin_name = lead_coin.coin_id();
-  for coin in selected_coins.iter().skip(1) {
-    ctx
-      .spend_p2_coin(
-        *coin,
-        spender_synthetic_key,
-        Conditions::new().assert_coin_announcement(lead_coin_name, [0; 1]),
-      )
-      .map_err(|err| Error::Spend(err))?;
-  }
 
-  let total_amount_from_coins = selected_coins.iter().map(|c| c.amount).sum::<u64>();
+  let mut hasher = Sha256::new();
+  hasher.update(lead_coin_name);
+  hasher.update([0; 1]);
+  let lead_ann_id = Bytes32::new(hasher.finalize());
+
+  for coin in selected_coins.into_iter().skip(1) {
+    ctx.spend_p2_coin(
+      coin,
+      spender_synthetic_key,
+      Conditions::new().assert_coin_announcement(lead_ann_id),
+    )?;
+  }
 
   let mut lead_coin_conditions = Conditions::new().reserve_fee(fee);
   if total_amount_from_coins > fee {
-    lead_coin_conditions =
-      lead_coin_conditions.create_coin(spender_puzzle_hash, total_amount_from_coins - fee);
+    lead_coin_conditions = lead_coin_conditions.create_coin(
+      spender_puzzle_hash,
+      total_amount_from_coins - fee,
+      vec![spender_puzzle_hash.into()],
+    );
   }
   for coin_id in coin_ids {
-    lead_coin_conditions =
-      lead_coin_conditions.condition(Condition::AssertConcurrentSpend(AssertConcurrentSpend {
-        coin_id,
-      }));
+    lead_coin_conditions = lead_coin_conditions.assert_concurrent_spend(coin_id);
   }
 
   ctx.spend_p2_coin(lead_coin, spender_synthetic_key, lead_coin_conditions)?;
 
-  Ok(ctx.take_spends())
-}
-
-#[derive(Debug, Error)]
-pub enum SignCoinSpendsError {
-  #[error("{0:?}")]
-  Signer(#[from] SignerError),
+  Ok(ctx.take())
 }
 
 pub fn public_key_to_synthetic_key(pk: PublicKey) -> PublicKey {
@@ -677,16 +675,31 @@ pub fn secret_key_to_synthetic_key(sk: SecretKey) -> SecretKey {
   sk.derive_synthetic()
 }
 
+#[derive(Debug, Clone, Copy)]
+enum TargetNetwork {
+  Mainnet,
+  Testnet11,
+}
+
+// TODO: only temporary
+impl TargetNetwork {
+  fn get_constants(&self) -> ConsensusConstants {
+    match self {
+      TargetNetwork::Mainnet => TEST_CONSTANTS,
+      TargetNetwork::Testnet11 => TEST_CONSTANTS,
+    }
+  }
+}
+
 pub fn sign_coin_spends(
   coin_spends: Vec<CoinSpend>,
   private_keys: Vec<SecretKey>,
-  agg_sig_data: Bytes32,
-) -> Result<Signature, SignCoinSpendsError> {
+  network: TargetNetwork,
+) -> Result<Signature, SignerError> {
   let mut allocator = Allocator::new();
 
   let required_signatures =
-    RequiredSignature::from_coin_spends(&mut allocator, &coin_spends, agg_sig_data)
-      .map_err(|err| SignCoinSpendsError::Signer(err))?;
+    RequiredSignature::from_coin_spends(&mut allocator, &coin_spends, &network.get_constants())?;
 
   let key_pairs = private_keys
     .iter()
