@@ -22,6 +22,7 @@ use chia_wallet_sdk::{
 };
 use clvmr::Allocator;
 use napi::bindgen_prelude::*;
+use std::result::Result as StdResult;
 use std::sync::Arc;
 use thiserror::Error;
 use tokio::sync::Mutex;
@@ -43,92 +44,100 @@ pub enum ConversionError {
 
   #[error("Invalid private key")]
   InvalidPrivateKey,
+
+  #[error("Invalid signature")]
+  InvalidSignature,
+
+  #[error("Missing proof")]
+  MissingProof,
 }
 
 pub trait FromJS<T> {
-  fn from_js(value: T) -> Result<Self, ConversionError>;
+  fn from_js(value: T) -> StdResult<Self, ConversionError>;
 }
 
 pub trait ToJS<T> {
-  fn to_js(&self) -> Result<T, ConversionError>;
+  fn to_js(&self) -> StdResult<T, ConversionError>;
 }
 
 impl FromJS<Buffer> for RustBytes32 {
-  fn from_js(value: Buffer) -> Result<Self> {
-    RustBytes32::try_from(value.as_ref().to_vec())
-      .map_err(|_| js(ConversionError::DifferentLength(32)))
+  fn from_js(value: Buffer) -> StdResult<Self, ConversionError> {
+    RustBytes32::try_from(value.as_ref().to_vec()).map_err(|_| ConversionError::DifferentLength(32))
   }
 }
 
 impl ToJS<Buffer> for RustBytes32 {
-  fn to_js(&self) -> Result<Buffer> {
+  fn to_js(&self) -> StdResult<Buffer, ConversionError> {
     Ok(Buffer::from(self.to_vec()))
   }
 }
 
 impl FromJS<Buffer> for RustProgram {
-  fn from_js(value: Buffer) -> Self {
-    RustProgram::from(value.to_vec())
+  fn from_js(value: Buffer) -> StdResult<Self, ConversionError> {
+    Ok(RustProgram::from(value.to_vec()))
   }
 }
 
 impl ToJS<Buffer> for RustProgram {
-  fn to_js(&self) -> Buffer {
-    Buffer::from(self.to_vec())
+  fn to_js(&self) -> StdResult<Buffer, ConversionError> {
+    Ok(Buffer::from(self.to_vec()))
   }
 }
 
 impl FromJS<Buffer> for RustBytes {
-  fn from_js(value: Buffer) -> Self {
-    RustBytes::new(value.to_vec())
+  fn from_js(value: Buffer) -> StdResult<Self, ConversionError> {
+    Ok(RustBytes::new(value.to_vec()))
   }
 }
 
 impl ToJS<Buffer> for RustBytes {
-  fn to_js(&self) -> Buffer {
-    Buffer::from(self.to_vec())
+  fn to_js(&self) -> StdResult<Buffer, ConversionError> {
+    Ok(Buffer::from(self.to_vec()))
   }
 }
 
 impl FromJS<Buffer> for RustPublicKey {
-  fn from_js(value: Buffer) -> Self {
-    let vec = value.to_vec();
-    let bytes: [u8; 48] = vec.try_into().expect("public key should be 48 bytes long");
-    RustPublicKey::from_bytes(&bytes).expect("error parsing public key")
+  fn from_js(value: Buffer) -> StdResult<Self, ConversionError> {
+    RustPublicKey::from_bytes(
+      &<[u8; 48]>::try_from(value.to_vec()).map_err(|_| ConversionError::DifferentLength(48))?,
+    )
+    .map_err(|_| ConversionError::InvalidPublicKey)
   }
 }
 
 impl ToJS<Buffer> for RustPublicKey {
-  fn to_js(&self) -> Buffer {
-    Buffer::from(self.to_bytes().to_vec())
+  fn to_js(&self) -> StdResult<Buffer, ConversionError> {
+    Ok(Buffer::from(self.to_bytes().to_vec()))
   }
 }
 
 impl FromJS<Buffer> for RustSecretKey {
-  fn from_js(value: Buffer) -> Self {
-    let vec = value.to_vec();
-    let bytes: [u8; 32] = vec.try_into().expect("secret key should be 32 bytes long");
-    RustSecretKey::from_bytes(&bytes).expect("error parsing secret key")
+  fn from_js(value: Buffer) -> StdResult<Self, ConversionError> {
+    RustSecretKey::from_bytes(
+      &<[u8; 32]>::try_from(value.to_vec()).map_err(|_| ConversionError::DifferentLength(32))?,
+    )
+    .map_err(|_| ConversionError::InvalidPrivateKey)
   }
 }
 
 impl ToJS<Buffer> for RustSecretKey {
-  fn to_js(&self) -> Buffer {
-    Buffer::from(self.to_bytes().to_vec())
+  fn to_js(&self) -> StdResult<Buffer, ConversionError> {
+    Ok(Buffer::from(self.to_bytes().to_vec()))
   }
 }
 
 impl FromJS<Buffer> for RustSignature {
-  fn from_js(value: Buffer) -> Self {
-    let vec = value.to_vec();
-    let bytes: [u8; 96] = vec.try_into().expect("signature should be 96 bytes long");
-    RustSignature::from_bytes(&bytes).expect("error parsing signature")
+  fn from_js(value: Buffer) -> StdResult<Self, ConversionError> {
+    RustSignature::from_bytes(
+      &<[u8; 96]>::try_from(value.to_vec()).map_err(|_| ConversionError::DifferentLength(96))?,
+    )
+    .map_err(|_| ConversionError::InvalidSignature)
   }
 }
 
 impl ToJS<Buffer> for RustSignature {
-  fn to_js(&self) -> Buffer {
-    Buffer::from(self.to_bytes().to_vec())
+  fn to_js(&self) -> StdResult<Buffer, ConversionError> {
+    Ok(Buffer::from(self.to_bytes().to_vec()))
   }
 }
 
@@ -146,34 +155,34 @@ pub struct Coin {
 }
 
 impl FromJS<BigInt> for u64 {
-  fn from_js(value: BigInt) -> Self {
-    value.get_u64().1
+  fn from_js(value: BigInt) -> StdResult<Self, ConversionError> {
+    Ok(value.get_u64().1)
   }
 }
 
 impl ToJS<BigInt> for u64 {
-  fn to_js(&self) -> BigInt {
-    BigInt::from(*self)
+  fn to_js(&self) -> StdResult<BigInt, ConversionError> {
+    Ok(BigInt::from(*self))
   }
 }
 
 impl FromJS<Coin> for RustCoin {
-  fn from_js(value: Coin) -> Self {
-    RustCoin {
-      parent_coin_info: RustBytes32::from_js(value.parent_coin_info),
-      puzzle_hash: RustBytes32::from_js(value.puzzle_hash),
-      amount: u64::from_js(value.amount),
-    }
+  fn from_js(value: Coin) -> StdResult<Self, ConversionError> {
+    Ok(RustCoin {
+      parent_coin_info: RustBytes32::from_js(value.parent_coin_info)?,
+      puzzle_hash: RustBytes32::from_js(value.puzzle_hash)?,
+      amount: u64::from_js(value.amount)?,
+    })
   }
 }
 
 impl ToJS<Coin> for RustCoin {
-  fn to_js(&self) -> Coin {
-    Coin {
-      parent_coin_info: self.parent_coin_info.to_js(),
-      puzzle_hash: self.puzzle_hash.to_js(),
-      amount: self.amount.to_js(),
-    }
+  fn to_js(&self) -> StdResult<Coin, ConversionError> {
+    Ok(Coin {
+      parent_coin_info: self.parent_coin_info.to_js()?,
+      puzzle_hash: self.puzzle_hash.to_js()?,
+      amount: self.amount.to_js()?,
+    })
   }
 }
 
@@ -191,22 +200,22 @@ pub struct CoinSpend {
 }
 
 impl FromJS<CoinSpend> for RustCoinSpend {
-  fn from_js(value: CoinSpend) -> Self {
-    RustCoinSpend {
-      coin: RustCoin::from_js(value.coin),
-      puzzle_reveal: RustProgram::from_js(value.puzzle_reveal),
-      solution: RustProgram::from_js(value.solution),
-    }
+  fn from_js(value: CoinSpend) -> StdResult<Self, ConversionError> {
+    Ok(RustCoinSpend {
+      coin: RustCoin::from_js(value.coin)?,
+      puzzle_reveal: RustProgram::from_js(value.puzzle_reveal)?,
+      solution: RustProgram::from_js(value.solution)?,
+    })
   }
 }
 
 impl ToJS<CoinSpend> for RustCoinSpend {
-  fn to_js(&self) -> CoinSpend {
-    CoinSpend {
-      coin: self.coin.to_js(),
-      puzzle_reveal: self.puzzle_reveal.to_js(),
-      solution: self.solution.to_js(),
-    }
+  fn to_js(&self) -> StdResult<CoinSpend, ConversionError> {
+    Ok(CoinSpend {
+      coin: self.coin.to_js()?,
+      puzzle_reveal: self.puzzle_reveal.to_js()?,
+      solution: self.solution.to_js()?,
+    })
   }
 }
 
@@ -218,28 +227,28 @@ impl ToJS<CoinSpend> for RustCoinSpend {
 /// @property {Buffer} parentInnerPuzzleHash - Parent coin's inner puzzle hash.
 /// @property {BigInt} parentAmount - Parent coin's amount.
 pub struct LineageProof {
-  pub parent_parent_coin_id: Buffer,
+  pub parent_parent_coin_info: Buffer,
   pub parent_inner_puzzle_hash: Buffer,
   pub parent_amount: BigInt,
 }
 
 impl FromJS<LineageProof> for RustLineageProof {
-  fn from_js(value: LineageProof) -> Self {
-    RustLineageProof {
-      parent_parent_coin_info: RustBytes32::from_js(value.parent_parent_coin_id),
-      parent_inner_puzzle_hash: RustBytes32::from_js(value.parent_inner_puzzle_hash),
-      parent_amount: u64::from_js(value.parent_amount),
-    }
+  fn from_js(value: LineageProof) -> StdResult<Self, ConversionError> {
+    Ok(RustLineageProof {
+      parent_parent_coin_info: RustBytes32::from_js(value.parent_parent_coin_info)?,
+      parent_inner_puzzle_hash: RustBytes32::from_js(value.parent_inner_puzzle_hash)?,
+      parent_amount: u64::from_js(value.parent_amount)?,
+    })
   }
 }
 
 impl ToJS<LineageProof> for RustLineageProof {
-  fn to_js(self) -> LineageProof {
-    LineageProof {
-      parent_parent_coin_id: self.parent_parent_coin_info.to_js(),
-      parent_inner_puzzle_hash: self.parent_inner_puzzle_hash.to_js(),
-      parent_amount: self.parent_amount.to_js(),
-    }
+  fn to_js(self) -> StdResult<LineageProof, ConversionError> {
+    Ok(LineageProof {
+      parent_parent_coin_info: self.parent_parent_coin_info.to_js()?,
+      parent_inner_puzzle_hash: self.parent_inner_puzzle_hash.to_js()?,
+      parent_amount: self.parent_amount.to_js()?,
+    })
   }
 }
 
@@ -250,25 +259,25 @@ impl ToJS<LineageProof> for RustLineageProof {
 /// @property {Buffer} parentCoinInfo - Parent coin's name.
 /// @property {BigInt} amount - Parent coin's amount.
 pub struct EveProof {
-  pub parent_coin_info: Buffer,
-  pub amount: BigInt,
+  pub parent_parent_coin_info: Buffer,
+  pub parent_amount: BigInt,
 }
 
 impl FromJS<EveProof> for RustEveProof {
-  fn from_js(value: EveProof) -> Self {
-    RustEveProof {
-      parent_parent_coin_info: RustBytes32::from_js(value.parent_coin_info),
-      parent_amount: u64::from_js(value.amount),
-    }
+  fn from_js(value: EveProof) -> StdResult<Self, ConversionError> {
+    Ok(RustEveProof {
+      parent_parent_coin_info: RustBytes32::from_js(value.parent_parent_coin_info)?,
+      parent_amount: u64::from_js(value.parent_amount)?,
+    })
   }
 }
 
 impl ToJS<EveProof> for RustEveProof {
-  fn to_js(&self) -> EveProof {
-    EveProof {
-      parent_coin_info: self.parent_parent_coin_info.to_js(),
-      amount: self.parent_amount.to_js(),
-    }
+  fn to_js(&self) -> StdResult<EveProof, ConversionError> {
+    Ok(EveProof {
+      parent_parent_coin_info: self.parent_parent_coin_info.to_js()?,
+      parent_amount: self.parent_amount.to_js()?,
+    })
   }
 }
 
@@ -284,21 +293,15 @@ pub struct Proof {
 }
 
 impl FromJS<Proof> for RustProof {
-  fn from_js(value: Proof) -> Self {
-    if value.lineage_proof.is_some() {
-      RustProof::Lineage(
-        value
-          .lineage_proof
-          .map(RustLineageProof::from_js)
-          .expect("error parsing lineage proof"),
-      )
+  fn from_js(value: Proof) -> StdResult<Self, ConversionError> {
+    if let Some(lineage_proof) = value.lineage_proof {
+      Ok(RustProof::Lineage(RustLineageProof::from_js(
+        lineage_proof,
+      )?))
+    } else if let Some(eve_proof) = value.eve_proof {
+      Ok(RustProof::Eve(RustEveProof::from_js(eve_proof)?))
     } else {
-      RustProof::Eve(
-        value
-          .eve_proof
-          .map(RustEveProof::from_js)
-          .expect("error parsing eve proof"),
-      )
+      Err(ConversionError::MissingProof)
     }
   }
 }
