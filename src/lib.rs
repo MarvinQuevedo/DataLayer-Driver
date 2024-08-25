@@ -1148,7 +1148,7 @@ pub fn oracle_delegated_puzzle(
 ///
 /// @param {Vec<CoinSpend>} coinSpends - The coin spends to sign.
 /// @param {Vec<Buffer>} privateKeys - The private/secret keys to be used for signing.
-/// @param {Buffer} forTestner - Set to true to sign spends for testnet11, false for mainnet.
+/// @param {Buffer} forTestnet - Set to true to sign spends for testnet11, false for mainnet.
 /// @returns {Promise<Buffer>} The signature.
 pub fn sign_coin_spends(
   coin_spends: Vec<CoinSpend>,
@@ -1183,16 +1183,14 @@ pub fn sign_coin_spends(
 ///
 /// @param {Coin} coin - The coin.
 /// @returns {Buffer} The coin ID.
-pub fn get_coin_id(coin: Coin) -> Buffer {
-  let coin = RustCoin::from_js(coin);
-
-  coin.coin_id().to_js()
+pub fn get_coin_id(coin: Coin) -> napi::Result<Buffer> {
+  RustCoin::from_js(coin)?.coin_id().to_js()
 }
 
 #[napi]
 /// Updates the metadata of a store. Either the owner, admin, or writer public key must be provided.
 ///
-/// @param {DataStoreInfo} storeInfo - Current store information.
+/// @param {DataStore} store - Current store information.
 /// @param {Buffer} newRootHash - New root hash.
 /// @param {Option<String>} newLabel - New label (optional).
 /// @param {Option<String>} newDescription - New description (optional).
@@ -1202,7 +1200,7 @@ pub fn get_coin_id(coin: Coin) -> Buffer {
 /// @param {Option<Buffer>} writerPublicKey - Writer public key.
 /// @returns {SuccessResponse} The success response, which includes coin spends and information about the new datastore.
 pub fn update_store_metadata(
-  store_info: DataStoreInfo,
+  store: DataStore,
   new_root_hash: Buffer,
   new_label: Option<String>,
   new_description: Option<String>,
@@ -1213,13 +1211,13 @@ pub fn update_store_metadata(
 ) -> napi::Result<SuccessResponse> {
   let inner_spend_info = match (owner_public_key, admin_public_key, writer_public_key) {
     (Some(owner_public_key), None, None) => {
-      DataStoreInnerSpendInfo::Owner(RustPublicKey::from_js(owner_public_key))
+      DataStoreInnerSpend::Owner(RustPublicKey::from_js(owner_public_key)?)
     }
     (None, Some(admin_public_key), None) => {
-      DataStoreInnerSpendInfo::Admin(RustPublicKey::from_js(admin_public_key))
+      DataStoreInnerSpend::Admin(RustPublicKey::from_js(admin_public_key)?)
     }
     (None, None, Some(writer_public_key)) => {
-      DataStoreInnerSpendInfo::Writer(RustPublicKey::from_js(writer_public_key))
+      DataStoreInnerSpend::Writer(RustPublicKey::from_js(writer_public_key)?)
     }
     _ => {
       return Err(js(
@@ -1229,43 +1227,49 @@ pub fn update_store_metadata(
   };
 
   let res = wallet::update_store_metadata(
-    RustDataStoreInfo::from_js(store_info),
-    RustBytes32::from_js(new_root_hash),
+    RustDataStore::from_js(store)?,
+    RustBytes32::from_js(new_root_hash)?,
     new_label,
     new_description,
-    new_bytes.map(|s| u64::from_js(s)),
+    if let Some(bytes) = new_bytes {
+      Some(u64::from_js(bytes)?)
+    } else {
+      None
+    },
     inner_spend_info,
   )
   .map_err(js)?;
 
-  Ok(res.to_js())
+  res.to_js()
 }
 
 #[napi]
 /// Updates the ownership of a store. Either the admin or owner public key must be provided.
 ///
-/// @param {DataStoreInfo} storeInfo - Store information.
+/// @param {DataStore} store - Store information.
 /// @param {Option<Buffer>} newOwnerPuzzleHash - New owner puzzle hash.
 /// @param {Vec<DelegatedPuzzle>} newDelegatedPuzzles - New delegated puzzles.
 /// @param {Option<Buffer>} ownerPublicKey - Owner public key.
 /// @param {Option<Buffer>} adminPublicKey - Admin public key.
 /// @returns {SuccessResponse} The success response, which includes coin spends and information about the new datastore.
 pub fn update_store_ownership(
-  store_info: DataStoreInfo,
+  store: DataStore,
   new_owner_puzzle_hash: Option<Buffer>,
   new_delegated_puzzles: Vec<DelegatedPuzzle>,
   owner_public_key: Option<Buffer>,
   admin_public_key: Option<Buffer>,
 ) -> napi::Result<SuccessResponse> {
-  let new_owner_puzzle_hash =
-    new_owner_puzzle_hash.unwrap_or_else(|| store_info.owner_puzzle_hash.clone());
+  let store = RustDataStore::from_js(store)?;
+  let new_owner_puzzle_hash = new_owner_puzzle_hash
+    .map(|v| RustBytes32::from_js(v))
+    .unwrap_or_else(|| Ok(store.info.owner_puzzle_hash.clone()))?;
 
   let inner_spend_info = match (owner_public_key, admin_public_key) {
     (Some(owner_public_key), None) => {
-      DataStoreInnerSpendInfo::Owner(RustPublicKey::from_js(owner_public_key))
+      DataStoreInnerSpend::Owner(RustPublicKey::from_js(owner_public_key)?)
     }
     (None, Some(admin_public_key)) => {
-      DataStoreInnerSpendInfo::Admin(RustPublicKey::from_js(admin_public_key))
+      DataStoreInnerSpend::Admin(RustPublicKey::from_js(admin_public_key)?)
     }
     _ => {
       return Err(js(
@@ -1275,36 +1279,36 @@ pub fn update_store_ownership(
   };
 
   let res = wallet::update_store_ownership(
-    RustDataStoreInfo::from_js(store_info),
-    RustBytes32::from_js(new_owner_puzzle_hash),
+    store,
+    new_owner_puzzle_hash,
     new_delegated_puzzles
       .into_iter()
       .map(|dp| RustDelegatedPuzzle::from_js(dp))
-      .collect(),
+      .collect::<StdResult<Vec<RustDelegatedPuzzle>, napi::Error>>()?,
     inner_spend_info,
   )
   .map_err(js)?;
 
-  Ok(res.to_js())
+  res.to_js()
 }
 
 #[napi]
 /// Melts a store. The 1 mojo change will be used as a fee.
 ///
-/// @param {DataStoreInfo} storeInfo - Store information.
+/// @param {DataStore} store - Store information.
 /// @param {Buffer} ownerPublicKey - Owner's public key.
 /// @returns {Vec<CoinSpend>} The coin spends that the owner can sign to melt the store.
-pub fn melt_store(
-  store_info: DataStoreInfo,
-  owner_public_key: Buffer,
-) -> napi::Result<Vec<CoinSpend>> {
+pub fn melt_store(store: DataStore, owner_public_key: Buffer) -> napi::Result<Vec<CoinSpend>> {
   let res = wallet::melt_store(
-    &RustDataStoreInfo::from_js(store_info),
-    RustPublicKey::from_js(owner_public_key),
+    RustDataStore::from_js(store)?,
+    RustPublicKey::from_js(owner_public_key)?,
   )
   .map_err(js)?;
 
-  Ok(res.into_iter().map(|cs| cs.to_js()).collect())
+  res
+    .into_iter()
+    .map(|cs| cs.to_js())
+    .collect::<StdResult<Vec<CoinSpend>, napi::Error>>()
 }
 
 #[napi]
@@ -1313,11 +1317,12 @@ pub fn melt_store(
 /// @param {Buffer} message - Message to sign, as bytes. "Chia Signed Message" will be prepended automatically, as per CHIP-2 - no need to add it before calling this function.
 /// @param {Buffer} private_key - Private key to sign the message with. No derivation is done.
 /// @returns {Buffer} The signature.
-pub fn sign_message(message: Buffer, private_key: Buffer) -> Buffer {
+pub fn sign_message(message: Buffer, private_key: Buffer) -> napi::Result<Buffer> {
   wallet::sign_message(
-    RustBytes::from_js(message),
-    RustSecretKey::from_js(private_key),
+    RustBytes::from_js(message)?,
+    RustSecretKey::from_js(private_key)?,
   )
+  .map_err(js)?
   .to_js()
 }
 
@@ -1328,12 +1333,17 @@ pub fn sign_message(message: Buffer, private_key: Buffer) -> Buffer {
 /// @param {Buffer} public_key - Public key corresponding to the private key that was used to sign the message.
 /// @param {Buffer} message - Message that was signed, as bytes. "Chia Signed Message" will be prepended automatically, as per CHIP-2 - no need to add it before calling this function.
 /// @returns {Buffer} Boolean - true indicates that the signature is valid, while false indicates that it is not.
-pub fn verify_signed_message(signature: Buffer, public_key: Buffer, message: Buffer) -> bool {
+pub fn verify_signed_message(
+  signature: Buffer,
+  public_key: Buffer,
+  message: Buffer,
+) -> napi::Result<bool> {
   wallet::verify_signature(
-    RustBytes::from_js(message),
-    RustPublicKey::from_js(public_key),
-    RustSignature::from_js(signature),
+    RustBytes::from_js(message)?,
+    RustPublicKey::from_js(public_key)?,
+    RustSignature::from_js(signature)?,
   )
+  .map_err(js)
 }
 
 #[napi]
@@ -1341,9 +1351,9 @@ pub fn verify_signed_message(signature: Buffer, public_key: Buffer, message: Buf
 ///
 /// @param {Buffer} syntheticKey - Synthetic key.
 /// @returns {Buffer} The standard puzzle (puzzle) hash.
-pub fn synthetic_key_to_puzzle_hash(synthetic_key: Buffer) -> Buffer {
+pub fn synthetic_key_to_puzzle_hash(synthetic_key: Buffer) -> napi::Result<Buffer> {
   let puzzle_hash: RustBytes32 =
-    StandardArgs::curry_tree_hash(RustPublicKey::from_js(synthetic_key)).into();
+    StandardArgs::curry_tree_hash(RustPublicKey::from_js(synthetic_key)?).into();
 
   puzzle_hash.to_js()
 }
@@ -1354,16 +1364,14 @@ pub fn synthetic_key_to_puzzle_hash(synthetic_key: Buffer) -> Buffer {
 /// @param {Vec<CoinSpend>} CoinSpend - Coin spends.
 /// @returns {BigInt} The cost of the coin spends.
 pub fn get_cost(coin_spends: Vec<CoinSpend>) -> napi::Result<BigInt> {
-  Ok(
-    wallet::get_cost(
-      coin_spends
-        .into_iter()
-        .map(RustCoinSpend::from_js)
-        .collect(),
-    )
-    .map_err(js)?
-    .to_js(),
+  wallet::get_cost(
+    coin_spends
+      .into_iter()
+      .map(RustCoinSpend::from_js)
+      .collect::<StdResult<Vec<RustCoinSpend>, napi::Error>>()?,
   )
+  .map_err(js)?
+  .to_js()
 }
 
 fn js<T>(error: T) -> napi::Error
