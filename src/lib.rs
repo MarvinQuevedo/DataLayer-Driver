@@ -54,20 +54,15 @@ pub trait ToJS<T> {
 }
 
 impl FromJS<Buffer> for RustBytes32 {
-  fn from_js(value: Buffer) -> Result<Self, ConversionError> {
-    let bytes = value
-      .to_vec()
-      .try_into()
-      .map_err(|_| ConversionError::DifferentLength(32))
-      .map_err(js)?;
-
-    Ok(RustBytes32::new(bytes))
+  fn from_js(value: Buffer) -> Result<Self> {
+    RustBytes32::try_from(value.as_ref().to_vec())
+      .map_err(|_| js(ConversionError::DifferentLength(32)))
   }
 }
 
 impl ToJS<Buffer> for RustBytes32 {
-  fn to_js(&self) -> Buffer {
-    Buffer::from(self.to_vec())
+  fn to_js(&self) -> Result<Buffer> {
+    Ok(Buffer::from(self.to_vec()))
   }
 }
 
