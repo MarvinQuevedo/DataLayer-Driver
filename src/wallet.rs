@@ -19,8 +19,11 @@ use chia::consensus::gen::validation_error::ValidationErr;
 use chia::protocol::Bytes;
 use chia::protocol::Coin;
 use chia::protocol::CoinStateFilters;
-use chia::protocol::RequestCoinState;
-use chia::protocol::RespondCoinState;
+use chia::protocol::RejectHeaderRequest;
+use chia::protocol::RequestBlockHeader;
+use chia::protocol::RequestFeeEstimates;
+use chia::protocol::RespondBlockHeader;
+use chia::protocol::RespondFeeEstimates;
 use chia::protocol::SpendBundle;
 use chia::protocol::TransactionAck;
 use chia::protocol::{Bytes32, CoinSpend};
@@ -74,6 +77,9 @@ pub enum WalletError {
   #[error("RejectPuzzleSolution")]
   RejectPuzzleSolution(),
 
+  #[error("RejectHeaderRequest")]
+  RejectHeaderRequest(),
+
   #[error("{0:?}")]
   Driver(#[from] DriverError),
 
@@ -91,6 +97,9 @@ pub enum WalletError {
 
   #[error("Validation error: {0}")]
   Validation(#[from] ValidationErr),
+
+  #[error("Fee estimation rejection: {0}")]
+  FeeEstimateRejection(String),
 }
 
 pub struct UnspentCoinsResponse {
@@ -281,25 +290,34 @@ pub async fn sync_store(
     .ok_or(WalletError::Parse())?;
 
     if with_history {
-      let block_header = peer
-        .reques
-        .request_block_header(last_coin_record.spent_height.unwrap())
+      let resp: Result<RespondBlockHeader, RejectHeaderRequest> = peer
+        .request_fallible(RequestBlockHeader {
+          height: last_coin_record.spent_height.unwrap(),
+        })
         .await
-        .map_err(WalletError::RejectHeaderRequest)?;
+        .map_err(WalletError::Client)?;
+      let block_header = resp.map_err(|_| WalletError::RejectHeaderRequest())?;
+
       history.push((
         new_store.info.metadata.root_hash,
-        block_header.foliage_transaction_block.unwrap().timestamp,
+        block_header
+          .header_block
+          .foliage_transaction_block
+          .unwrap()
+          .timestamp,
       ));
     }
 
     let response = peer
-      .request::<RespondCoinState, RequestCoinState>(RequestCoinState::new(
+      .request_coin_state(
         vec![new_store.coin.coin_id()],
         last_height,
         last_header_hash,
         false,
-      ))
-      .await?;
+      )
+      .await
+      .map_err(WalletError::Client)?
+      .map_err(|_| WalletError::RejectCoinState())?;
 
     last_coin_record = response
       .coin_states
@@ -371,11 +389,19 @@ pub async fn sync_store_using_launcher_id(
   // prepend root hash from launch
   let root_hash_history = if let Some(mut res_root_hash_history) = res.root_hash_history {
     let spent_timestamp = if let Some(spent_height) = last_coin_record.spent_height {
-      let block_header = peer
-        .request_block_header(spent_height)
+      let resp: Result<RespondBlockHeader, RejectHeaderRequest> = peer
+        .request_fallible(RequestBlockHeader {
+          height: spent_height,
+        })
         .await
-        .map_err(WalletError::RejectHeaderRequest)?;
-      block_header.foliage_transaction_block.unwrap().timestamp
+        .map_err(WalletError::Client)?;
+      let resp = resp.map_err(|_| WalletError::RejectHeaderRequest())?;
+
+      resp
+        .header_block
+        .foliage_transaction_block
+        .unwrap()
+        .timestamp
     } else {
       0
     };
@@ -741,10 +767,14 @@ pub async fn broadcast_spend_bundle(
 }
 
 pub async fn get_header_hash(peer: &Peer, height: u32) -> Result<Bytes32, WalletError> {
-  peer
-    .request_block_header(height)
+  let resp: Result<RespondBlockHeader, RejectHeaderRequest> = peer
+    .request_fallible(RequestBlockHeader { height })
     .await
-    .map(|resp| resp.header_hash())
+    .map_err(WalletError::Client)?;
+
+  resp
+    .map_err(|_| WalletError::RejectHeaderRequest())
+    .map(|resp| resp.header_block.header_hash())
 }
 
 pub async fn get_fee_estimate(peer: &Peer, target_time_seconds: u64) -> Result<u64, WalletError> {
@@ -754,24 +784,27 @@ pub async fn get_fee_estimate(peer: &Peer, target_time_seconds: u64) -> Result<u
       .expect("Time went backwards")
       .as_secs();
 
-  let fee_estimate_group = peer
-    .request_fee_estimates(vec![target_time_seconds])
+  let resp: RespondFeeEstimates = peer
+    .request_infallible(RequestFeeEstimates {
+      time_targets: vec![target_time_seconds],
+    })
     .await
-    .map_err(|e| ClientError::Rejection(format!("Request failed: {:?}", e)))?;
+    .map_err(WalletError::Client)?;
+  let fee_estimate_group = resp.estimates;
 
   if let Some(error_message) = fee_estimate_group.error {
-    return Err(ClientError::Rejection(error_message));
+    return Err(WalletError::FeeEstimateRejection(error_message));
   }
 
   if let Some(first_estimate) = fee_estimate_group.estimates.first() {
     if let Some(error_message) = &first_estimate.error {
-      return Err(ClientError::Rejection(error_message.clone()));
+      return Err(WalletError::FeeEstimateRejection(error_message.clone()));
     }
 
     return Ok(first_estimate.estimated_fee_rate.mojos_per_clvm_cost);
   }
 
-  Err(ClientError::Rejection(
+  Err(WalletError::FeeEstimateRejection(
     "No fee estimates available".to_string(),
   ))
 }
