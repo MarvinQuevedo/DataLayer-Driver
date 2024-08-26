@@ -2,25 +2,26 @@ mod wallet;
 
 use chia::bls::{master_to_wallet_unhardened, PublicKey as RustPublicKey};
 use chia::bls::{SecretKey as RustSecretKey, Signature as RustSignature};
-use chia::client::Peer as RustPeer;
-use chia::client::PeerEvent;
+use chia::protocol::Bytes32 as RustBytes32;
 use chia::protocol::Program as RustProgram;
-use chia::protocol::SpendBundle as RustSpendBundle;
 use chia::protocol::{Bytes as RustBytes, Coin as RustCoin};
-use chia::protocol::{Bytes32 as RustBytes32, NodeType};
 use chia::protocol::{CoinSpend as RustCoinSpend, NewPeakWallet};
+use chia::protocol::{ProtocolMessageTypes, SpendBundle as RustSpendBundle};
 use chia::puzzles::standard::StandardArgs;
 use chia::puzzles::LineageProof as RustLineageProof;
 use chia::puzzles::Proof as RustProof;
 use chia::puzzles::{DeriveSynthetic, EveProof as RustEveProof};
+use chia::traits::Streamable;
+use chia_wallet_sdk::Peer as RustPeer;
 use chia_wallet_sdk::{
-  connect_peer, create_tls_connector, decode_address, encode_address, load_ssl_cert,
+  connect_peer, create_tls_connector, decode_address, encode_address, load_ssl_cert, NetworkId,
 };
 use chia_wallet_sdk::{
   DataStore as RustDataStore, DataStoreInfo as RustDataStoreInfo,
   DataStoreMetadata as RustDataStoreMetadata, DelegatedPuzzle as RustDelegatedPuzzle,
 };
 use napi::bindgen_prelude::*;
+use std::net::SocketAddr;
 use std::result::Result as StdResult;
 use std::sync::Arc;
 use thiserror::Error;
@@ -52,6 +53,9 @@ pub enum ConversionError {
 
   #[error("Missing delegated puzzle info")]
   MissingDelegatedPuzzleInfo,
+
+  #[error("Invalid URI: {0}")]
+  InvalidUri(String),
 }
 
 pub trait FromJS<T> {
@@ -691,36 +695,45 @@ impl Peer {
   /// Creates a new Peer instance.
   ///
   /// @param {String} nodeUri - URI of the node (e.g., '127.0.0.1:58444').
-  /// @param {String} networkId - Network ID (e.g., 'testnet11').
+  /// @param {bool} testnet - True for connecting to testnet11, false for mainnet.
   /// @param {String} certPath - Path to the certificate file (usually '~/.chia/mainnet/config/ssl/wallet/wallet_node.crt').
   /// @param {String} keyPath - Path to the key file (usually '~/.chia/mainnet/config/ssl/wallet/wallet_node.key').
   /// @returns {Promise<Peer>} A new Peer instance.
   pub async fn new(
     node_uri: String,
-    network_id: String,
+    tesntet: bool,
     cert_path: String,
     key_path: String,
   ) -> napi::Result<Self> {
     let cert = load_ssl_cert(&cert_path, &key_path).map_err(js)?;
     let tls = create_tls_connector(&cert).map_err(js)?;
-    let peer = connect_peer(&node_uri, tls).await.map_err(js)?;
-
-    peer
-      .send_handshake(network_id, NodeType::Wallet)
-      .await
-      .map_err(js)?;
+    let (peer, mut receiver) = connect_peer(
+      if tesntet {
+        NetworkId::Testnet11
+      } else {
+        NetworkId::Mainnet
+      },
+      tls,
+      if let Ok(socket_addr) = node_uri.parse::<SocketAddr>() {
+        socket_addr
+      } else {
+        return Err(js(ConversionError::InvalidUri(node_uri)));
+      },
+    )
+    .await
+    .map_err(js)?;
 
     let inner = Arc::new(peer);
     let peak = Arc::new(Mutex::new(None));
 
-    let inner_clone = inner.clone();
     let peak_clone = peak.clone();
     tokio::spawn(async move {
-      let mut receiver = inner_clone.receiver().resubscribe();
-      while let Ok(event) = receiver.recv().await {
-        if let PeerEvent::NewPeakWallet(new_peak) = event {
-          let mut peak_guard = peak_clone.lock().await;
-          *peak_guard = Some(new_peak);
+      while let Some(message) = receiver.recv().await {
+        if message.msg_type == ProtocolMessageTypes::NewPeakWallet {
+          if let Ok(new_peak) = NewPeakWallet::from_bytes(&message.data) {
+            let mut peak_guard = peak_clone.lock().await;
+            *peak_guard = Some(new_peak);
+          }
         }
       }
     });

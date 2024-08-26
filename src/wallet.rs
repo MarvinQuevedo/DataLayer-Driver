@@ -5,12 +5,11 @@ use chia::bls::verify;
 use chia::bls::PublicKey;
 use chia::bls::SecretKey;
 use chia::bls::Signature;
-use chia::client::Error as ClientError;
-use chia::client::Peer;
 use chia::clvm_traits::clvm_tuple;
 use chia::clvm_traits::ToClvm;
 use chia::clvm_utils::tree_hash;
 use chia::consensus::consensus_constants::ConsensusConstants;
+use chia::consensus::consensus_constants::TEST_CONSTANTS;
 use chia::consensus::gen::conditions::EmptyVisitor;
 use chia::consensus::gen::flags::MEMPOOL_MODE;
 use chia::consensus::gen::owned_conditions::OwnedSpendBundleConditions;
@@ -20,12 +19,8 @@ use chia::consensus::gen::validation_error::ValidationErr;
 use chia::protocol::Bytes;
 use chia::protocol::Coin;
 use chia::protocol::CoinStateFilters;
-use chia::protocol::RejectHeaderRequest;
-use chia::protocol::RejectPuzzleSolution;
 use chia::protocol::RequestCoinState;
-use chia::protocol::RequestPuzzleState;
 use chia::protocol::RespondCoinState;
-use chia::protocol::RespondPuzzleState;
 use chia::protocol::SpendBundle;
 use chia::protocol::TransactionAck;
 use chia::protocol::{Bytes32, CoinSpend};
@@ -33,6 +28,7 @@ use chia::puzzles::standard::StandardArgs;
 use chia::puzzles::DeriveSynthetic;
 use chia_wallet_sdk::get_merkle_tree;
 use chia_wallet_sdk::select_coins as select_coins_algo;
+use chia_wallet_sdk::ClientError;
 use chia_wallet_sdk::CoinSelectionError;
 use chia_wallet_sdk::Condition;
 use chia_wallet_sdk::Conditions;
@@ -43,12 +39,13 @@ use chia_wallet_sdk::DriverError;
 use chia_wallet_sdk::Launcher;
 use chia_wallet_sdk::Layer;
 use chia_wallet_sdk::MeltSingleton;
-use chia_wallet_sdk::NewMerkleRootCondition;
 use chia_wallet_sdk::OracleLayer;
+use chia_wallet_sdk::Peer;
 use chia_wallet_sdk::RequiredSignature;
 use chia_wallet_sdk::SignerError;
 use chia_wallet_sdk::SpendContext;
 use chia_wallet_sdk::StandardLayer;
+use chia_wallet_sdk::UpdateDataStoreMerkleRoot;
 use chia_wallet_sdk::WriterLayer;
 use chia_wallet_sdk::MAINNET_CONSTANTS;
 use clvmr::sha2::Sha256;
@@ -66,13 +63,16 @@ pub struct SuccessResponse {
 #[derive(Debug, Error)]
 pub enum WalletError {
   #[error("{0:?}")]
-  Wallet(#[from] ClientError<()>),
+  Client(#[from] ClientError),
 
-  #[error("{0:?}")]
-  RejectPuzzleSolution(#[from] ClientError<RejectPuzzleSolution>),
+  #[error("RejectPuzzleState")]
+  RejectPuzzleState(),
 
-  #[error("{0:?}")]
-  RejectHeaderRequest(#[from] ClientError<RejectHeaderRequest>),
+  #[error("RejectCoinState")]
+  RejectCoinState(),
+
+  #[error("RejectPuzzleSolution")]
+  RejectPuzzleSolution(),
 
   #[error("{0:?}")]
   Driver(#[from] DriverError),
@@ -112,7 +112,7 @@ pub async fn get_unspent_coins(
 
   loop {
     let response = peer
-      .request::<RespondPuzzleState, RequestPuzzleState>(RequestPuzzleState::new(
+      .request_puzzle_state(
         vec![puzzle_hash],
         if last_height == 0 {
           None
@@ -127,8 +127,10 @@ pub async fn get_unspent_coins(
           min_amount: 1,
         },
         false,
-      ))
-      .await?;
+      )
+      .await
+      .map_err(WalletError::Client)?
+      .map_err(|_| WalletError::RejectPuzzleState())?;
 
     last_height = response.height;
     last_header_hash = response.header_hash;
@@ -237,13 +239,15 @@ pub async fn sync_store(
   let mut history = vec![];
 
   let response = peer
-    .request::<RespondCoinState, RequestCoinState>(RequestCoinState::new(
+    .request_coin_state(
       vec![store.coin.coin_id()],
       last_height,
       last_header_hash,
       false,
-    ))
-    .await?;
+    )
+    .await
+    .map_err(WalletError::Client)?
+    .map_err(|_| WalletError::RejectCoinState())?;
   let mut last_coin_record = response
     .coin_states
     .into_iter()
@@ -259,7 +263,8 @@ pub async fn sync_store(
         last_coin_record.spent_height.unwrap(),
       )
       .await
-      .map_err(WalletError::RejectPuzzleSolution)?;
+      .map_err(WalletError::Client)?
+      .map_err(|_| WalletError::RejectPuzzleSolution())?;
 
     let cs = CoinSpend {
       coin: last_coin_record.coin,
@@ -270,13 +275,14 @@ pub async fn sync_store(
     let new_store = DataStore::<DataStoreMetadata>::from_spend(
       &mut ctx.allocator,
       &cs,
-      latest_store.info.delegated_puzzles.clone(),
+      &latest_store.info.delegated_puzzles,
     )
     .map_err(|_| WalletError::Parse())?
     .ok_or(WalletError::Parse())?;
 
     if with_history {
       let block_header = peer
+        .reques
         .request_block_header(last_coin_record.spent_height.unwrap())
         .await
         .map_err(WalletError::RejectHeaderRequest)?;
@@ -320,13 +326,10 @@ pub async fn sync_store_using_launcher_id(
   with_history: bool,
 ) -> Result<SyncStoreResponse, WalletError> {
   let response = peer
-    .request::<RespondCoinState, RequestCoinState>(RequestCoinState::new(
-      vec![launcher_id],
-      last_height,
-      last_header_hash,
-      false,
-    ))
-    .await?;
+    .request_coin_state(vec![launcher_id], last_height, last_header_hash, false)
+    .await
+    .map_err(WalletError::Client)?
+    .map_err(|_| WalletError::RejectCoinState())?;
   let last_coin_record = response
     .coin_states
     .into_iter()
@@ -343,7 +346,8 @@ pub async fn sync_store_using_launcher_id(
         .ok_or(WalletError::UnknwonCoin())?,
     )
     .await
-    .map_err(WalletError::RejectPuzzleSolution)?;
+    .map_err(WalletError::Client)?
+    .map_err(|_| WalletError::RejectPuzzleSolution())?;
 
   let cs = CoinSpend {
     coin: last_coin_record.coin,
@@ -351,7 +355,7 @@ pub async fn sync_store_using_launcher_id(
     solution: puzzle_and_solution_req.solution,
   };
 
-  let first_store = DataStore::<DataStoreMetadata>::from_spend(&mut ctx.allocator, &cs, vec![])
+  let first_store = DataStore::<DataStoreMetadata>::from_spend(&mut ctx.allocator, &cs, &[])
     .map_err(|_| WalletError::Parse())?
     .ok_or(WalletError::Parse())?;
 
@@ -428,7 +432,7 @@ fn update_store_with_conditions(
   let new_datastore = DataStore::<DataStoreMetadata>::from_spend(
     &mut ctx.allocator,
     &new_spend,
-    parent_delegated_puzzles,
+    &parent_delegated_puzzles,
   )?
   .ok_or(WalletError::Parse())?;
 
@@ -457,7 +461,7 @@ pub fn update_store_ownership(
     DataStoreInnerSpend::Admin(_) => {
       let merkle_tree = get_merkle_tree(ctx, new_delegated_puzzles.clone())?;
 
-      let new_merkle_root_condition = NewMerkleRootCondition {
+      let new_merkle_root_condition = UpdateDataStoreMerkleRoot {
         new_merkle_root: merkle_tree.root,
         memos: DataStore::<DataStoreMetadata>::get_recreation_memos(
           datastore.info.launcher_id,
@@ -534,7 +538,7 @@ pub fn melt_store(
 
   let melt_conditions = Conditions::new()
     .with(Condition::reserve_fee(1))
-    .with(Condition::other(
+    .with(Condition::Other(
       MeltSingleton {}
         .to_clvm(&mut ctx.allocator)
         .map_err(DriverError::ToClvm)?,
@@ -613,7 +617,7 @@ pub fn oracle_spend(
   let new_spend = datastore.spend(ctx, inner_datastore_spend)?;
 
   let new_datastore =
-    DataStore::from_spend(&mut ctx.allocator, &new_spend, parent_delegated_puzzles)?
+    DataStore::from_spend(&mut ctx.allocator, &new_spend, &parent_delegated_puzzles)?
       .ok_or(WalletError::Parse())?;
   ctx.insert(new_spend.clone());
 
@@ -681,12 +685,11 @@ pub enum TargetNetwork {
   Testnet11,
 }
 
-// TODO: only temporary
 impl TargetNetwork {
-  fn get_constants(&self) -> ConsensusConstants {
+  fn get_constants(&self) -> &ConsensusConstants {
     match self {
-      TargetNetwork::Mainnet => MAINNET_CONSTANTS.to_owned(),
-      TargetNetwork::Testnet11 => MAINNET_CONSTANTS.to_owned(),
+      TargetNetwork::Mainnet => &MAINNET_CONSTANTS,
+      TargetNetwork::Testnet11 => &TEST_CONSTANTS,
     }
   }
 }
@@ -699,7 +702,7 @@ pub fn sign_coin_spends(
   let mut allocator = Allocator::new();
 
   let required_signatures =
-    RequiredSignature::from_coin_spends(&mut allocator, &coin_spends, &network.get_constants())?;
+    RequiredSignature::from_coin_spends(&mut allocator, &coin_spends, network.get_constants())?;
 
   let key_pairs = private_keys
     .iter()
@@ -730,24 +733,21 @@ pub fn sign_coin_spends(
 pub async fn broadcast_spend_bundle(
   peer: &Peer,
   spend_bundle: SpendBundle,
-) -> Result<TransactionAck, ClientError<()>> {
-  peer.send_transaction(spend_bundle).await
+) -> Result<TransactionAck, WalletError> {
+  peer
+    .send_transaction(spend_bundle)
+    .await
+    .map_err(WalletError::Client)
 }
 
-pub async fn get_header_hash(
-  peer: &Peer,
-  height: u32,
-) -> Result<Bytes32, ClientError<RejectHeaderRequest>> {
+pub async fn get_header_hash(peer: &Peer, height: u32) -> Result<Bytes32, WalletError> {
   peer
     .request_block_header(height)
     .await
     .map(|resp| resp.header_hash())
 }
 
-pub async fn get_fee_estimate(
-  peer: &Peer,
-  target_time_seconds: u64,
-) -> Result<u64, ClientError<String>> {
+pub async fn get_fee_estimate(peer: &Peer, target_time_seconds: u64) -> Result<u64, WalletError> {
   let target_time_seconds = target_time_seconds
     + SystemTime::now()
       .duration_since(UNIX_EPOCH)
@@ -783,13 +783,10 @@ pub async fn is_coin_spent(
   last_header_hash: Bytes32,
 ) -> Result<bool, WalletError> {
   let response = peer
-    .request::<RespondCoinState, RequestCoinState>(RequestCoinState::new(
-      vec![coin_id],
-      last_height,
-      last_header_hash,
-      false,
-    ))
-    .await?;
+    .request_coin_state(vec![coin_id], last_height, last_header_hash, false)
+    .await
+    .map_err(WalletError::Client)?
+    .map_err(|_| WalletError::RejectCoinState())?;
 
   if let Some(coin_state) = response.coin_states.first() {
     return Ok(coin_state.spent_height.is_some());
@@ -836,7 +833,7 @@ pub fn get_cost(coin_spends: Vec<CoinSpend>) -> Result<u64, WalletError> {
     [],
     u64::MAX,
     MEMPOOL_MODE,
-    &TargetNetwork::Mainnet.get_constants(),
+    TargetNetwork::Mainnet.get_constants(),
   )?;
 
   let conds = OwnedSpendBundleConditions::from(&alloc, conds);
