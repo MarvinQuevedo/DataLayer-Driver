@@ -20,13 +20,13 @@ use chia::protocol::{
 };
 use chia::puzzles::standard::StandardArgs;
 use chia::puzzles::DeriveSynthetic;
+use chia_wallet_sdk::announcement_id;
 use chia_wallet_sdk::{
     get_merkle_tree, select_coins as select_coins_algo, ClientError, CoinSelectionError, Condition,
     Conditions, DataStore, DataStoreMetadata, DelegatedPuzzle, DriverError, Launcher, Layer,
     MeltSingleton, OracleLayer, Peer, RequiredSignature, SignerError, SpendContext, StandardLayer,
     UpdateDataStoreMerkleRoot, WriterLayer, MAINNET_CONSTANTS,
 };
-use clvmr::sha2::Sha256;
 use clvmr::Allocator;
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
@@ -164,16 +164,11 @@ pub fn mint_store(
     let lead_coin = selected_coins[0];
     let lead_coin_name = lead_coin.coin_id();
 
-    let mut hasher = Sha256::new();
-    hasher.update(lead_coin_name);
-    hasher.update([0; 1]);
-    let lead_ann_id = Bytes32::new(hasher.finalize());
-
     for coin in selected_coins.into_iter().skip(1) {
         ctx.spend_p2_coin(
             coin,
             minter_synthetic_key,
-            Conditions::new().assert_coin_announcement(lead_ann_id),
+            Conditions::new().assert_concurrent_spend(lead_coin_name),
         )?;
     }
 
@@ -578,26 +573,19 @@ pub fn oracle_spend(
     let lead_coin = selected_coins[0];
     let lead_coin_name = lead_coin.coin_id();
 
-    let mut hasher = Sha256::new();
-    hasher.update(lead_coin_name);
-    hasher.update([0; 1]);
-    let lead_ann_id = Bytes32::new(hasher.finalize());
-
     let total_amount_from_coins = selected_coins.iter().map(|c| c.amount).sum::<u64>();
     for coin in selected_coins.into_iter().skip(1) {
         ctx.spend_p2_coin(
             coin,
             spender_synthetic_key,
-            Conditions::new().assert_coin_announcement(lead_ann_id),
+            Conditions::new().assert_concurrent_spend(lead_coin_name),
         )?;
     }
 
-    let mut hasher2 = Sha256::new();
-    hasher2.update(datastore.coin.puzzle_hash);
-    hasher2.update(Bytes::new("$".into()));
-    let oracle_ann_id = Bytes32::new(hasher2.finalize());
-
-    let assert_oracle_conds = Conditions::new().assert_puzzle_announcement(oracle_ann_id);
+    let assert_oracle_conds = Conditions::new().assert_puzzle_announcement(announcement_id(
+        datastore.coin.puzzle_hash,
+        Bytes::new("$".into()),
+    ));
 
     let mut lead_coin_conditions = assert_oracle_conds;
     if total_amount_from_coins > total_amount {
@@ -644,16 +632,11 @@ pub fn add_fee(
     let lead_coin = selected_coins[0];
     let lead_coin_name = lead_coin.coin_id();
 
-    let mut hasher = Sha256::new();
-    hasher.update(lead_coin_name);
-    hasher.update([0; 1]);
-    let lead_ann_id = Bytes32::new(hasher.finalize());
-
     for coin in selected_coins.into_iter().skip(1) {
         ctx.spend_p2_coin(
             coin,
             spender_synthetic_key,
-            Conditions::new().assert_coin_announcement(lead_ann_id),
+            Conditions::new().assert_concurrent_spend(lead_coin_name),
         )?;
     }
 
