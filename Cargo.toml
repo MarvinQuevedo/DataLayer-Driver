@@ -16,16 +16,9 @@ napi = { version = "2.12.2", default-features = false, features = ["napi6", "asy
 napi-derive = "2.12.2"
 
 chia = "0.12.0"
-hex = "0.4.3"
 thiserror = "1.0.61"
-native-tls = "0.2.12"
-bip39 = "2.0.0"
-rand = "0.8.5"
-rand_chacha = "0.3.1"
-bech32 = "0.9.1"
 clvmr = "0.8.0"
 tokio = "1.39.3"
-serde = "1.0.209"
 chia-wallet-sdk = { version = "0.13.0", features = ["chip-0035"] }
 
 [target.aarch64-unknown-linux-gnu.dependencies]

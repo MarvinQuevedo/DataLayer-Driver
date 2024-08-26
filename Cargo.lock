@@ -750,21 +750,14 @@ checksum = "e8566979429cf69b49a5c740c60791108e86440e8be149bbea4fe54d2c32d6e2"
 name = "datalayer-driver"
 version = "0.1.0"
 dependencies = [
- "bech32",
- "bip39",
  "chia",
  "chia-wallet-sdk",
  "clvmr",
- "hex",
  "napi",
  "napi-build",
  "napi-derive",
- "native-tls",
  "openssl",
  "openssl-sys",
- "rand",
- "rand_chacha",
- "serde",
  "thiserror",
  "tokio",
 ]
