@@ -341,8 +341,9 @@ dependencies = [
 
 [[package]]
 name = "chia-sdk-client"
-version = "0.12.0"
-source = "git+https://github.com/Rigidity/chia-wallet-sdk.git?rev=85579bee4b7a5722c36277e56d9d86317854f35b#85579bee4b7a5722c36277e56d9d86317854f35b"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b186a37833e847783c98910e80f3e7fcb9afbe6ddebb219d66a5475feccdc73f"
 dependencies = [
  "chia-protocol",
  "chia-sdk-types",
@@ -362,8 +363,9 @@ dependencies = [
 
 [[package]]
 name = "chia-sdk-derive"
-version = "0.12.0"
-source = "git+https://github.com/Rigidity/chia-wallet-sdk.git?rev=85579bee4b7a5722c36277e56d9d86317854f35b#85579bee4b7a5722c36277e56d9d86317854f35b"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "c626cb38e7557a683efacd00a0e82b0db7842fcb0267efd5d331cd8cb0f4f844"
 dependencies = [
  "convert_case",
  "quote",
@@ -372,8 +374,9 @@ dependencies = [
 
 [[package]]
 name = "chia-sdk-driver"
-version = "0.12.0"
-source = "git+https://github.com/Rigidity/chia-wallet-sdk.git?rev=85579bee4b7a5722c36277e56d9d86317854f35b#85579bee4b7a5722c36277e56d9d86317854f35b"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab3f470549655030a704d5b9cbf620acc172a3eaeb8fb315539796ffb29b4378"
 dependencies = [
  "chia-bls 0.11.0",
  "chia-protocol",
@@ -390,8 +393,9 @@ dependencies = [
 
 [[package]]
 name = "chia-sdk-offers"
-version = "0.12.0"
-source = "git+https://github.com/Rigidity/chia-wallet-sdk.git?rev=85579bee4b7a5722c36277e56d9d86317854f35b#85579bee4b7a5722c36277e56d9d86317854f35b"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "254332ba53712a997592d38ec9b4abb065d4fa6177f4b7cb6523b3474d6da0c6"
 dependencies = [
  "bech32",
  "chia-bls 0.11.0",
@@ -411,8 +415,9 @@ dependencies = [
 
 [[package]]
 name = "chia-sdk-signer"
-version = "0.12.0"
-source = "git+https://github.com/Rigidity/chia-wallet-sdk.git?rev=85579bee4b7a5722c36277e56d9d86317854f35b#85579bee4b7a5722c36277e56d9d86317854f35b"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "a3416ca2f49b0b46c125170568f13108bd3627441bdd884da8e76543ec486195"
 dependencies = [
  "chia-bls 0.11.0",
  "chia-consensus",
@@ -425,8 +430,9 @@ dependencies = [
 
 [[package]]
 name = "chia-sdk-test"
-version = "0.12.0"
-source = "git+https://github.com/Rigidity/chia-wallet-sdk.git?rev=85579bee4b7a5722c36277e56d9d86317854f35b#85579bee4b7a5722c36277e56d9d86317854f35b"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f31afd50d240cc908157f263c45cf11fbd2324a954fa4ed9fdc90d6bbf852bf6"
 dependencies = [
  "anyhow",
  "bip39",
@@ -455,8 +461,9 @@ dependencies = [
 
 [[package]]
 name = "chia-sdk-types"
-version = "0.12.0"
-source = "git+https://github.com/Rigidity/chia-wallet-sdk.git?rev=85579bee4b7a5722c36277e56d9d86317854f35b#85579bee4b7a5722c36277e56d9d86317854f35b"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b836a50ad0970a046fa6573025a53e5fb8fd903f31682699df0ee5d1175e03c6"
 dependencies = [
  "chia-bls 0.11.0",
  "chia-consensus",
@@ -508,8 +515,9 @@ dependencies = [
 
 [[package]]
 name = "chia-wallet-sdk"
-version = "0.12.0"
-source = "git+https://github.com/Rigidity/chia-wallet-sdk.git?rev=85579bee4b7a5722c36277e56d9d86317854f35b#85579bee4b7a5722c36277e56d9d86317854f35b"
+version = "0.13.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5f53c4931b06c0946fedc71359daa0034c8de8df563d846534387f995ac01935"
 dependencies = [
  "bech32",
  "chia-protocol",
