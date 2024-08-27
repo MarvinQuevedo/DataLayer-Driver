@@ -6,7 +6,7 @@ env:
 permissions:
   contents: write
   id-token: write
-'on':
+on:
   push:
     branches:
       - main
@@ -18,9 +18,35 @@ permissions:
       - '**/*.gitignore'
       - .editorconfig
       - docs/**
-  pull_request: null
+  pull_request:
+    branches:
+      - '**'
+
 jobs:
+  rust-checks:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Setup Rust
+        uses: dtolnay/rust-toolchain@stable
+        with:
+          toolchain: stable
+
+      - name: Clippy
+        run: cargo clippy --workspace --all-features --all-targets
+
+      - name: Unused dependencies
+        run: |
+          cargo install cargo-machete --locked
+          cargo machete
+
+      - name: Fmt
+        run: cargo fmt --all -- --files-with-diff --check
+
   build:
+    needs: rust-checks
     strategy:
       fail-fast: false
       matrix:
@@ -34,7 +60,6 @@ jobs:
           - host: ubuntu-latest
             target: x86_64-unknown-linux-gnu
             docker: ghcr.io/napi-rs/napi-rs/nodejs-rust:lts-debian
-            # https://github.com/sfackler/rust-openssl/issues/1021#issuecomment-605602642
             build: |
               set -e && 
               yarn build --target x86_64-unknown-linux-gnu &&
@@ -112,6 +137,7 @@ jobs:
           name: bindings-${{ matrix.settings.target }}
           path: ${{ env.APP_NAME }}.*.node
           if-no-files-found: error
+
   test-macOS-windows-binding:
     name: Test bindings on ${{ matrix.settings.target }} - node@${{ matrix.node }}
     needs:
@@ -148,6 +174,7 @@ jobs:
         shell: bash
       - name: Test bindings
         run: yarn test
+
   test-linux-x64-gnu-binding:
     name: Test bindings on Linux-x64-gnu - node@${{ matrix.node }}
     needs:
@@ -178,6 +205,7 @@ jobs:
         shell: bash
       - name: Test bindings
         run: docker run --rm -v $(pwd):/build -w /build node:${{ matrix.node }}-slim yarn test
+
   test-linux-aarch64-gnu-binding:
     name: Test bindings on aarch64-unknown-linux-gnu - node@${{ matrix.node }}
     needs:
@@ -218,6 +246,7 @@ jobs:
             set -e
             yarn test
             ls -la
+
   publish:
     name: Publish
     runs-on: ubuntu-latest

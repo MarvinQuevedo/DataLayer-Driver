@@ -30,24 +30,24 @@ export interface CoinSpend {
 /**
  * Represents a lineage proof that can be used to spend a singleton.
  *
- * @property {Buffer} parentParentCoinId - Parent coin's parent coin info/name/ID.
+ * @property {Buffer} parentParentCoinInfo - Parent coin's parent coin info/name/ID.
  * @property {Buffer} parentInnerPuzzleHash - Parent coin's inner puzzle hash.
  * @property {BigInt} parentAmount - Parent coin's amount.
  */
 export interface LineageProof {
-  parentParentCoinId: Buffer
+  parentParentCoinInfo: Buffer
   parentInnerPuzzleHash: Buffer
   parentAmount: bigint
 }
 /**
  * Represents an eve proof that can be used to spend a singleton. Parent coin is the singleton launcher.
  *
- * @property {Buffer} parentCoinInfo - Parent coin's name.
- * @property {BigInt} amount - Parent coin's amount.
+ * @property {Buffer} parentParentCoinInfo - Parent coin's name.
+ * @property {BigInt} parentAmount - Parent coin's amount.
  */
 export interface EveProof {
-  parentCoinInfo: Buffer
-  amount: bigint
+  parentParentCoinInfo: Buffer
+  parentAmount: bigint
 }
 /**
  * Represents a proof (either eve or lineage) that can be used to spend a singleton. Use `new_lineage_proof` or `new_eve_proof` to create a new proof.
@@ -95,21 +95,11 @@ export interface DataStoreMetadata {
  * @property {Option<Buffer>} oraclePaymentPuzzleHash - Oracle payment puzzle hash, if this is an oracle delegated puzzle.
  * @property {Option<BigInt>} oracleFee - Oracle fee, if this is an oracle delegated puzzle.
  */
-export interface DelegatedPuzzleInfo {
+export interface DelegatedPuzzle {
   adminInnerPuzzleHash?: Buffer
   writerInnerPuzzleHash?: Buffer
   oraclePaymentPuzzleHash?: Buffer
   oracleFee?: bigint
-}
-/**
- * Represents a delegated puzzle. Note that utilities such as `admin_delegated_puzzle_from_key` should be used to create this object.
- *
- * @property {Buffer} puzzleHash - The full puzzle hash of the delegated puzzle (filter where applicable + inner puzzle).
- * @property {DelegatedPuzzleInfo} puzzleInfo - Delegated puzzle information.
- */
-export interface DelegatedPuzzle {
-  puzzleHash: Buffer
-  puzzleInfo: DelegatedPuzzleInfo
 }
 /**
  * Represents information about a data store. This information can be used to spend the store. It is recommended that this struct is stored in a database to avoid syncing it every time.
@@ -121,7 +111,7 @@ export interface DelegatedPuzzle {
  * @property {Buffer} ownerPuzzleHash - The puzzle hash of the owner puzzle.
  * @property {Vec<DelegatedPuzzle>} delegatedPuzzles - This store's delegated puzzles. An empty list usually indicates a 'vanilla' store.
  */
-export interface DataStoreInfo {
+export interface DataStore {
   coin: Coin
   launcherId: Buffer
   proof: Proof
@@ -132,22 +122,22 @@ export interface DataStoreInfo {
 /**
  *
  * @property {Vec<CoinSpend>} coinSpends - Coin spends that can be used to spend the provided store.
- * @property {DataStoreInfo} newInfo - New data store information after the spend is confirmed.
+ * @property {DataStore} newStore - New data store information after the spend is confirmed.
  */
 export interface SuccessResponse {
   coinSpends: Array<CoinSpend>
-  newInfo: DataStoreInfo
+  newStore: DataStore
 }
 /**
  * Represents a response from synchronizing a store.
  *
- * @property {DataStoreInfo} latestInfo - Latest data store information.
+ * @property {DataStore} latestStore - Latest data store information.
  * @property {Option<Vec<Buffer>>} rootHashes - When synced with whistory, this list will contain all of the store's previous root hashes. Otherwise null.
  * @property {Option<Vec<BigInt>>} rootHashesTimestamps - Timestamps of the root hashes (see `rootHashes`).
  * @property {u32} latestHeight - Latest sync height.
  */
 export interface SyncStoreResponse {
-  latestInfo: DataStoreInfo
+  latestStore: DataStore
   rootHashes?: Array<Buffer>
   rootHashesTimestamps?: Array<bigint>
   latestHeight: number
@@ -192,11 +182,11 @@ export declare function mintStore(minterSyntheticKey: Buffer, selectedCoins: Arr
  *
  * @param {Buffer} spenderSyntheticKey - Spender synthetic key.
  * @param {Vec<Coin>} selectedCoins - Selected coins, as returned by `select_coins`.
- * @param {DataStoreInfo} storeInfo - Up-to-daye store information.
+ * @param {DataStore} store - Up-to-daye store information.
  * @param {BigInt} fee - Transaction fee to use.
  * @returns {SuccessResponse} The success response, which includes coin spends and information about the new datastore.
  */
-export declare function oracleSpend(spenderSyntheticKey: Buffer, selectedCoins: Array<Coin>, storeInfo: DataStoreInfo, fee: bigint): SuccessResponse
+export declare function oracleSpend(spenderSyntheticKey: Buffer, selectedCoins: Array<Coin>, store: DataStore, fee: bigint): SuccessResponse
 /**
  * Adds a fee to any transaction. Change will be sent to spender.
  *
@@ -276,10 +266,10 @@ export declare function oracleDelegatedPuzzle(oraclePuzzleHash: Buffer, oracleFe
  *
  * @param {Vec<CoinSpend>} coinSpends - The coin spends to sign.
  * @param {Vec<Buffer>} privateKeys - The private/secret keys to be used for signing.
- * @param {Buffer} aggSigData - Aggregated signature data. For testnet11 and mainnet, this is the same as the genesis challenge.
+ * @param {Buffer} forTestnet - Set to true to sign spends for testnet11, false for mainnet.
  * @returns {Promise<Buffer>} The signature.
  */
-export declare function signCoinSpends(coinSpends: Array<CoinSpend>, privateKeys: Array<Buffer>, aggSigData: Buffer): Buffer
+export declare function signCoinSpends(coinSpends: Array<CoinSpend>, privateKeys: Array<Buffer>, forTestnet: boolean): Buffer
 /**
  * Computes the ID (name) of a coin.
  *
@@ -290,7 +280,7 @@ export declare function getCoinId(coin: Coin): Buffer
 /**
  * Updates the metadata of a store. Either the owner, admin, or writer public key must be provided.
  *
- * @param {DataStoreInfo} storeInfo - Current store information.
+ * @param {DataStore} store - Current store information.
  * @param {Buffer} newRootHash - New root hash.
  * @param {Option<String>} newLabel - New label (optional).
  * @param {Option<String>} newDescription - New description (optional).
@@ -300,26 +290,26 @@ export declare function getCoinId(coin: Coin): Buffer
  * @param {Option<Buffer>} writerPublicKey - Writer public key.
  * @returns {SuccessResponse} The success response, which includes coin spends and information about the new datastore.
  */
-export declare function updateStoreMetadata(storeInfo: DataStoreInfo, newRootHash: Buffer, newLabel?: string | undefined | null, newDescription?: string | undefined | null, newBytes?: bigint | undefined | null, ownerPublicKey?: Buffer | undefined | null, adminPublicKey?: Buffer | undefined | null, writerPublicKey?: Buffer | undefined | null): SuccessResponse
+export declare function updateStoreMetadata(store: DataStore, newRootHash: Buffer, newLabel?: string | undefined | null, newDescription?: string | undefined | null, newBytes?: bigint | undefined | null, ownerPublicKey?: Buffer | undefined | null, adminPublicKey?: Buffer | undefined | null, writerPublicKey?: Buffer | undefined | null): SuccessResponse
 /**
  * Updates the ownership of a store. Either the admin or owner public key must be provided.
  *
- * @param {DataStoreInfo} storeInfo - Store information.
+ * @param {DataStore} store - Store information.
  * @param {Option<Buffer>} newOwnerPuzzleHash - New owner puzzle hash.
  * @param {Vec<DelegatedPuzzle>} newDelegatedPuzzles - New delegated puzzles.
  * @param {Option<Buffer>} ownerPublicKey - Owner public key.
  * @param {Option<Buffer>} adminPublicKey - Admin public key.
  * @returns {SuccessResponse} The success response, which includes coin spends and information about the new datastore.
  */
-export declare function updateStoreOwnership(storeInfo: DataStoreInfo, newOwnerPuzzleHash: Buffer | undefined | null, newDelegatedPuzzles: Array<DelegatedPuzzle>, ownerPublicKey?: Buffer | undefined | null, adminPublicKey?: Buffer | undefined | null): SuccessResponse
+export declare function updateStoreOwnership(store: DataStore, newOwnerPuzzleHash: Buffer | undefined | null, newDelegatedPuzzles: Array<DelegatedPuzzle>, ownerPublicKey?: Buffer | undefined | null, adminPublicKey?: Buffer | undefined | null): SuccessResponse
 /**
  * Melts a store. The 1 mojo change will be used as a fee.
  *
- * @param {DataStoreInfo} storeInfo - Store information.
+ * @param {DataStore} store - Store information.
  * @param {Buffer} ownerPublicKey - Owner's public key.
  * @returns {Vec<CoinSpend>} The coin spends that the owner can sign to melt the store.
  */
-export declare function meltStore(storeInfo: DataStoreInfo, ownerPublicKey: Buffer): Array<CoinSpend>
+export declare function meltStore(store: DataStore, ownerPublicKey: Buffer): Array<CoinSpend>
 /**
  * Signs a message using the provided private key.
  *
@@ -356,12 +346,12 @@ export declare class Peer {
    * Creates a new Peer instance.
    *
    * @param {String} nodeUri - URI of the node (e.g., '127.0.0.1:58444').
-   * @param {String} networkId - Network ID (e.g., 'testnet11').
+   * @param {bool} testnet - True for connecting to testnet11, false for mainnet.
    * @param {String} certPath - Path to the certificate file (usually '~/.chia/mainnet/config/ssl/wallet/wallet_node.crt').
    * @param {String} keyPath - Path to the key file (usually '~/.chia/mainnet/config/ssl/wallet/wallet_node.key').
    * @returns {Promise<Peer>} A new Peer instance.
    */
-  static new(nodeUri: string, networkId: string, certPath: string, keyPath: string): Promise<Peer>
+  static new(nodeUri: string, tesntet: boolean, certPath: string, keyPath: string): Promise<Peer>
   /**
    * Retrieves all coins that are unspent on the chain. Note that coins part of spend bundles that are pending in the mempool will also be included.
    *
@@ -374,13 +364,13 @@ export declare class Peer {
   /**
    * Synchronizes a datastore.
    *
-   * @param {DataStoreInfo} storeInfo - Data store information.
+   * @param {DataStore} store - Data store.
    * @param {Option<u32>} lastHeight - Min. height to search records from. If null, sync will be done from the genesis block.
    * @param {Buffer} lastHeaderHash - Header hash corresponding to `lastHeight`. If null, this should be the genesis challenge of the current chain.
    * @param {bool} withHistory - Whether to return the root hash history of the store.
    * @returns {Promise<SyncStoreResponse>} The sync store response.
    */
-  syncStore(storeInfo: DataStoreInfo, lastHeight: number | undefined | null, lastHeaderHash: Buffer, withHistory: boolean): Promise<SyncStoreResponse>
+  syncStore(store: DataStore, lastHeight: number | undefined | null, lastHeaderHash: Buffer, withHistory: boolean): Promise<SyncStoreResponse>
   /**
    * Synchronizes a store using its launcher ID.
    *
