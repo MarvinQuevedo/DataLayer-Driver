@@ -20,6 +20,9 @@ thiserror = "1.0.61"
 clvmr = "0.8.0"
 tokio = "1.39.3"
 chia-wallet-sdk = { version = "0.13.0", features = ["chip-0035"] }
+hex-literal = "0.4.1"
+num-bigint = "0.4.6"
+hex = "0.4.3"
 
 [target.aarch64-unknown-linux-gnu.dependencies]
 openssl = { version = "0.10.64", features = ["vendored"] }

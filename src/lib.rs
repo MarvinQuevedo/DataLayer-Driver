@@ -1,3 +1,4 @@
+mod server_coin;
 mod wallet;
 
 use chia::bls::{
