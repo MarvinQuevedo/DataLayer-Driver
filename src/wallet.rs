@@ -44,28 +44,28 @@ pub enum WalletError {
     Client(#[from] ClientError),
 
     #[error("RejectPuzzleState")]
-    RejectPuzzleState(),
+    RejectPuzzleState,
 
     #[error("RejectCoinState")]
-    RejectCoinState(),
+    RejectCoinState,
 
     #[error("RejectPuzzleSolution")]
-    RejectPuzzleSolution(),
+    RejectPuzzleSolution,
 
     #[error("RejectHeaderRequest")]
-    RejectHeaderRequest(),
+    RejectHeaderRequest,
 
     #[error("{0:?}")]
     Driver(#[from] DriverError),
 
     #[error("ParseError")]
-    Parse(),
+    Parse,
 
     #[error("UnknownCoin")]
-    UnknwonCoin(),
+    UnknwonCoin,
 
     #[error("Permission error: puzzle can't perform this action")]
-    Permission(),
+    Permission,
 
     #[error("Io error: {0}")]
     Io(std::io::Error),
@@ -114,7 +114,7 @@ pub async fn get_unspent_coins(
             )
             .await
             .map_err(WalletError::Client)?
-            .map_err(|_| WalletError::RejectPuzzleState())?;
+            .map_err(|_| WalletError::RejectPuzzleState)?;
 
         last_height = response.height;
         last_header_hash = response.header_hash;
@@ -226,12 +226,12 @@ pub async fn sync_store(
         )
         .await
         .map_err(WalletError::Client)?
-        .map_err(|_| WalletError::RejectCoinState())?;
+        .map_err(|_| WalletError::RejectCoinState)?;
     let mut last_coin_record = response
         .coin_states
         .into_iter()
         .next()
-        .ok_or(WalletError::UnknwonCoin())?;
+        .ok_or(WalletError::UnknwonCoin)?;
 
     let mut ctx = SpendContext::new(); // just to run puzzles more easily
 
@@ -243,7 +243,7 @@ pub async fn sync_store(
             )
             .await
             .map_err(WalletError::Client)?
-            .map_err(|_| WalletError::RejectPuzzleSolution())?;
+            .map_err(|_| WalletError::RejectPuzzleSolution)?;
 
         let cs = CoinSpend {
             coin: last_coin_record.coin,
@@ -256,8 +256,8 @@ pub async fn sync_store(
             &cs,
             &latest_store.info.delegated_puzzles,
         )
-        .map_err(|_| WalletError::Parse())?
-        .ok_or(WalletError::Parse())?;
+        .map_err(|_| WalletError::Parse)?
+        .ok_or(WalletError::Parse)?;
 
         if with_history {
             let resp: Result<RespondBlockHeader, RejectHeaderRequest> = peer
@@ -266,7 +266,7 @@ pub async fn sync_store(
                 })
                 .await
                 .map_err(WalletError::Client)?;
-            let block_header = resp.map_err(|_| WalletError::RejectHeaderRequest())?;
+            let block_header = resp.map_err(|_| WalletError::RejectHeaderRequest)?;
 
             history.push((
                 new_store.info.metadata.root_hash,
@@ -287,13 +287,13 @@ pub async fn sync_store(
             )
             .await
             .map_err(WalletError::Client)?
-            .map_err(|_| WalletError::RejectCoinState())?;
+            .map_err(|_| WalletError::RejectCoinState)?;
 
         last_coin_record = response
             .coin_states
             .into_iter()
             .next()
-            .ok_or(WalletError::UnknwonCoin())?;
+            .ok_or(WalletError::UnknwonCoin)?;
         latest_store = new_store;
     }
 
@@ -301,7 +301,7 @@ pub async fn sync_store(
         latest_store,
         latest_height: last_coin_record
             .created_height
-            .ok_or(WalletError::UnknwonCoin())?,
+            .ok_or(WalletError::UnknwonCoin)?,
         root_hash_history: if with_history { Some(history) } else { None },
     })
 }
@@ -317,12 +317,12 @@ pub async fn sync_store_using_launcher_id(
         .request_coin_state(vec![launcher_id], last_height, last_header_hash, false)
         .await
         .map_err(WalletError::Client)?
-        .map_err(|_| WalletError::RejectCoinState())?;
+        .map_err(|_| WalletError::RejectCoinState)?;
     let last_coin_record = response
         .coin_states
         .into_iter()
         .next()
-        .ok_or(WalletError::UnknwonCoin())?;
+        .ok_or(WalletError::UnknwonCoin)?;
 
     let mut ctx = SpendContext::new(); // just to run puzzles more easily
 
@@ -331,11 +331,11 @@ pub async fn sync_store_using_launcher_id(
             last_coin_record.coin.coin_id(),
             last_coin_record
                 .spent_height
-                .ok_or(WalletError::UnknwonCoin())?,
+                .ok_or(WalletError::UnknwonCoin)?,
         )
         .await
         .map_err(WalletError::Client)?
-        .map_err(|_| WalletError::RejectPuzzleSolution())?;
+        .map_err(|_| WalletError::RejectPuzzleSolution)?;
 
     let cs = CoinSpend {
         coin: last_coin_record.coin,
@@ -344,8 +344,8 @@ pub async fn sync_store_using_launcher_id(
     };
 
     let first_store = DataStore::<DataStoreMetadata>::from_spend(&mut ctx.allocator, &cs, &[])
-        .map_err(|_| WalletError::Parse())?
-        .ok_or(WalletError::Parse())?;
+        .map_err(|_| WalletError::Parse)?
+        .ok_or(WalletError::Parse)?;
 
     let res = sync_store(
         peer,
@@ -365,7 +365,7 @@ pub async fn sync_store_using_launcher_id(
                 })
                 .await
                 .map_err(WalletError::Client)?;
-            let resp = resp.map_err(|_| WalletError::RejectHeaderRequest())?;
+            let resp = resp.map_err(|_| WalletError::RejectHeaderRequest)?;
 
             resp.header_block
                 .foliage_transaction_block
@@ -407,14 +407,14 @@ fn update_store_with_conditions(
         DataStoreInnerSpend::Owner(pk) => StandardLayer::new(pk).spend(ctx, conditions)?,
         DataStoreInnerSpend::Admin(pk) => {
             if !allow_admin {
-                return Err(WalletError::Permission());
+                return Err(WalletError::Permission);
             }
 
             StandardLayer::new(pk).spend(ctx, conditions)?
         }
         DataStoreInnerSpend::Writer(pk) => {
             if !allow_writer {
-                return Err(WalletError::Permission());
+                return Err(WalletError::Permission);
             }
 
             WriterLayer::new(StandardLayer::new(pk)).spend(ctx, conditions)?
@@ -429,7 +429,7 @@ fn update_store_with_conditions(
         &new_spend,
         &parent_delegated_puzzles,
     )?
-    .ok_or(WalletError::Parse())?;
+    .ok_or(WalletError::Parse)?;
 
     Ok(SuccessResponse {
         coin_spends: vec![new_spend],
@@ -471,7 +471,7 @@ pub fn update_store_ownership(
 
             Condition::Other(new_merkle_root_condition)
         }
-        _ => return Err(WalletError::Permission()),
+        _ => return Err(WalletError::Permission),
     };
 
     let update_conditions = Conditions::new().with(update_condition);
@@ -561,7 +561,7 @@ pub fn oracle_spend(
         .iter()
         .find(|dp| matches!(dp, DelegatedPuzzle::Oracle(_, _)))
     else {
-        return Err(WalletError::Permission());
+        return Err(WalletError::Permission);
     };
 
     let spender_puzzle_hash: Bytes32 = StandardArgs::curry_tree_hash(spender_synthetic_key).into();
@@ -609,7 +609,7 @@ pub fn oracle_spend(
 
     let new_datastore =
         DataStore::from_spend(&mut ctx.allocator, &new_spend, &parent_delegated_puzzles)?
-            .ok_or(WalletError::Parse())?;
+            .ok_or(WalletError::Parse)?;
     ctx.insert(new_spend.clone());
 
     Ok(SuccessResponse {
@@ -731,7 +731,7 @@ pub async fn get_header_hash(peer: &Peer, height: u32) -> Result<Bytes32, Wallet
         .await
         .map_err(WalletError::Client)?;
 
-    resp.map_err(|_| WalletError::RejectHeaderRequest())
+    resp.map_err(|_| WalletError::RejectHeaderRequest)
         .map(|resp| resp.header_block.header_hash())
 }
 
@@ -777,7 +777,7 @@ pub async fn is_coin_spent(
         .request_coin_state(vec![coin_id], last_height, last_header_hash, false)
         .await
         .map_err(WalletError::Client)?
-        .map_err(|_| WalletError::RejectCoinState())?;
+        .map_err(|_| WalletError::RejectCoinState)?;
 
     if let Some(coin_state) = response.coin_states.first() {
         return Ok(coin_state.spent_height.is_some());
