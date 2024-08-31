@@ -6,21 +6,26 @@ use chia::bls::PublicKey;
 use chia::bls::SecretKey;
 use chia::bls::Signature;
 use chia::clvm_traits::clvm_tuple;
+use chia::clvm_traits::FromClvm;
 use chia::clvm_traits::ToClvm;
 use chia::clvm_utils::tree_hash;
-use chia::consensus::consensus_constants::{ConsensusConstants, TEST_CONSTANTS};
+use chia::clvm_utils::CurriedProgram;
+use chia::consensus::consensus_constants::ConsensusConstants;
 use chia::consensus::gen::{
     conditions::EmptyVisitor, flags::MEMPOOL_MODE, owned_conditions::OwnedSpendBundleConditions,
     run_block_generator::run_block_generator, solution_generator::solution_generator,
     validation_error::ValidationErr,
 };
+use chia::protocol::CoinState;
 use chia::protocol::{
     Bytes, Bytes32, Coin, CoinSpend, CoinStateFilters, RejectHeaderRequest, RequestBlockHeader,
     RequestFeeEstimates, RespondBlockHeader, RespondFeeEstimates, SpendBundle, TransactionAck,
 };
 use chia::puzzles::standard::StandardArgs;
+use chia::puzzles::standard::StandardSolution;
 use chia::puzzles::DeriveSynthetic;
 use chia_wallet_sdk::announcement_id;
+use chia_wallet_sdk::TESTNET11_CONSTANTS;
 use chia_wallet_sdk::{
     get_merkle_tree, select_coins as select_coins_algo, ClientError, CoinSelectionError, Condition,
     Conditions, DataStore, DataStoreMetadata, DelegatedPuzzle, DriverError, Launcher, Layer,
@@ -30,6 +35,12 @@ use chia_wallet_sdk::{
 use clvmr::Allocator;
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
+
+use crate::rust::ServerCoin;
+use crate::server_coin::urls_from_conditions;
+use crate::server_coin::MirrorArgs;
+use crate::server_coin::MirrorExt;
+use crate::server_coin::MirrorSolution;
 
 #[derive(Clone, Debug)]
 
@@ -62,7 +73,10 @@ pub enum WalletError {
     Parse,
 
     #[error("UnknownCoin")]
-    UnknwonCoin,
+    UnknownCoin,
+
+    #[error("Clvm error")]
+    Clvm,
 
     #[error("Permission error: puzzle can't perform this action")]
     Permission,
@@ -77,22 +91,23 @@ pub enum WalletError {
     FeeEstimateRejection(String),
 }
 
-pub struct UnspentCoinsResponse {
-    pub coins: Vec<Coin>,
+pub struct UnspentCoinStates {
+    pub coin_states: Vec<CoinState>,
     pub last_height: u32,
     pub last_header_hash: Bytes32,
 }
 
-pub async fn get_unspent_coins(
+pub async fn get_unspent_coin_states(
     peer: &Peer,
     puzzle_hash: Bytes32,
     previous_height: Option<u32>,
     previous_header_hash: Bytes32,
-) -> Result<UnspentCoinsResponse, WalletError> {
-    let mut coins: Vec<Coin> = vec![];
-    let mut last_height: u32 = previous_height.unwrap_or_default();
+    allow_hints: bool,
+) -> Result<UnspentCoinStates, WalletError> {
+    let mut coin_states = Vec::new();
+    let mut last_height = previous_height.unwrap_or_default();
 
-    let mut last_header_hash: Bytes32 = previous_header_hash;
+    let mut last_header_hash = previous_header_hash;
 
     loop {
         let response = peer
@@ -107,7 +122,7 @@ pub async fn get_unspent_coins(
                 CoinStateFilters {
                     include_spent: false,
                     include_unspent: true,
-                    include_hinted: false,
+                    include_hinted: allow_hints,
                     min_amount: 1,
                 },
                 false,
@@ -118,12 +133,11 @@ pub async fn get_unspent_coins(
 
         last_height = response.height;
         last_header_hash = response.header_hash;
-        coins.extend(
+        coin_states.extend(
             response
                 .coin_states
                 .into_iter()
-                .filter(|cs| cs.spent_height.is_none())
-                .map(|cs| cs.coin),
+                .filter(|cs| cs.spent_height.is_none()),
         );
 
         if response.is_finished {
@@ -131,8 +145,8 @@ pub async fn get_unspent_coins(
         }
     }
 
-    Ok(UnspentCoinsResponse {
-        coins,
+    Ok(UnspentCoinStates {
+        coin_states,
         last_height,
         last_header_hash,
     })
@@ -140,6 +154,212 @@ pub async fn get_unspent_coins(
 
 pub fn select_coins(coins: Vec<Coin>, total_amount: u64) -> Result<Vec<Coin>, CoinSelectionError> {
     select_coins_algo(coins.into_iter().collect(), total_amount.into())
+}
+
+fn spend_coins_with_announcements(
+    ctx: &mut SpendContext,
+    synthetic_key: PublicKey,
+    coins: &[Coin],
+    conditions: Conditions,
+    output: u64,
+    change_puzzle_hash: Bytes32,
+) -> Result<(), WalletError> {
+    let change = coins.iter().map(|coin| coin.amount).sum::<u64>() - output;
+
+    let mut coin_id = Bytes32::default();
+
+    for (i, &coin) in coins.iter().enumerate() {
+        if i == 0 {
+            coin_id = coin.coin_id();
+
+            ctx.spend_p2_coin(
+                coin,
+                synthetic_key,
+                conditions
+                    .clone()
+                    .create_coin_announcement(b"$".to_vec().into())
+                    .create_coin(change_puzzle_hash, change, Vec::new()),
+            )?;
+        } else {
+            ctx.spend_p2_coin(
+                coin,
+                synthetic_key,
+                Conditions::new().assert_coin_announcement(announcement_id(coin_id, b"$")),
+            )?;
+        }
+    }
+    Ok(())
+}
+
+pub fn create_server_coin(
+    synthetic_key: PublicKey,
+    selected_coins: Vec<Coin>,
+    hint: Bytes32,
+    uris: Vec<String>,
+    amount: u64,
+    fee: u64,
+) -> Result<Vec<CoinSpend>, WalletError> {
+    let change_puzzle_hash = StandardArgs::curry_tree_hash(synthetic_key).into();
+
+    let mut memos = Vec::with_capacity(uris.len() + 1);
+    memos.push(hint.to_vec().into());
+
+    for url in uris {
+        memos.push(url.as_bytes().into());
+    }
+
+    let mut ctx = SpendContext::new();
+
+    let conditions = Conditions::new()
+        .create_coin(MirrorArgs::curry_tree_hash().into(), amount, memos)
+        .reserve_fee(fee);
+
+    spend_coins_with_announcements(
+        &mut ctx,
+        synthetic_key,
+        &selected_coins,
+        conditions,
+        amount + fee,
+        change_puzzle_hash,
+    )?;
+
+    Ok(ctx.take())
+}
+
+pub async fn spend_server_coins(
+    peer: &Peer,
+    synthetic_key: PublicKey,
+    selected_coins: Vec<Coin>,
+    mut fee: u64,
+    network: TargetNetwork,
+) -> Result<Vec<CoinSpend>, WalletError> {
+    let puzzle_hash = StandardArgs::curry_tree_hash(synthetic_key).into();
+
+    let mut fee_coins = Vec::new();
+    let mut server_coins = Vec::new();
+
+    for coin in selected_coins {
+        if coin.puzzle_hash == puzzle_hash {
+            fee_coins.push(coin);
+        } else {
+            server_coins.push(coin);
+        }
+    }
+
+    if server_coins.is_empty() {
+        return Ok(Vec::new());
+    }
+
+    let parent_coins = peer
+        .request_coin_state(
+            server_coins.iter().map(|sc| sc.parent_coin_info).collect(),
+            None,
+            match network {
+                TargetNetwork::Mainnet => MAINNET_CONSTANTS.genesis_challenge,
+                TargetNetwork::Testnet11 => TESTNET11_CONSTANTS.genesis_challenge,
+            },
+            false,
+        )
+        .await?
+        .map_err(|_| WalletError::RejectCoinState)?
+        .coin_states;
+
+    let mut ctx = SpendContext::new();
+
+    let mirror_puzzle = ctx.mirror_puzzle()?;
+    let standard_puzzle = ctx.standard_puzzle()?;
+
+    let puzzle_reveal = ctx.serialize(&CurriedProgram {
+        program: mirror_puzzle,
+        args: MirrorArgs::default(),
+    })?;
+
+    let mut conditions = Conditions::new().reserve_fee(fee);
+
+    for server_coin in server_coins {
+        let parent_coin = parent_coins
+            .iter()
+            .find(|cs| cs.coin.coin_id() == server_coin.parent_coin_info)
+            .copied()
+            .ok_or(WalletError::UnknownCoin)?;
+
+        if parent_coin.coin.puzzle_hash != puzzle_hash {
+            return Err(WalletError::Permission);
+        }
+
+        let solution = ctx.serialize(&MirrorSolution {
+            parent_parent_id: parent_coin.coin.parent_coin_info,
+            parent_inner_puzzle: CurriedProgram {
+                program: standard_puzzle,
+                args: StandardArgs::new(synthetic_key),
+            },
+            parent_amount: parent_coin.coin.amount,
+            parent_solution: StandardSolution {
+                original_public_key: None,
+                delegated_puzzle: (),
+                solution: (),
+            },
+        })?;
+
+        fee = fee.saturating_sub(server_coin.amount);
+        ctx.insert(CoinSpend::new(server_coin, puzzle_reveal.clone(), solution));
+
+        conditions = conditions.assert_concurrent_spend(server_coin.coin_id());
+    }
+
+    spend_coins_with_announcements(
+        &mut ctx,
+        synthetic_key,
+        &fee_coins,
+        conditions,
+        fee,
+        puzzle_hash,
+    )?;
+
+    Ok(ctx.take())
+}
+
+pub async fn fetch_server_coin(
+    peer: &Peer,
+    coin_state: CoinState,
+    max_cost: u64,
+) -> Result<ServerCoin, WalletError> {
+    let Some(created_height) = coin_state.created_height else {
+        return Err(WalletError::UnknownCoin);
+    };
+
+    let spend = peer
+        .request_puzzle_and_solution(coin_state.coin.parent_coin_info, created_height)
+        .await?
+        .map_err(|_| WalletError::RejectPuzzleSolution)?;
+
+    let mut allocator = Allocator::new();
+
+    let Ok(output) = spend
+        .puzzle
+        .run(&mut allocator, 0, max_cost, &spend.solution)
+    else {
+        return Err(WalletError::Clvm);
+    };
+
+    let Ok(conditions) = Vec::<Condition>::from_clvm(&allocator, output.1) else {
+        return Err(WalletError::Parse);
+    };
+
+    let Some(urls) = urls_from_conditions(&coin_state.coin, &conditions) else {
+        return Err(WalletError::Parse);
+    };
+
+    let puzzle = spend
+        .puzzle
+        .to_clvm(&mut allocator)
+        .map_err(DriverError::ToClvm)?;
+
+    Ok(ServerCoin {
+        coin: coin_state.coin,
+        p2_puzzle_hash: tree_hash(&allocator, puzzle).into(),
+        memo_urls: urls,
+    })
 }
 
 #[allow(clippy::too_many_arguments)]
@@ -231,7 +451,7 @@ pub async fn sync_store(
         .coin_states
         .into_iter()
         .next()
-        .ok_or(WalletError::UnknwonCoin)?;
+        .ok_or(WalletError::UnknownCoin)?;
 
     let mut ctx = SpendContext::new(); // just to run puzzles more easily
 
@@ -293,7 +513,7 @@ pub async fn sync_store(
             .coin_states
             .into_iter()
             .next()
-            .ok_or(WalletError::UnknwonCoin)?;
+            .ok_or(WalletError::UnknownCoin)?;
         latest_store = new_store;
     }
 
@@ -301,7 +521,7 @@ pub async fn sync_store(
         latest_store,
         latest_height: last_coin_record
             .created_height
-            .ok_or(WalletError::UnknwonCoin)?,
+            .ok_or(WalletError::UnknownCoin)?,
         root_hash_history: if with_history { Some(history) } else { None },
     })
 }
@@ -322,7 +542,7 @@ pub async fn sync_store_using_launcher_id(
         .coin_states
         .into_iter()
         .next()
-        .ok_or(WalletError::UnknwonCoin)?;
+        .ok_or(WalletError::UnknownCoin)?;
 
     let mut ctx = SpendContext::new(); // just to run puzzles more easily
 
@@ -331,7 +551,7 @@ pub async fn sync_store_using_launcher_id(
             last_coin_record.coin.coin_id(),
             last_coin_record
                 .spent_height
-                .ok_or(WalletError::UnknwonCoin)?,
+                .ok_or(WalletError::UnknownCoin)?,
         )
         .await
         .map_err(WalletError::Client)?
@@ -675,7 +895,7 @@ impl TargetNetwork {
     fn get_constants(&self) -> &ConsensusConstants {
         match self {
             TargetNetwork::Mainnet => &MAINNET_CONSTANTS,
-            TargetNetwork::Testnet11 => &TEST_CONSTANTS,
+            TargetNetwork::Testnet11 => &TESTNET11_CONSTANTS,
         }
     }
 }

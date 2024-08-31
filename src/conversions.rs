@@ -159,6 +159,46 @@ impl ToJs<js::Coin> for rust::Coin {
     }
 }
 
+impl FromJs<js::CoinState> for rust::CoinState {
+    fn from_js(value: js::CoinState) -> Result<Self> {
+        Ok(Self {
+            coin: rust::Coin::from_js(value.coin)?,
+            spent_height: value
+                .spent_height
+                .map(|height| {
+                    u64::from_js(height).and_then(|height| {
+                        height.try_into().map_err(|_| js::err("height exceeds u32"))
+                    })
+                })
+                .transpose()?,
+            created_height: value
+                .created_height
+                .map(|height| {
+                    u64::from_js(height).and_then(|height| {
+                        height.try_into().map_err(|_| js::err("height exceeds u32"))
+                    })
+                })
+                .transpose()?,
+        })
+    }
+}
+
+impl ToJs<js::CoinState> for rust::CoinState {
+    fn to_js(&self) -> Result<js::CoinState> {
+        Ok(js::CoinState {
+            coin: self.coin.to_js()?,
+            spent_height: self
+                .spent_height
+                .map(|height| (height as u64).to_js())
+                .transpose()?,
+            created_height: self
+                .created_height
+                .map(|height| (height as u64).to_js())
+                .transpose()?,
+        })
+    }
+}
+
 impl FromJs<js::CoinSpend> for rust::CoinSpend {
     fn from_js(value: js::CoinSpend) -> Result<Self> {
         Ok(Self {
@@ -242,6 +282,26 @@ impl ToJs<js::Proof> for rust::Proof {
                 lineage_proof: None,
                 eve_proof: Some(eve_proof.to_js()?),
             },
+        })
+    }
+}
+
+impl FromJs<js::ServerCoin> for rust::ServerCoin {
+    fn from_js(value: js::ServerCoin) -> Result<Self> {
+        Ok(Self {
+            coin: rust::Coin::from_js(value.coin)?,
+            p2_puzzle_hash: Bytes32::from_js(value.p2_puzzle_hash)?,
+            memo_urls: value.memo_urls,
+        })
+    }
+}
+
+impl ToJs<js::ServerCoin> for rust::ServerCoin {
+    fn to_js(&self) -> Result<js::ServerCoin> {
+        Ok(js::ServerCoin {
+            coin: self.coin.to_js()?,
+            p2_puzzle_hash: self.p2_puzzle_hash.to_js()?,
+            memo_urls: self.memo_urls.clone(),
         })
     }
 }

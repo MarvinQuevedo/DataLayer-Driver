@@ -19,18 +19,15 @@ use chia_wallet_sdk::{
     connect_peer, create_tls_connector, decode_address, encode_address, load_ssl_cert,
     DataStore as RustDataStore, DataStoreInfo as RustDataStoreInfo,
     DataStoreMetadata as RustDataStoreMetadata, DelegatedPuzzle as RustDelegatedPuzzle, NetworkId,
-    Peer as RustPeer,
+    Peer as RustPeer, MAINNET_CONSTANTS, TESTNET11_CONSTANTS,
 };
 use conversions::{ConversionError, FromJs, ToJs};
-use js::{Coin, CoinSpend, EveProof, Proof};
+use js::{Coin, CoinSpend, CoinState, EveProof, Proof};
 use napi::bindgen_prelude::*;
 use napi::Result;
 use std::{net::SocketAddr, sync::Arc};
 use tokio::sync::Mutex;
-use wallet::{
-    SuccessResponse as RustSuccessResponse, SyncStoreResponse as RustSyncStoreResponse,
-    UnspentCoinsResponse as RustUnspentCoinsResponse,
-};
+use wallet::{SuccessResponse as RustSuccessResponse, SyncStoreResponse as RustSyncStoreResponse};
 
 pub use wallet::*;
 
@@ -359,9 +356,9 @@ pub struct UnspentCoinsResponse {
     pub last_header_hash: Buffer,
 }
 
-impl FromJs<UnspentCoinsResponse> for RustUnspentCoinsResponse {
+impl FromJs<UnspentCoinsResponse> for rust::UnspentCoinsResponse {
     fn from_js(value: UnspentCoinsResponse) -> Result<Self> {
-        Ok(RustUnspentCoinsResponse {
+        Ok(rust::UnspentCoinsResponse {
             coins: value
                 .coins
                 .into_iter()
@@ -373,7 +370,7 @@ impl FromJs<UnspentCoinsResponse> for RustUnspentCoinsResponse {
     }
 }
 
-impl ToJs<UnspentCoinsResponse> for RustUnspentCoinsResponse {
+impl ToJs<UnspentCoinsResponse> for rust::UnspentCoinsResponse {
     fn to_js(&self) -> Result<UnspentCoinsResponse> {
         Ok(UnspentCoinsResponse {
             coins: self
@@ -458,16 +455,71 @@ impl Peer {
         previous_height: Option<u32>,
         previous_header_hash: Buffer,
     ) -> napi::Result<UnspentCoinsResponse> {
-        let resp = get_unspent_coins(
+        let resp: rust::UnspentCoinsResponse = get_unspent_coin_states(
             &self.inner.clone(),
             RustBytes32::from_js(puzzle_hash)?,
             previous_height,
             RustBytes32::from_js(previous_header_hash)?,
+            false,
+        )
+        .await
+        .map_err(js::err)?
+        .into();
+
+        resp.to_js()
+    }
+
+    #[napi]
+    /// Retrieves all hinted coin states that are unspent on the chain. Note that coins part of spend bundles that are pending in the mempool will also be included.
+    ///
+    /// @param {Buffer} puzzleHash - Puzzle hash to lookup hinted coins for.
+    /// @param {bool} forTestnet - True for testnet, false for mainnet.
+    /// @returns {Promise<Vec<Coin>>} The unspent coins response.
+    pub async fn get_hinted_coin_states(
+        &self,
+        puzzle_hash: Buffer,
+        for_testnet: bool,
+    ) -> napi::Result<Vec<CoinState>> {
+        let resp = get_unspent_coin_states(
+            &self.inner.clone(),
+            RustBytes32::from_js(puzzle_hash)?,
+            None,
+            if for_testnet {
+                TESTNET11_CONSTANTS.genesis_challenge
+            } else {
+                MAINNET_CONSTANTS.genesis_challenge
+            },
+            true,
         )
         .await
         .map_err(js::err)?;
 
-        resp.to_js()
+        resp.coin_states
+            .into_iter()
+            .map(|c| c.to_js())
+            .collect::<Result<Vec<CoinState>>>()
+    }
+
+    #[napi]
+    /// Fetches the server coin from a given coin state.
+    ///
+    /// @param {CoinState} coinState - The coin state.
+    /// @param {BigInt} maxCost - The maximum cost to use when parsing the coin. For example, `11_000_000_000`.
+    /// @returns {Promise<ServerCoin>} The server coin.
+    pub async fn fetch_server_coin(
+        &self,
+        coin_state: CoinState,
+        max_cost: BigInt,
+    ) -> napi::Result<js::ServerCoin> {
+        let coin = wallet::fetch_server_coin(
+            &self.inner.clone(),
+            rust::CoinState::from_js(coin_state)?,
+            u64::from_js(max_cost)?,
+        )
+        .await
+        .map_err(js::err)?;
+
+        coin.to_js()
     }
 
     #[napi]
@@ -636,6 +688,91 @@ pub fn select_coins(all_coins: Vec<Coin>, total_amount: BigInt) -> napi::Result<
         .into_iter()
         .map(|c| c.to_js())
         .collect::<Result<Vec<Coin>>>()
+}
+
+/// Adds an offset to a launcher id to make it deterministically unique from the original.
+///
+/// @param {Buffer} launcherId - The original launcher id.
+/// @param {BigInt} offset - The offset to add.
+#[napi]
+pub fn morph_launcher_id(launcher_id: Buffer, offset: BigInt) -> napi::Result<Buffer> {
+    server_coin::morph_launcher_id(
+        RustBytes32::from_js(launcher_id)?,
+        &u64::from_js(offset)?.into(),
+    )
+    .to_js()
+}
+
+/// Creates a new mirror coin with the given URLs.
+///
+/// @param {Buffer} syntheticKey - The synthetic key used by the wallet.
+/// @param {Vec<Coin>} selectedCoins - Coins to be used for minting, as retured by `select_coins`. Note that, besides the fee, 1 mojo will be used to create the mirror coin.
+/// @param {Buffer} hint - The hint for the mirror coin, usually the original or morphed launcher id.
+/// @param {Vec<String>} uris - The URIs of the mirrors.
+/// @param {BigInt} amount - The amount to use for the created coin.
+/// @param {BigInt} fee - The fee to use for the transaction.
+#[napi]
+pub fn create_server_coin(
+    synthetic_key: Buffer,
+    selected_coins: Vec<Coin>,
+    hint: Buffer,
+    uris: Vec<String>,
+    amount: BigInt,
+    fee: BigInt,
+) -> napi::Result<Vec<CoinSpend>> {
+    let coin = wallet::create_server_coin(
+        RustPublicKey::from_js(synthetic_key)?,
+        selected_coins
+            .into_iter()
+            .map(RustCoin::from_js)
+            .collect::<Result<Vec<RustCoin>>>()?,
+        RustBytes32::from_js(hint)?,
+        uris,
+        u64::from_js(amount)?,
+        u64::from_js(fee)?,
+    )
+    .map_err(js::err)?;
+
+    coin.into_iter()
+        .map(|c| c.to_js())
+        .collect::<Result<Vec<CoinSpend>>>()
+}
+
+/// Spends the mirror coins to make them unusable in the future.
+///
+/// @param {Peer} peer - The peer connection to the Chia node.
+/// @param {Buffer} syntheticKey - The synthetic key used by the wallet.
+/// @param {Vec<Coin>} selectedCoins - Coins to be used for minting, as retured by `select_coins`. Note that the server coins will count towards the fee.
+/// @param {BigInt} fee - The fee to use for the transaction.
+/// @param {bool} forTestnet - True for testnet, false for mainnet.
+#[napi]
+pub async fn lookup_and_spend_server_coins(
+    peer: &Peer,
+    synthetic_key: Buffer,
+    selected_coins: Vec<Coin>,
+    fee: BigInt,
+    for_testnet: bool,
+) -> napi::Result<Vec<CoinSpend>> {
+    let coin = wallet::spend_server_coins(
+        &peer.inner,
+        RustPublicKey::from_js(synthetic_key)?,
+        selected_coins
+            .into_iter()
+            .map(RustCoin::from_js)
+            .collect::<Result<Vec<RustCoin>>>()?,
+        u64::from_js(fee)?,
+        if for_testnet {
+            TargetNetwork::Testnet11
+        } else {
+            TargetNetwork::Mainnet
+        },
+    )
+    .await
+    .map_err(js::err)?;
+
+    coin.into_iter()
+        .map(|c| c.to_js())
+        .collect::<Result<Vec<CoinSpend>>>()
 }
 
 #[allow(clippy::too_many_arguments)]

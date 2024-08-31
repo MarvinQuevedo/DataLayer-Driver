@@ -15,6 +15,19 @@ pub struct Coin {
 
 #[napi(object)]
 #[derive(Clone)]
+/// Represents a full coin state on the Chia blockchain.
+///
+/// @property {Coin} coin - The coin.
+/// @property {Buffer} spentHeight - The height the coin was spent at, if it was spent.
+/// @property {Buffer} createdHeight - The height the coin was created at.
+pub struct CoinState {
+    pub coin: Coin,
+    pub spent_height: Option<BigInt>,
+    pub created_height: Option<BigInt>,
+}
+
+#[napi(object)]
+#[derive(Clone)]
 /// Represents a coin spend on the Chia blockchain.
 ///
 /// @property {Coin} coin - The coin being spent.
@@ -59,6 +72,18 @@ pub struct EveProof {
 pub struct Proof {
     pub lineage_proof: Option<LineageProof>,
     pub eve_proof: Option<EveProof>,
+}
+
+#[napi(object)]
+/// Represents a mirror coin with a potentially morphed launcher id.
+///
+/// @property {Coin} coin - The coin.
+/// @property {Buffer} p2PuzzleHash - The puzzle hash that owns the server coin.
+/// @property {Array<string>} memoUrls - The memo URLs that serve the data store being mirrored.
+pub struct ServerCoin {
+    pub coin: Coin,
+    pub p2_puzzle_hash: Buffer,
+    pub memo_urls: Vec<String>,
 }
 
 pub fn err<T>(error: T) -> napi::Error
