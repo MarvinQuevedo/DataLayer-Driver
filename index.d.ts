@@ -16,6 +16,18 @@ export interface Coin {
   amount: bigint
 }
 /**
+ * Represents a full coin state on the Chia blockchain.
+ *
+ * @property {Coin} coin - The coin.
+ * @property {Buffer} spentHeight - The height the coin was spent at, if it was spent.
+ * @property {Buffer} createdHeight - The height the coin was created at.
+ */
+export interface CoinState {
+  coin: Coin
+  spentHeight?: bigint
+  createdHeight?: bigint
+}
+/**
  * Represents a coin spend on the Chia blockchain.
  *
  * @property {Coin} coin - The coin being spent.
@@ -58,6 +70,18 @@ export interface EveProof {
 export interface Proof {
   lineageProof?: LineageProof
   eveProof?: EveProof
+}
+/**
+ * Represents a mirror coin with a potentially morphed launcher id.
+ *
+ * @property {Coin} coin - The coin.
+ * @property {Buffer} p2PuzzleHash - The puzzle hash that owns the server coin.
+ * @property {Array<string>} memoUrls - The memo URLs that serve the data store being mirrored.
+ */
+export interface ServerCoin {
+  coin: Coin
+  p2PuzzleHash: Buffer
+  memoUrls: Array<string>
 }
 /**
  * Creates a new lineage proof.
@@ -162,6 +186,34 @@ export interface UnspentCoinsResponse {
  * @returns {Vec<Coin>} Array of selected coins.
  */
 export declare function selectCoins(allCoins: Array<Coin>, totalAmount: bigint): Array<Coin>
+/**
+ * Adds an offset to a launcher id to make it deterministically unique from the original.
+ *
+ * @param {Buffer} launcherId - The original launcher id.
+ * @param {BigInt} offset - The offset to add.
+ */
+export declare function morphLauncherId(launcherId: Buffer, offset: bigint): Buffer
+/**
+ * Creates a new mirror coin with the given URLs.
+ *
+ * @param {Buffer} syntheticKey - The synthetic key used by the wallet.
+ * @param {Vec<Coin>} selectedCoins - Coins to be used for minting, as retured by `select_coins`. Note that, besides the fee, 1 mojo will be used to create the mirror coin.
+ * @param {Buffer} hint - The hint for the mirror coin, usually the original or morphed launcher id.
+ * @param {Vec<String>} uris - The URIs of the mirrors.
+ * @param {BigInt} amount - The amount to use for the created coin.
+ * @param {BigInt} fee - The fee to use for the transaction.
+ */
+export declare function createServerCoin(syntheticKey: Buffer, selectedCoins: Array<Coin>, hint: Buffer, uris: Array<string>, amount: bigint, fee: bigint): Array<CoinSpend>
+/**
+ * Spends the mirror coins to make them unusable in the future.
+ *
+ * @param {Peer} peer - The peer connection to the Chia node.
+ * @param {Buffer} syntheticKey - The synthetic key used by the wallet.
+ * @param {Vec<Coin>} selectedCoins - Coins to be used for minting, as retured by `select_coins`. Note that the server coins will count towards the fee.
+ * @param {BigInt} fee - The fee to use for the transaction.
+ * @param {bool} forTestnet - True for testnet, false for mainnet.
+ */
+export declare function lookupAndSpendServerCoins(peer: Peer, syntheticKey: Buffer, selectedCoins: Array<Coin>, fee: bigint, forTestnet: boolean): Promise<Array<CoinSpend>>
 /**
  * Mints a new datastore.
  *
@@ -361,6 +413,22 @@ export declare class Peer {
    * @returns {Promise<UnspentCoinsResponse>} The unspent coins response.
    */
   getAllUnspentCoins(puzzleHash: Buffer, previousHeight: number | undefined | null, previousHeaderHash: Buffer): Promise<UnspentCoinsResponse>
+  /**
+   * Retrieves all hinted coin states that are unspent on the chain. Note that coins part of spend bundles that are pending in the mempool will also be included.
+   *
+   * @param {Buffer} puzzleHash - Puzzle hash to lookup hinted coins for.
+   * @param {bool} forTestnet - True for testnet, false for mainnet.
+   * @returns {Promise<Vec<Coin>>} The unspent coins response.
+   */
+  getHintedCoinStates(puzzleHash: Buffer, forTestnet: boolean): Promise<Array<CoinState>>
+  /**
+   * Fetches the server coin from a given coin state.
+   *
+   * @param {CoinState} coinState - The coin state.
+   * @param {BigInt} maxCost - The maximum cost to use when parsing the coin. For example, `11_000_000_000`.
+   * @returns {Promise<ServerCoin>} The server coin.
+   */
+  fetchServerCoin(coinState: CoinState, maxCost: bigint): Promise<ServerCoin>
   /**
    * Synchronizes a datastore.
    *
