@@ -156,7 +156,7 @@ pub fn select_coins(coins: Vec<Coin>, total_amount: u64) -> Result<Vec<Coin>, Co
     select_coins_algo(coins.into_iter().collect(), total_amount.into())
 }
 
-fn spend_coins_with_announcements(
+fn spend_coins_together(
     ctx: &mut SpendContext,
     synthetic_key: PublicKey,
     coins: &[Coin],
@@ -168,15 +168,11 @@ fn spend_coins_with_announcements(
     assert!(change >= 0);
     let change = change as u64;
 
-    let mut coin_id = Bytes32::default();
+    let first_coin_id = coins[0].coin_id();
 
     for (i, &coin) in coins.iter().enumerate() {
         if i == 0 {
-            coin_id = coin.coin_id();
-
-            let mut conditions = extra_conditions
-                .clone()
-                .create_coin_announcement(b"$".to_vec().into());
+            let mut conditions = extra_conditions.clone();
 
             if change > 0 {
                 conditions = conditions.create_coin(change_puzzle_hash, change, Vec::new());
@@ -187,7 +183,7 @@ fn spend_coins_with_announcements(
             ctx.spend_p2_coin(
                 coin,
                 synthetic_key,
-                Conditions::new().assert_coin_announcement(announcement_id(coin_id, b"$")),
+                Conditions::new().assert_concurrent_spend(first_coin_id),
             )?;
         }
     }
@@ -217,7 +213,7 @@ pub fn create_server_coin(
         .create_coin(MirrorArgs::curry_tree_hash().into(), amount, memos)
         .reserve_fee(fee);
 
-    spend_coins_with_announcements(
+    spend_coins_together(
         &mut ctx,
         synthetic_key,
         &selected_coins,
@@ -313,7 +309,7 @@ pub async fn spend_server_coins(
         conditions = conditions.assert_concurrent_spend(server_coin.coin_id());
     }
 
-    spend_coins_with_announcements(
+    spend_coins_together(
         &mut ctx,
         synthetic_key,
         &fee_coins,
