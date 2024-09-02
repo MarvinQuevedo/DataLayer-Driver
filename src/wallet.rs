@@ -164,7 +164,7 @@ fn spend_coins_with_announcements(
     output: i64,
     change_puzzle_hash: Bytes32,
 ) -> Result<(), WalletError> {
-    let change = coins.iter().map(|coin| coin.amount).sum::<u64>() as i64 - output;
+    let change = i64::try_from(coins.iter().map(|coin| coin.amount).sum::<u64>()).unwrap() - output;
     assert!(change >= 0);
     let change = change as u64;
 
