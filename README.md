@@ -3,11 +3,12 @@
 A collection of functions that can be used to interact with datastores on the Chia blockchain.
 cd
 This library offers the following functions:
-- wallet: `selectCoins`, `addFee`, `signCoinSpends`
-- drivers: `mintStore`, `adminDelegatedPuzzleFromKey`, `writerDelegatedPuzzleFromKey`, `oracleDelegatedPuzzle`, `oracleSpend`, `updateStoreMetadata`, `updateStoreOwnership`, `meltStore`, `getCost`
-- utils: `getCoinId`, `masterPublicKeyToWalletSyntheticKey`, `masterPublicKeyToFirstPuzzleHash`, `masterSecretKeyToWalletSyntheticSecretKey`, `secretKeyToPublicKey`, `puzzleHashToAddress`, `addressToPuzzleHash`, `newLineageProof`, `newEveProof`, `signMessage`, `verifySignedMessage`, `syntheticKeyToPuzzleHash`
 
-The `Peer` class also exposes the following methods: `getAllUnspentCoins`, `syncStore`, `syncStoreFromLauncherId`, `broadcastSpend`, `isCoinSpent`, `getHeaderHash`, `getFeeEstimate`, `getPeak`.
+- wallet: `selectCoins`, `addFee`, `signCoinSpends`
+- drivers: `mintStore`, `adminDelegatedPuzzleFromKey`, `writerDelegatedPuzzleFromKey`, `oracleDelegatedPuzzle`, `oracleSpend`, `updateStoreMetadata`, `updateStoreOwnership`, `meltStore`, `getCost`, `createServerCoin`, `lookupAndSpendServerCoins`
+- utils: `getCoinId`, `masterPublicKeyToWalletSyntheticKey`, `masterPublicKeyToFirstPuzzleHash`, `masterSecretKeyToWalletSyntheticSecretKey`, `secretKeyToPublicKey`, `puzzleHashToAddress`, `addressToPuzzleHash`, `newLineageProof`, `newEveProof`, `signMessage`, `verifySignedMessage`, `syntheticKeyToPuzzleHash`, `morphLauncherId`
+
+The `Peer` class also exposes the following methods: `getAllUnspentCoins`, `syncStore`, `syncStoreFromLauncherId`, `broadcastSpend`, `isCoinSpent`, `getHeaderHash`, `getFeeEstimate`, `getPeak`, `getHintedCoinStates`, `fetchServerCoin`.
 
 Note that all functions come with detailed JSDoc comments.
 
@@ -54,7 +55,7 @@ Where `NETWORK_PREFIX` is `xch` for mainnet and `txch` for testnet.
 To 'talk' with the wallet, you will need to initialize a `Peer` object like in the example below:
 
 ```js
-const peer = await Peer.new('127.0.0.1:58444', 'testnet11', CHIA_CRT, CHIA_KEY)
+const peer = await Peer.new("127.0.0.1:58444", "testnet11", CHIA_CRT, CHIA_KEY);
 ```
 
 The example above connects to a `tesntet11` full node. Note that `CHIA_CRT` is usually `~/.chia/mainnet/config/ssl/wallet/wallet_node.crt` and `CHIA_KEY` is usually `~/.chia/mainnet/config/ssl/wallet/wallet_node.key`. For mainnet, the port is usually `8444`, and the network id is `mainnet`.
@@ -63,39 +64,41 @@ Making any transaction will require finding available (unspent) coins in the ser
 
 ```js
 const ph = getServerPuzzleHash();
-const coinsResp = await peer.getAllUnspentCoins(ph, MIN_HEIGHT, MIN_HEIGHT_HEADER_HASH);
+const coinsResp = await peer.getAllUnspentCoins(
+  ph,
+  MIN_HEIGHT,
+  MIN_HEIGHT_HEADER_HASH
+);
 const coins = selectCoins(coinsResp.coins, feeBigInt + BigInt(1));
 ```
 
 You can speed up coin lookup by setting `MIN_HEIGHT` and `MIN_HEIGHT_HEADER_HASH` to point to a block just before wallet creation (or before the first fund tx was confirmed). Alternatively, you can set them to `null` and the network's genesis challenge. When selecting coins, make sure to include the fee in the total amount.
 
 The next step is to generate coin spends using drivers:
+
 ```js
 const serverKey = getPublicSyntheticKey();
 const successResponse = await mintStore(
-    getPublicSyntheticKey(),
-    coins,
-    rootHash,
-    label,
-    description,
-    sizeBigInt,
-    ownerPuzzleHash,
-    [
-      adminDelegatedPuzzleFromKey(serverKey),
-      writerDelegatedPuzzleFromKey(serverKey),
-      oracleDelegatedPuzzle(ownerPuzzleHash, oracleFeeBigInt)
-    ],
-    feeBigInt
-  );
- ```
- 
- The code above is used to mint stores. Note that a success response not only contains unsigned coin spends, but also returns a new `DataStore` object that can be used to sync or spend the store in the future. Note that some drivers will not require coins, only the information of the store being spent:
- 
- ```js
- const resp = meltStore(
-    parseDataStore(info),
-    ownerPublicKey
-  );
+  getPublicSyntheticKey(),
+  coins,
+  rootHash,
+  label,
+  description,
+  sizeBigInt,
+  ownerPuzzleHash,
+  [
+    adminDelegatedPuzzleFromKey(serverKey),
+    writerDelegatedPuzzleFromKey(serverKey),
+    oracleDelegatedPuzzle(ownerPuzzleHash, oracleFeeBigInt),
+  ],
+  feeBigInt
+);
+```
+
+The code above is used to mint stores. Note that a success response not only contains unsigned coin spends, but also returns a new `DataStore` object that can be used to sync or spend the store in the future. Note that some drivers will not require coins, only the information of the store being spent:
+
+```js
+const resp = meltStore(parseDataStore(info), ownerPublicKey);
 ```
 
 In that case, the 'basic' transaction only spends the store - to add fees, you'll need to call `addFee` and make sure to include the returned coin spends in the final bundle:
@@ -115,21 +118,23 @@ Note that `true` indicates that the transaction is being signed for testnet11, w
 Broadcasting a bundle is as easy as:
 
 ```js
-const err = await peer.broadcastSpend(
-    coinSpends,
-    [sig]
-  );
+const err = await peer.broadcastSpend(coinSpends, [sig]);
 ```
 
 To confirm the transaction, you can just confirm that the datastore coin was spent on-chain:
 
 ```js
-const confirmed = await peer.isCoinSpent(getCoinId(info.coin), MIN_HEIGHT, MIN_HEIGHT_HEADER_HASH);
+const confirmed = await peer.isCoinSpent(
+  getCoinId(info.coin),
+  MIN_HEIGHT,
+  MIN_HEIGHT_HEADER_HASH
+);
 ```
 
 ## More Examples
 
 ### Transferring the Store to a New Owner
+
 Suppose `info` is holding the current store's information and you want to transfer it to `newOwnerPuzzleHash`. You can do this as follows:
 
 ```js
@@ -140,7 +145,7 @@ const {coinSpends, newInfo} = updateStoreOwnership(
     currentOwnerPublicKey,
     null,
  );
- 
+
 /* optionally add a fee via 'addFee' - you'll also need to get 'server_sig' via 'signCoinSpends' */
 
 const sig = /* fetch from user */;
@@ -153,7 +158,7 @@ const err = await peer.broadcastSpend(
     [sig /* add 'server_sig' if adding fee */ ]
   );
 // check that err === "" <-> successful mempool inclusion
-  
+
 /* wait for tx to be confirmed */
 var confirmed = await peer.isCoinSpent(getCoinId(info.coin), MIN_HEIGHT, MIN_HEIGHT_HEADER_HASH);
 while(!confirmed) {
@@ -165,15 +170,21 @@ Note that, when changing ownership, either the owner's or an admin's synthetic k
 
 Waiting for transactions is usually more complicated than the snippet above - mempool items are sometimes kicked out when transactions with higher fees can fill the mempool, meaning that the `while` loop would run infinitely.
 
-### Syncing a Store & Verifying Ownership 
+### Syncing a Store & Verifying Ownership
 
 To sync a store, you'll first need a peer. Recall that we've previously initialized a peer as:
 
 ```js
-const CHIA_CRT = path.join(os.homedir(), '.chia/mainnet/config/ssl/wallet/wallet_node.crt');
-const CHIA_KEY = path.join(os.homedir(), '.chia/mainnet/config/ssl/wallet/wallet_node.key');
+const CHIA_CRT = path.join(
+  os.homedir(),
+  ".chia/mainnet/config/ssl/wallet/wallet_node.crt"
+);
+const CHIA_KEY = path.join(
+  os.homedir(),
+  ".chia/mainnet/config/ssl/wallet/wallet_node.key"
+);
 // ...
-const peer = await Peer.new('127.0.0.1:58444', 'testnet11', CHIA_CRT, CHIA_KEY)  
+const peer = await Peer.new("127.0.0.1:58444", "testnet11", CHIA_CRT, CHIA_KEY);
 ```
 
 To sync, you'll also need two other values, `MIN_HEIGHT` and `MIN_HEIGHT_HEADER_HASH`. These variables represent information relating to the block you want to start syncing from - higher heights lead to faster sync times. If you wish to sync from genesis, use a height of `null` and a header hash equal to the network's genesis challenge.
@@ -181,24 +192,29 @@ To sync, you'll also need two other values, `MIN_HEIGHT` and `MIN_HEIGHT_HEADER_
 Syncing a store using its launcher id is as easy as:
 
 ```js
-const {
-  latestInfo, latestHeight
-} = await peer.syncStoreFromLauncherId(launcherId, MIN_HEIGHT, MIN_HEIGHT_HEADER_HASH, false);
+const { latestInfo, latestHeight } = await peer.syncStoreFromLauncherId(
+  launcherId,
+  MIN_HEIGHT,
+  MIN_HEIGHT_HEADER_HASH,
+  false
+);
 ```
 
 If you already have a `DataStore` object, you can use it to 'bootstrap' the syncing process and minimize the time it takes to fetch the latest info:
 
-
 ```js
-const {
-  latestInfo, latestHeight
-} = await peer.syncStore(oldStoreInfo, MIN_HEIGHT, MIN_HEIGHT_HEADER_HASH, false);
+const { latestInfo, latestHeight } = await peer.syncStore(
+  oldStoreInfo,
+  MIN_HEIGHT,
+  MIN_HEIGHT_HEADER_HASH,
+  false
+);
 ```
 
 With the latest store info in the `latestInfo` variable, checking that the current store owner is `myPuzzleHash` can be done as follows:
 
 ```js
-if(latestInfo.ownerPuzzleHash === myPuzzleHash) {
+if (latestInfo.ownerPuzzleHash === myPuzzleHash) {
   doSomething();
 }
 ```
