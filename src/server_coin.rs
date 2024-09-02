@@ -117,7 +117,18 @@ pub fn urls_from_conditions(
 
 #[cfg(test)]
 mod tests {
+    use chia::clvm_utils::tree_hash;
+    use clvmr::{serde::node_from_bytes, Allocator};
+
     use super::*;
+
+    #[test]
+    fn test_puzzle_hash() {
+        let mut a = Allocator::new();
+        let ptr = node_from_bytes(&mut a, &MIRROR_PUZZLE).unwrap();
+        let hash = tree_hash(&a, ptr);
+        assert_eq!(MIRROR_PUZZLE_HASH, hash);
+    }
 
     #[test]
     fn test_morph() {
