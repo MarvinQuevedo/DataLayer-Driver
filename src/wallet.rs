@@ -253,6 +253,8 @@ pub async fn spend_server_coins(
         return Ok(Vec::new());
     }
 
+    assert!(!fee_coins.is_empty());
+
     let parent_coins = peer
         .request_coin_state(
             server_coins.iter().map(|sc| sc.parent_coin_info).collect(),
