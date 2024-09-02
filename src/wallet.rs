@@ -197,13 +197,13 @@ pub fn create_server_coin(
     uris: Vec<String>,
     amount: u64,
     fee: u64,
-) -> Result<Vec<CoinSpend>, WalletError> {
-    let change_puzzle_hash = StandardArgs::curry_tree_hash(synthetic_key).into();
+) -> Result<(Vec<CoinSpend>, ServerCoin), WalletError> {
+    let puzzle_hash = StandardArgs::curry_tree_hash(synthetic_key).into();
 
     let mut memos = Vec::with_capacity(uris.len() + 1);
     memos.push(hint.to_vec().into());
 
-    for url in uris {
+    for url in &uris {
         memos.push(url.as_bytes().into());
     }
 
@@ -219,10 +219,20 @@ pub fn create_server_coin(
         &selected_coins,
         conditions,
         (amount + fee).try_into().unwrap(),
-        change_puzzle_hash,
+        puzzle_hash,
     )?;
 
-    Ok(ctx.take())
+    let server_coin = ServerCoin {
+        coin: Coin::new(
+            selected_coins[0].coin_id(),
+            MirrorArgs::curry_tree_hash().into(),
+            amount,
+        ),
+        p2_puzzle_hash: puzzle_hash,
+        memo_urls: uris,
+    };
+
+    Ok((ctx.take(), server_coin))
 }
 
 pub async fn spend_server_coins(
