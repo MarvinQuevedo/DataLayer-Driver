@@ -193,6 +193,11 @@ export declare function selectCoins(allCoins: Array<Coin>, totalAmount: bigint):
  * @param {BigInt} offset - The offset to add.
  */
 export declare function morphLauncherId(launcherId: Buffer, offset: bigint): Buffer
+/** The new server coin and coin spends to create it. */
+export interface NewServerCoin {
+  serverCoin: ServerCoin
+  coinSpends: Array<CoinSpend>
+}
 /**
  * Creates a new mirror coin with the given URLs.
  *
@@ -203,7 +208,7 @@ export declare function morphLauncherId(launcherId: Buffer, offset: bigint): Buf
  * @param {BigInt} amount - The amount to use for the created coin.
  * @param {BigInt} fee - The fee to use for the transaction.
  */
-export declare function createServerCoin(syntheticKey: Buffer, selectedCoins: Array<Coin>, hint: Buffer, uris: Array<string>, amount: bigint, fee: bigint): Array<CoinSpend>
+export declare function createServerCoin(syntheticKey: Buffer, selectedCoins: Array<Coin>, hint: Buffer, uris: Array<string>, amount: bigint, fee: bigint): NewServerCoin
 /**
  * Spends the mirror coins to make them unusable in the future.
  *

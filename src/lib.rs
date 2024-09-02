@@ -22,7 +22,7 @@ use chia_wallet_sdk::{
     Peer as RustPeer, MAINNET_CONSTANTS, TESTNET11_CONSTANTS,
 };
 use conversions::{ConversionError, FromJs, ToJs};
-use js::{Coin, CoinSpend, CoinState, EveProof, Proof};
+use js::{Coin, CoinSpend, CoinState, EveProof, Proof, ServerCoin};
 use napi::bindgen_prelude::*;
 use napi::Result;
 use std::{net::SocketAddr, sync::Arc};
@@ -703,6 +703,13 @@ pub fn morph_launcher_id(launcher_id: Buffer, offset: BigInt) -> napi::Result<Bu
     .to_js()
 }
 
+/// The new server coin and coin spends to create it.
+#[napi(object)]
+pub struct NewServerCoin {
+    pub server_coin: ServerCoin,
+    pub coin_spends: Vec<CoinSpend>,
+}
+
 /// Creates a new mirror coin with the given URLs.
 ///
 /// @param {Buffer} syntheticKey - The synthetic key used by the wallet.
@@ -719,8 +726,8 @@ pub fn create_server_coin(
     uris: Vec<String>,
     amount: BigInt,
     fee: BigInt,
-) -> napi::Result<Vec<CoinSpend>> {
-    let coin = wallet::create_server_coin(
+) -> napi::Result<NewServerCoin> {
+    let (coin_spends, server_coin) = wallet::create_server_coin(
         RustPublicKey::from_js(synthetic_key)?,
         selected_coins
             .into_iter()
@@ -733,9 +740,13 @@ pub fn create_server_coin(
     )
     .map_err(js::err)?;
 
-    coin.into_iter()
-        .map(|c| c.to_js())
-        .collect::<Result<Vec<CoinSpend>>>()
+    Ok(NewServerCoin {
+        coin_spends: coin_spends
+            .into_iter()
+            .map(|c| c.to_js())
+            .collect::<Result<Vec<CoinSpend>>>()?,
+        server_coin: server_coin.to_js()?,
+    })
 }
 
 /// Spends the mirror coins to make them unusable in the future.
