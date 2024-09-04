@@ -690,6 +690,40 @@ pub fn select_coins(all_coins: Vec<Coin>, total_amount: BigInt) -> napi::Result<
         .collect::<Result<Vec<Coin>>>()
 }
 
+/// Creates a new mirror coin with the given URLs.
+///
+/// @param {Buffer} syntheticKey - The synthetic key used by the wallet.
+/// @param {Vec<Coin>} selectedCoins - Coins to be used for minting, as retured by `select_coins`. Note that, besides the fee, 1 mojo will be used to create the mirror coin.
+/// @param {Buffer} hint - The hint for the mirror coin, usually the original or morphed launcher id.
+/// @param {Vec<String>} uris - The URIs of the mirrors.
+/// @param {BigInt} amount - The amount to use for the created coin.
+/// @param {BigInt} fee - The fee to use for the transaction.
+#[napi]
+pub fn send_xch(
+    synthetic_key: Buffer,
+    selected_coins: Vec<Coin>,
+    puzzle_hash: Buffer,
+    amount: BigInt,
+    fee: BigInt,
+) -> napi::Result<Vec<CoinSpend>> {
+    let coin_spends = wallet::send_xch(
+        RustPublicKey::from_js(synthetic_key)?,
+        &selected_coins
+            .into_iter()
+            .map(RustCoin::from_js)
+            .collect::<Result<Vec<RustCoin>>>()?,
+        RustBytes32::from_js(puzzle_hash)?,
+        u64::from_js(amount)?,
+        u64::from_js(fee)?,
+    )
+    .map_err(js::err)?;
+
+    coin_spends
+        .into_iter()
+        .map(|c| c.to_js())
+        .collect::<Result<Vec<CoinSpend>>>()
+}
+
 /// Adds an offset to a launcher id to make it deterministically unique from the original.
 ///
 /// @param {Buffer} launcherId - The original launcher id.
