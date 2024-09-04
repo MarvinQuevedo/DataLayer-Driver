@@ -187,12 +187,11 @@ export interface UnspentCoinsResponse {
  */
 export declare function selectCoins(allCoins: Array<Coin>, totalAmount: bigint): Array<Coin>
 /**
- * Creates a new mirror coin with the given URLs.
+ * Sends XCH to a given puzzle hash.
  *
  * @param {Buffer} syntheticKey - The synthetic key used by the wallet.
- * @param {Vec<Coin>} selectedCoins - Coins to be used for minting, as retured by `select_coins`. Note that, besides the fee, 1 mojo will be used to create the mirror coin.
- * @param {Buffer} hint - The hint for the mirror coin, usually the original or morphed launcher id.
- * @param {Vec<String>} uris - The URIs of the mirrors.
+ * @param {Vec<Coin>} selectedCoins - Coins to be spent, as retured by `select_coins`.
+ * @param {Buffer} puzzleHash - The puzzle hash to send to.
  * @param {BigInt} amount - The amount to use for the created coin.
  * @param {BigInt} fee - The fee to use for the transaction.
  */
