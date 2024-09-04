@@ -186,16 +186,20 @@ export interface UnspentCoinsResponse {
  * @returns {Vec<Coin>} Array of selected coins.
  */
 export declare function selectCoins(allCoins: Array<Coin>, totalAmount: bigint): Array<Coin>
+/** An output puzzle hash and amount. */
+export interface Output {
+  puzzleHash: Buffer
+  amount: bigint
+}
 /**
- * Sends XCH to a given puzzle hash.
+ * Sends XCH to a given set of puzzle hashes.
  *
  * @param {Buffer} syntheticKey - The synthetic key used by the wallet.
  * @param {Vec<Coin>} selectedCoins - Coins to be spent, as retured by `select_coins`.
- * @param {Buffer} puzzleHash - The puzzle hash to send to.
- * @param {BigInt} amount - The amount to use for the created coin.
+ * @param {Vec<Output>} outputs - The output amounts to create.
  * @param {BigInt} fee - The fee to use for the transaction.
  */
-export declare function sendXch(syntheticKey: Buffer, selectedCoins: Array<Coin>, puzzleHash: Buffer, amount: bigint, fee: bigint): Array<CoinSpend>
+export declare function sendXch(syntheticKey: Buffer, selectedCoins: Array<Coin>, outputs: Array<Output>, fee: bigint): Array<CoinSpend>
 /**
  * Adds an offset to a launcher id to make it deterministically unique from the original.
  *

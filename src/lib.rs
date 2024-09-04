@@ -726,29 +726,42 @@ pub fn select_coins(all_coins: Vec<Coin>, total_amount: BigInt) -> napi::Result<
         .collect::<Result<Vec<Coin>>>()
 }
 
-/// Sends XCH to a given puzzle hash.
+/// An output puzzle hash and amount.
+#[napi(object)]
+pub struct Output {
+    pub puzzle_hash: Buffer,
+    pub amount: BigInt,
+}
+
+/// Sends XCH to a given set of puzzle hashes.
 ///
 /// @param {Buffer} syntheticKey - The synthetic key used by the wallet.
 /// @param {Vec<Coin>} selectedCoins - Coins to be spent, as retured by `select_coins`.
-/// @param {Buffer} puzzleHash - The puzzle hash to send to.
-/// @param {BigInt} amount - The amount to use for the created coin.
+/// @param {Vec<Output>} outputs - The output amounts to create.
 /// @param {BigInt} fee - The fee to use for the transaction.
 #[napi]
 pub fn send_xch(
     synthetic_key: Buffer,
     selected_coins: Vec<Coin>,
-    puzzle_hash: Buffer,
-    amount: BigInt,
+    outputs: Vec<Output>,
     fee: BigInt,
 ) -> napi::Result<Vec<CoinSpend>> {
+    let mut items = Vec::new();
+
+    for output in outputs {
+        items.push((
+            RustBytes32::from_js(output.puzzle_hash)?,
+            u64::from_js(output.amount)?,
+        ));
+    }
+
     let coin_spends = wallet::send_xch(
         RustPublicKey::from_js(synthetic_key)?,
         &selected_coins
             .into_iter()
             .map(RustCoin::from_js)
             .collect::<Result<Vec<RustCoin>>>()?,
-        RustBytes32::from_js(puzzle_hash)?,
-        u64::from_js(amount)?,
+        &items,
         u64::from_js(fee)?,
     )
     .map_err(js::err)?;
