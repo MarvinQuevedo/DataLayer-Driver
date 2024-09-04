@@ -310,15 +310,15 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { newLineageProof, newEveProof, Peer, selectCoins, morphLauncherId, createServerCoin, lookupAndSpendServerCoins, mintStore, oracleSpend, addFee, masterPublicKeyToWalletSyntheticKey, masterPublicKeyToFirstPuzzleHash, masterSecretKeyToWalletSyntheticSecretKey, secretKeyToPublicKey, puzzleHashToAddress, addressToPuzzleHash, adminDelegatedPuzzleFromKey, writerDelegatedPuzzleFromKey, oracleDelegatedPuzzle, signCoinSpends, getCoinId, updateStoreMetadata, updateStoreOwnership, meltStore, signMessage, verifySignedMessage, syntheticKeyToPuzzleHash, getCost } = nativeBinding
+const { newLineageProof, newEveProof, Peer, selectCoins, sendXch, morphLauncherId, createServerCoin, mintStore, oracleSpend, addFee, masterPublicKeyToWalletSyntheticKey, masterPublicKeyToFirstPuzzleHash, masterSecretKeyToWalletSyntheticSecretKey, secretKeyToPublicKey, puzzleHashToAddress, addressToPuzzleHash, adminDelegatedPuzzleFromKey, writerDelegatedPuzzleFromKey, oracleDelegatedPuzzle, signCoinSpends, getCoinId, updateStoreMetadata, updateStoreOwnership, meltStore, signMessage, verifySignedMessage, syntheticKeyToPuzzleHash, getCost } = nativeBinding
 
 module.exports.newLineageProof = newLineageProof
 module.exports.newEveProof = newEveProof
 module.exports.Peer = Peer
 module.exports.selectCoins = selectCoins
+module.exports.sendXch = sendXch
 module.exports.morphLauncherId = morphLauncherId
 module.exports.createServerCoin = createServerCoin
-module.exports.lookupAndSpendServerCoins = lookupAndSpendServerCoins
 module.exports.mintStore = mintStore
 module.exports.oracleSpend = oracleSpend
 module.exports.addFee = addFee
