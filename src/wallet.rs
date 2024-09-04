@@ -190,6 +190,29 @@ fn spend_coins_together(
     Ok(())
 }
 
+pub fn send_xch(
+    synthetic_key: PublicKey,
+    coins: &[Coin],
+    puzzle_hash: Bytes32,
+    amount: u64,
+    fee: u64,
+) -> Result<Vec<CoinSpend>, WalletError> {
+    let mut ctx = SpendContext::new();
+
+    spend_coins_together(
+        &mut ctx,
+        synthetic_key,
+        coins,
+        Conditions::new()
+            .create_coin(puzzle_hash, amount, Vec::new())
+            .reserve_fee(fee),
+        (amount + fee).try_into().unwrap(),
+        StandardArgs::curry_tree_hash(synthetic_key).into(),
+    )?;
+
+    Ok(ctx.take())
+}
+
 pub fn create_server_coin(
     synthetic_key: PublicKey,
     selected_coins: Vec<Coin>,

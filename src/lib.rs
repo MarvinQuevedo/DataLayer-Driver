@@ -668,6 +668,42 @@ impl Peer {
         let peak: Option<NewPeakWallet> = peak_guard.clone();
         Ok(peak.map(|p| p.height))
     }
+
+    /// Spends the mirror coins to make them unusable in the future.
+    ///
+    /// @param {Buffer} syntheticKey - The synthetic key used by the wallet.
+    /// @param {Vec<Coin>} selectedCoins - Coins to be used for minting, as retured by `select_coins`. Note that the server coins will count towards the fee.
+    /// @param {BigInt} fee - The fee to use for the transaction.
+    /// @param {bool} forTestnet - True for testnet, false for mainnet.
+    #[napi]
+    pub async fn lookup_and_spend_server_coins(
+        &self,
+        synthetic_key: Buffer,
+        selected_coins: Vec<Coin>,
+        fee: BigInt,
+        for_testnet: bool,
+    ) -> napi::Result<Vec<CoinSpend>> {
+        let coin = wallet::spend_server_coins(
+            &self.inner,
+            RustPublicKey::from_js(synthetic_key)?,
+            selected_coins
+                .into_iter()
+                .map(RustCoin::from_js)
+                .collect::<Result<Vec<RustCoin>>>()?,
+            u64::from_js(fee)?,
+            if for_testnet {
+                TargetNetwork::Testnet11
+            } else {
+                TargetNetwork::Mainnet
+            },
+        )
+        .await
+        .map_err(js::err)?;
+
+        coin.into_iter()
+            .map(|c| c.to_js())
+            .collect::<Result<Vec<CoinSpend>>>()
+    }
 }
 
 /// Selects coins using the knapsack algorithm.
@@ -688,6 +724,39 @@ pub fn select_coins(all_coins: Vec<Coin>, total_amount: BigInt) -> napi::Result<
         .into_iter()
         .map(|c| c.to_js())
         .collect::<Result<Vec<Coin>>>()
+}
+
+/// Sends XCH to a given puzzle hash.
+///
+/// @param {Buffer} syntheticKey - The synthetic key used by the wallet.
+/// @param {Vec<Coin>} selectedCoins - Coins to be spent, as retured by `select_coins`.
+/// @param {Buffer} puzzleHash - The puzzle hash to send to.
+/// @param {BigInt} amount - The amount to use for the created coin.
+/// @param {BigInt} fee - The fee to use for the transaction.
+#[napi]
+pub fn send_xch(
+    synthetic_key: Buffer,
+    selected_coins: Vec<Coin>,
+    puzzle_hash: Buffer,
+    amount: BigInt,
+    fee: BigInt,
+) -> napi::Result<Vec<CoinSpend>> {
+    let coin_spends = wallet::send_xch(
+        RustPublicKey::from_js(synthetic_key)?,
+        &selected_coins
+            .into_iter()
+            .map(RustCoin::from_js)
+            .collect::<Result<Vec<RustCoin>>>()?,
+        RustBytes32::from_js(puzzle_hash)?,
+        u64::from_js(amount)?,
+        u64::from_js(fee)?,
+    )
+    .map_err(js::err)?;
+
+    coin_spends
+        .into_iter()
+        .map(|c| c.to_js())
+        .collect::<Result<Vec<CoinSpend>>>()
 }
 
 /// Adds an offset to a launcher id to make it deterministically unique from the original.
@@ -747,43 +816,6 @@ pub fn create_server_coin(
             .collect::<Result<Vec<CoinSpend>>>()?,
         server_coin: server_coin.to_js()?,
     })
-}
-
-/// Spends the mirror coins to make them unusable in the future.
-///
-/// @param {Peer} peer - The peer connection to the Chia node.
-/// @param {Buffer} syntheticKey - The synthetic key used by the wallet.
-/// @param {Vec<Coin>} selectedCoins - Coins to be used for minting, as retured by `select_coins`. Note that the server coins will count towards the fee.
-/// @param {BigInt} fee - The fee to use for the transaction.
-/// @param {bool} forTestnet - True for testnet, false for mainnet.
-#[napi]
-pub async fn lookup_and_spend_server_coins(
-    peer: &Peer,
-    synthetic_key: Buffer,
-    selected_coins: Vec<Coin>,
-    fee: BigInt,
-    for_testnet: bool,
-) -> napi::Result<Vec<CoinSpend>> {
-    let coin = wallet::spend_server_coins(
-        &peer.inner,
-        RustPublicKey::from_js(synthetic_key)?,
-        selected_coins
-            .into_iter()
-            .map(RustCoin::from_js)
-            .collect::<Result<Vec<RustCoin>>>()?,
-        u64::from_js(fee)?,
-        if for_testnet {
-            TargetNetwork::Testnet11
-        } else {
-            TargetNetwork::Mainnet
-        },
-    )
-    .await
-    .map_err(js::err)?;
-
-    coin.into_iter()
-        .map(|c| c.to_js())
-        .collect::<Result<Vec<CoinSpend>>>()
 }
 
 #[allow(clippy::too_many_arguments)]

@@ -187,6 +187,16 @@ export interface UnspentCoinsResponse {
  */
 export declare function selectCoins(allCoins: Array<Coin>, totalAmount: bigint): Array<Coin>
 /**
+ * Sends XCH to a given puzzle hash.
+ *
+ * @param {Buffer} syntheticKey - The synthetic key used by the wallet.
+ * @param {Vec<Coin>} selectedCoins - Coins to be spent, as retured by `select_coins`.
+ * @param {Buffer} puzzleHash - The puzzle hash to send to.
+ * @param {BigInt} amount - The amount to use for the created coin.
+ * @param {BigInt} fee - The fee to use for the transaction.
+ */
+export declare function sendXch(syntheticKey: Buffer, selectedCoins: Array<Coin>, puzzleHash: Buffer, amount: bigint, fee: bigint): Array<CoinSpend>
+/**
  * Adds an offset to a launcher id to make it deterministically unique from the original.
  *
  * @param {Buffer} launcherId - The original launcher id.
@@ -209,16 +219,6 @@ export interface NewServerCoin {
  * @param {BigInt} fee - The fee to use for the transaction.
  */
 export declare function createServerCoin(syntheticKey: Buffer, selectedCoins: Array<Coin>, hint: Buffer, uris: Array<string>, amount: bigint, fee: bigint): NewServerCoin
-/**
- * Spends the mirror coins to make them unusable in the future.
- *
- * @param {Peer} peer - The peer connection to the Chia node.
- * @param {Buffer} syntheticKey - The synthetic key used by the wallet.
- * @param {Vec<Coin>} selectedCoins - Coins to be used for minting, as retured by `select_coins`. Note that the server coins will count towards the fee.
- * @param {BigInt} fee - The fee to use for the transaction.
- * @param {bool} forTestnet - True for testnet, false for mainnet.
- */
-export declare function lookupAndSpendServerCoins(peer: Peer, syntheticKey: Buffer, selectedCoins: Array<Coin>, fee: bigint, forTestnet: boolean): Promise<Array<CoinSpend>>
 /**
  * Mints a new datastore.
  *
@@ -492,4 +492,13 @@ export declare class Peer {
    * @returns {Option<u32>} A tuple consiting of the latest synced block's height, as reported by the peer. Null if the peer has not yet reported a peak.
    */
   getPeak(): Promise<number | null>
+  /**
+   * Spends the mirror coins to make them unusable in the future.
+   *
+   * @param {Buffer} syntheticKey - The synthetic key used by the wallet.
+   * @param {Vec<Coin>} selectedCoins - Coins to be used for minting, as retured by `select_coins`. Note that the server coins will count towards the fee.
+   * @param {BigInt} fee - The fee to use for the transaction.
+   * @param {bool} forTestnet - True for testnet, false for mainnet.
+   */
+  lookupAndSpendServerCoins(syntheticKey: Buffer, selectedCoins: Array<Coin>, fee: bigint, forTestnet: boolean): Promise<Array<CoinSpend>>
 }
