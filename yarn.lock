@@ -5,6 +5,15 @@ __metadata:
   version: 8
   cacheKey: 10c0
 
+"@dignetwork/datalayer-driver@workspace:.":
+  version: 0.0.0-use.local
+  resolution: "@dignetwork/datalayer-driver@workspace:."
+  dependencies:
+    "@napi-rs/cli": "npm:^2.18.4"
+    ava: "npm:^6.0.1"
+  languageName: unknown
+  linkType: soft
+
 "@mapbox/node-pre-gyp@npm:^1.0.5":
   version: 1.0.11
   resolution: "@mapbox/node-pre-gyp@npm:1.0.11"
@@ -481,15 +490,6 @@ __metadata:
   checksum: 10c0/32d197689ec32f035910202c1abb0dc6424dce01d7b51779c685119b380d98535c110ffff67a262fc7e367612a7dfd30d3d3055f9a6634b5a9dd1302de7ef11c
   languageName: node
   linkType: hard
-
-"datalayer-driver@workspace:.":
-  version: 0.0.0-use.local
-  resolution: "datalayer-driver@workspace:."
-  dependencies:
-    "@napi-rs/cli": "npm:^2.18.4"
-    ava: "npm:^6.0.1"
-  languageName: unknown
-  linkType: soft
 
 "date-time@npm:^3.1.0":
   version: 3.1.0

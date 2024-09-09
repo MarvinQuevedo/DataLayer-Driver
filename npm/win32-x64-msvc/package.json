@@ -1,5 +1,5 @@
 {
-  "name": "datalayer-driver-win32-x64-msvc",
+  "name": "@dignetwork/datalayer-driver-win32-x64-msvc",
   "version": "0.1.21",
   "repository": {
     "type": "git",
