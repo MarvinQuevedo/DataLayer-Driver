@@ -221,4 +221,4 @@ if (latestInfo.ownerPuzzleHash === myPuzzleHash) {
 
 ## License
 
-This project is licensed under the MIT License. See the [LICENSE](https://github.com/Datalayer-Storage/DataLayer-Driver/blob/HEAD/LICENSE) file for details.
+This project is licensed under the MIT License. See the [LICENSE](https://github.com/DIG-Network/DataLayer-Driver/blob/HEAD/LICENSE) file for details.

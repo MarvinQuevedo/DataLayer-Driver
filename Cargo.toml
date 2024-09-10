@@ -4,8 +4,8 @@ name = "datalayer-driver"
 version = "0.1.0"
 license = "MIT"
 authors = ["yakuhito <y@kuhi.to>"]
-homepage = "https://github.com/Datalayer-Storage/DataLayer-Driver"
-repository = "https://github.com/Datalayer-Storage/DataLayer-Driver"
+homepage = "https://github.com/DIG-Network/DataLayer-Driver"
+repository = "https://github.com/DIG-Network/DataLayer-Driver"
 
 [lib]
 crate-type = ["cdylib"]
