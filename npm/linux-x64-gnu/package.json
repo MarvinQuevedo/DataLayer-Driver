@@ -1,5 +1,5 @@
 {
-  "name": "datalayer-driver-linux-x64-gnu",
+  "name": "@dignetwork/datalayer-driver-linux-x64-gnu",
   "version": "0.1.21",
   "repository": {
     "type": "git",

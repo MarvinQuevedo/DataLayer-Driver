@@ -1,5 +1,5 @@
 {
-  "name": "datalayer-driver-darwin-arm64",
+  "name": "@dignetwork/datalayer-driver-darwin-arm64",
   "version": "0.1.21",
   "repository": {
     "type": "git",
