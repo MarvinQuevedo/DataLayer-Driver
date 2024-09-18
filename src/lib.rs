@@ -731,6 +731,7 @@ pub fn select_coins(all_coins: Vec<Coin>, total_amount: BigInt) -> napi::Result<
 pub struct Output {
     pub puzzle_hash: Buffer,
     pub amount: BigInt,
+    pub memos: Vec<Buffer>,
 }
 
 /// Sends XCH to a given set of puzzle hashes.
@@ -752,6 +753,11 @@ pub fn send_xch(
         items.push((
             RustBytes32::from_js(output.puzzle_hash)?,
             u64::from_js(output.amount)?,
+            output
+                .memos
+                .into_iter()
+                .map(RustBytes::from_js)
+                .collect::<Result<Vec<RustBytes>>>()?,
         ));
     }
 

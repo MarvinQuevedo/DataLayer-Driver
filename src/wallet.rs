@@ -193,7 +193,7 @@ fn spend_coins_together(
 pub fn send_xch(
     synthetic_key: PublicKey,
     coins: &[Coin],
-    outputs: &[(Bytes32, u64)],
+    outputs: &[(Bytes32, u64, Vec<Bytes>)],
     fee: u64,
 ) -> Result<Vec<CoinSpend>, WalletError> {
     let mut ctx = SpendContext::new();
@@ -202,7 +202,7 @@ pub fn send_xch(
     let mut total_amount = fee;
 
     for output in outputs {
-        conditions = conditions.create_coin(output.0, output.1, Vec::new());
+        conditions = conditions.create_coin(output.0, output.1, output.2.clone());
         total_amount += output.1;
     }
 

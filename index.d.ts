@@ -190,6 +190,7 @@ export declare function selectCoins(allCoins: Array<Coin>, totalAmount: bigint):
 export interface Output {
   puzzleHash: Buffer
   amount: bigint
+  memos: Array<Buffer>
 }
 /**
  * Sends XCH to a given set of puzzle hashes.
