@@ -648,6 +648,28 @@ pub async fn sync_store_using_launcher_id(
     })
 }
 
+pub async fn get_store_creation_height(
+    peer: &Peer,
+    launcher_id: Bytes32,
+    last_height: Option<u32>,
+    last_header_hash: Bytes32,
+) -> Result<u32, WalletError> {
+    let response = peer
+        .request_coin_state(vec![launcher_id], last_height, last_header_hash, false)
+        .await
+        .map_err(WalletError::Client)?
+        .map_err(|_| WalletError::RejectCoinState)?;
+    let last_coin_record = response
+        .coin_states
+        .into_iter()
+        .next()
+        .ok_or(WalletError::UnknownCoin)?;
+
+    last_coin_record
+        .created_height
+        .ok_or(WalletError::UnknownCoin)
+}
+
 pub enum DataStoreInnerSpend {
     Owner(PublicKey),
     Admin(PublicKey),
