@@ -460,6 +460,15 @@ export declare class Peer {
    */
   syncStoreFromLauncherId(launcherId: Buffer, lastHeight: number | undefined | null, lastHeaderHash: Buffer, withHistory: boolean): Promise<SyncStoreResponse>
   /**
+   * Fetch a store's creation height.
+   *
+   * @param {Buffer} launcherId - The store's launcher/singleton ID.
+   * @param {Option<u32>} lastHeight - Min. height to search records from. If null, sync will be done from the genesis block.
+   * @param {Buffer} lastHeaderHash - Header hash corresponding to `lastHeight`. If null, this should be the genesis challenge of the current chain.
+   * @returns {Promise<BigInt>} The store's creation height.
+   */
+  getStoreCreationHeight(launcherId: Buffer, lastHeight: number | undefined | null, lastHeaderHash: Buffer): Promise<bigint>
+  /**
    * Broadcasts a spend bundle to the mempool.
    *
    * @param {Vec<CoinSpend>} coinSpends - The coin spends to be included in the bundle.

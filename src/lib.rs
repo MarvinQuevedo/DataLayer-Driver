@@ -579,6 +579,31 @@ impl Peer {
     }
 
     #[napi]
+    /// Fetch a store's creation height.
+    ///
+    /// @param {Buffer} launcherId - The store's launcher/singleton ID.
+    /// @param {Option<u32>} lastHeight - Min. height to search records from. If null, sync will be done from the genesis block.
+    /// @param {Buffer} lastHeaderHash - Header hash corresponding to `lastHeight`. If null, this should be the genesis challenge of the current chain.
+    /// @returns {Promise<BigInt>} The store's creation height.
+    pub async fn get_store_creation_height(
+        &self,
+        launcher_id: Buffer,
+        last_height: Option<u32>,
+        last_header_hash: Buffer,
+    ) -> napi::Result<BigInt> {
+        let res = wallet::get_store_creation_height(
+            &self.inner.clone(),
+            RustBytes32::from_js(launcher_id)?,
+            last_height,
+            RustBytes32::from_js(last_header_hash)?,
+        )
+        .await
+        .map_err(js::err)?;
+
+        (res as u64).to_js()
+    }
+
+    #[napi]
     /// Broadcasts a spend bundle to the mempool.
     ///
     /// @param {Vec<CoinSpend>} coinSpends - The coin spends to be included in the bundle.
