@@ -310,7 +310,7 @@ if (!nativeBinding) {
   throw new Error(`Failed to load native binding`)
 }
 
-const { newLineageProof, newEveProof, Peer, selectCoins, sendXch, morphLauncherId, createServerCoin, mintStore, oracleSpend, addFee, masterPublicKeyToWalletSyntheticKey, masterPublicKeyToFirstPuzzleHash, masterSecretKeyToWalletSyntheticSecretKey, secretKeyToPublicKey, puzzleHashToAddress, addressToPuzzleHash, adminDelegatedPuzzleFromKey, writerDelegatedPuzzleFromKey, oracleDelegatedPuzzle, signCoinSpends, getCoinId, updateStoreMetadata, updateStoreOwnership, meltStore, signMessage, verifySignedMessage, syntheticKeyToPuzzleHash, getCost } = nativeBinding
+const { newLineageProof, newEveProof, Peer, selectCoins, sendXch, morphLauncherId, createServerCoin, mintStore, oracleSpend, addFee, masterPublicKeyToWalletSyntheticKey, masterPublicKeyToFirstPuzzleHash, masterSecretKeyToWalletSyntheticSecretKey, secretKeyToPublicKey, puzzleHashToAddress, addressToPuzzleHash, adminDelegatedPuzzleFromKey, writerDelegatedPuzzleFromKey, oracleDelegatedPuzzle, signCoinSpends, getCoinId, updateStoreMetadata, updateStoreOwnership, meltStore, signMessage, verifySignedMessage, syntheticKeyToPuzzleHash, getCost, getMainnetGenesisChallenge, getTestnet11GenesisChallenge } = nativeBinding
 
 module.exports.newLineageProof = newLineageProof
 module.exports.newEveProof = newEveProof
@@ -340,3 +340,5 @@ module.exports.signMessage = signMessage
 module.exports.verifySignedMessage = verifySignedMessage
 module.exports.syntheticKeyToPuzzleHash = syntheticKeyToPuzzleHash
 module.exports.getCost = getCost
+module.exports.getMainnetGenesisChallenge = getMainnetGenesisChallenge
+module.exports.getTestnet11GenesisChallenge = getTestnet11GenesisChallenge
