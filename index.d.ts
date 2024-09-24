@@ -403,17 +403,25 @@ export declare function syntheticKeyToPuzzleHash(syntheticKey: Buffer): Buffer
  * @returns {BigInt} The cost of the coin spends.
  */
 export declare function getCost(coinSpends: Array<CoinSpend>): bigint
+export declare class Tls {
+  /**
+   * Creates a new TLS connector.
+   *
+   * @param {String} certPath - Path to the certificate file (usually '~/.chia/mainnet/config/ssl/wallet/wallet_node.crt').
+   * @param {String} keyPath - Path to the key file (usually '~/.chia/mainnet/config/ssl/wallet/wallet_node.key').
+   */
+  constructor(certPath: string, keyPath: string)
+}
 export declare class Peer {
   /**
    * Creates a new Peer instance.
    *
    * @param {String} nodeUri - URI of the node (e.g., '127.0.0.1:58444').
    * @param {bool} testnet - True for connecting to testnet11, false for mainnet.
-   * @param {String} certPath - Path to the certificate file (usually '~/.chia/mainnet/config/ssl/wallet/wallet_node.crt').
-   * @param {String} keyPath - Path to the key file (usually '~/.chia/mainnet/config/ssl/wallet/wallet_node.key').
+   * @param {Tls} tls - TLS connector.
    * @returns {Promise<Peer>} A new Peer instance.
    */
-  static new(nodeUri: string, tesntet: boolean, certPath: string, keyPath: string): Promise<Peer>
+  static new(nodeUri: string, tesntet: boolean, tls: Tls): Promise<Peer>
   /**
    * Retrieves all coins that are unspent on the chain. Note that coins part of spend bundles that are pending in the mempool will also be included.
    *
