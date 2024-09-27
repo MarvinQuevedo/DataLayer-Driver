@@ -1323,3 +1323,19 @@ pub fn get_cost(coin_spends: Vec<CoinSpend>) -> napi::Result<BigInt> {
     .map_err(js::err)?
     .to_js()
 }
+
+#[napi]
+/// Returns the mainnet genesis challenge.
+///
+/// @returns {Buffer} The mainnet genesis challenge.
+pub fn get_mainnet_genesis_challenge() -> napi::Result<Buffer> {
+    MAINNET_CONSTANTS.genesis_challenge.to_js()
+}
+
+#[napi]
+/// Returns the testnet11 genesis challenge.
+///
+/// @returns {Buffer} The testnet11 genesis challenge.
+pub fn get_testnet11_genesis_challenge() -> napi::Result<Buffer> {
+    TESTNET11_CONSTANTS.genesis_challenge.to_js()
+}

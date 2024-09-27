@@ -403,6 +403,7 @@ export declare function syntheticKeyToPuzzleHash(syntheticKey: Buffer): Buffer
  * @returns {BigInt} The cost of the coin spends.
  */
 export declare function getCost(coinSpends: Array<CoinSpend>): bigint
+
 export declare class Tls {
   /**
    * Creates a new TLS connector.
@@ -412,6 +413,20 @@ export declare class Tls {
    */
   constructor(certPath: string, keyPath: string)
 }
+
+/**
+ * Returns the mainnet genesis challenge.
+ *
+ * @returns {Buffer} The mainnet genesis challenge.
+ */
+export declare function getMainnetGenesisChallenge(): Buffer
+/**
+ * Returns the testnet11 genesis challenge.
+ *
+ * @returns {Buffer} The testnet11 genesis challenge.
+ */
+export declare function getTestnet11GenesisChallenge(): Buffer
+
 export declare class Peer {
   /**
    * Creates a new Peer instance.
