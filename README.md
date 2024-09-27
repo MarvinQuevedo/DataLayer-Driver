@@ -55,7 +55,8 @@ Where `NETWORK_PREFIX` is `xch` for mainnet and `txch` for testnet.
 To 'talk' with the wallet, you will need to initialize a `Peer` object like in the example below:
 
 ```js
-const peer = await Peer.new("127.0.0.1:58444", "testnet11", CHIA_CRT, CHIA_KEY);
+const tls = new Tls(CHIA_CRT, CHIA_KEY);
+const peer = await Peer.new("127.0.0.1:58444", "testnet11", tls);
 ```
 
 The example above connects to a `tesntet11` full node. Note that `CHIA_CRT` is usually `~/.chia/mainnet/config/ssl/wallet/wallet_node.crt` and `CHIA_KEY` is usually `~/.chia/mainnet/config/ssl/wallet/wallet_node.key`. For mainnet, the port is usually `8444`, and the network id is `mainnet`.
@@ -184,7 +185,8 @@ const CHIA_KEY = path.join(
   ".chia/mainnet/config/ssl/wallet/wallet_node.key"
 );
 // ...
-const peer = await Peer.new("127.0.0.1:58444", "testnet11", CHIA_CRT, CHIA_KEY);
+const tls = new Tls(CHIA_CRT, CHIA_KEY);
+const peer = await Peer.new("127.0.0.1:58444", "testnet11", tls);
 ```
 
 To sync, you'll also need two other values, `MIN_HEIGHT` and `MIN_HEIGHT_HEADER_HASH`. These variables represent information relating to the block you want to start syncing from - higher heights lead to faster sync times. If you wish to sync from genesis, use a height of `null` and a header hash equal to the network's genesis challenge.

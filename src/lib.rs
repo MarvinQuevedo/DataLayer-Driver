@@ -25,6 +25,7 @@ use conversions::{ConversionError, FromJs, ToJs};
 use js::{Coin, CoinSpend, CoinState, EveProof, Proof, ServerCoin};
 use napi::bindgen_prelude::*;
 use napi::Result;
+use native_tls::TlsConnector;
 use std::{net::SocketAddr, sync::Arc};
 use tokio::sync::Mutex;
 use wallet::{SuccessResponse as RustSuccessResponse, SyncStoreResponse as RustSyncStoreResponse};
@@ -385,6 +386,23 @@ impl ToJs<UnspentCoinsResponse> for rust::UnspentCoinsResponse {
 }
 
 #[napi]
+pub struct Tls(TlsConnector);
+
+#[napi]
+impl Tls {
+    #[napi(constructor)]
+    /// Creates a new TLS connector.
+    ///
+    /// @param {String} certPath - Path to the certificate file (usually '~/.chia/mainnet/config/ssl/wallet/wallet_node.crt').
+    /// @param {String} keyPath - Path to the key file (usually '~/.chia/mainnet/config/ssl/wallet/wallet_node.key').
+    pub fn new(cert_path: String, key_path: String) -> napi::Result<Self> {
+        let cert = load_ssl_cert(&cert_path, &key_path).map_err(js::err)?;
+        let tls = create_tls_connector(&cert).map_err(js::err)?;
+        Ok(Self(tls))
+    }
+}
+
+#[napi]
 pub struct Peer {
     inner: Arc<RustPeer>,
     peak: Arc<Mutex<Option<NewPeakWallet>>>,
@@ -397,24 +415,16 @@ impl Peer {
     ///
     /// @param {String} nodeUri - URI of the node (e.g., '127.0.0.1:58444').
     /// @param {bool} testnet - True for connecting to testnet11, false for mainnet.
-    /// @param {String} certPath - Path to the certificate file (usually '~/.chia/mainnet/config/ssl/wallet/wallet_node.crt').
-    /// @param {String} keyPath - Path to the key file (usually '~/.chia/mainnet/config/ssl/wallet/wallet_node.key').
+    /// @param {Tls} tls - TLS connector.
     /// @returns {Promise<Peer>} A new Peer instance.
-    pub async fn new(
-        node_uri: String,
-        tesntet: bool,
-        cert_path: String,
-        key_path: String,
-    ) -> napi::Result<Self> {
-        let cert = load_ssl_cert(&cert_path, &key_path).map_err(js::err)?;
-        let tls = create_tls_connector(&cert).map_err(js::err)?;
+    pub async fn new(node_uri: String, tesntet: bool, tls: &Tls) -> napi::Result<Self> {
         let (peer, mut receiver) = connect_peer(
             if tesntet {
                 NetworkId::Testnet11
             } else {
                 NetworkId::Mainnet
             },
-            tls,
+            tls.0.clone(),
             if let Ok(socket_addr) = node_uri.parse::<SocketAddr>() {
                 socket_addr
             } else {
