@@ -179,6 +179,18 @@ export interface UnspentCoinsResponse {
   lastHeaderHash: Buffer
 }
 /**
+ * Represents a response containing possible launcher ids for datastores.
+ *
+ * @property {Vec<Buffer>} launcher_ids - Launcher ids of coins that might be datastores.
+ * @property {u32} lastHeight - Last height.
+ * @property {Buffer} lastHeaderHash - Last header hash.
+ */
+export interface PossibleLaunchersResponse {
+  launcherIds: Array<Buffer>
+  lastHeight: number
+  lastHeaderHash: Buffer
+}
+/**
  * Selects coins using the knapsack algorithm.
  *
  * @param {Vec<Coin>} allCoins - Array of available coins (coins to select from).
@@ -403,17 +415,6 @@ export declare function syntheticKeyToPuzzleHash(syntheticKey: Buffer): Buffer
  * @returns {BigInt} The cost of the coin spends.
  */
 export declare function getCost(coinSpends: Array<CoinSpend>): bigint
-
-export declare class Tls {
-  /**
-   * Creates a new TLS connector.
-   *
-   * @param {String} certPath - Path to the certificate file (usually '~/.chia/mainnet/config/ssl/wallet/wallet_node.crt').
-   * @param {String} keyPath - Path to the key file (usually '~/.chia/mainnet/config/ssl/wallet/wallet_node.key').
-   */
-  constructor(certPath: string, keyPath: string)
-}
-
 /**
  * Returns the mainnet genesis challenge.
  *
@@ -426,7 +427,15 @@ export declare function getMainnetGenesisChallenge(): Buffer
  * @returns {Buffer} The testnet11 genesis challenge.
  */
 export declare function getTestnet11GenesisChallenge(): Buffer
-
+export declare class Tls {
+  /**
+   * Creates a new TLS connector.
+   *
+   * @param {String} certPath - Path to the certificate file (usually '~/.chia/mainnet/config/ssl/wallet/wallet_node.crt').
+   * @param {String} keyPath - Path to the key file (usually '~/.chia/mainnet/config/ssl/wallet/wallet_node.key').
+   */
+  constructor(certPath: string, keyPath: string)
+}
 export declare class Peer {
   /**
    * Creates a new Peer instance.
@@ -538,4 +547,21 @@ export declare class Peer {
    * @param {bool} forTestnet - True for testnet, false for mainnet.
    */
   lookupAndSpendServerCoins(syntheticKey: Buffer, selectedCoins: Array<Coin>, fee: bigint, forTestnet: boolean): Promise<Array<CoinSpend>>
+  /**
+   * Looks up possible datastore launchers by searching for singleton launchers created with a DL-specific hint.
+   *
+   * @param {Option<u32>} lastHeight - Min. height to search records from. If null, sync will be done from the genesis block.
+   * @param {Buffer} headerHash - Header hash corresponding to `lastHeight`. If null, this should be the genesis challenge of the current chain.
+   * @returns {Promise<PossibleLaunchersResponse>} Possible launcher ids for datastores, as well as a height + header hash combo to use for the next call.
+   */
+  lookUpPossibleLaunchers(lastHeight: number | undefined | null, headerHash: Buffer): Promise<PossibleLaunchersResponse>
+  /**
+   * Waits for a coin to be spent on-chain.
+   *
+   * @param {Buffer} coin_id - Id of coin to track.
+   * @param {Option<u32>} lastHeight - Min. height to search records from. If null, sync will be done from the genesis block.
+   * @param {Buffer} headerHash - Header hash corresponding to `lastHeight`. If null, this should be the genesis challenge of the current chain.
+   * @returns {Promise<Buffer>} Promise that resolves when the coin is spent (returning the coin id).
+   */
+  waitForCoinToBeSpent(coinId: Buffer, lastHeight: number | undefined | null, headerHash: Buffer): Promise<Buffer>
 }

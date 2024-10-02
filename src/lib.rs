@@ -11,7 +11,7 @@ use chia::bls::{
 
 use chia::protocol::{
     Bytes as RustBytes, Bytes32 as RustBytes32, Coin as RustCoin, CoinSpend as RustCoinSpend,
-    NewPeakWallet, ProtocolMessageTypes, SpendBundle as RustSpendBundle,
+    CoinStateUpdate, NewPeakWallet, ProtocolMessageTypes, SpendBundle as RustSpendBundle,
 };
 use chia::puzzles::{standard::StandardArgs, DeriveSynthetic, Proof as RustProof};
 use chia::traits::Streamable;
@@ -26,9 +26,14 @@ use js::{Coin, CoinSpend, CoinState, EveProof, Proof, ServerCoin};
 use napi::bindgen_prelude::*;
 use napi::Result;
 use native_tls::TlsConnector;
+use std::collections::HashMap;
 use std::{net::SocketAddr, sync::Arc};
+use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use tokio::sync::Mutex;
-use wallet::{SuccessResponse as RustSuccessResponse, SyncStoreResponse as RustSyncStoreResponse};
+use wallet::{
+    PossibleLaunchersResponse as RustPossibleLaunchersResponse,
+    SuccessResponse as RustSuccessResponse, SyncStoreResponse as RustSyncStoreResponse,
+};
 
 pub use wallet::*;
 
@@ -385,6 +390,46 @@ impl ToJs<UnspentCoinsResponse> for rust::UnspentCoinsResponse {
     }
 }
 
+#[napi(object)]
+/// Represents a response containing possible launcher ids for datastores.
+///
+/// @property {Vec<Buffer>} launcher_ids - Launcher ids of coins that might be datastores.
+/// @property {u32} lastHeight - Last height.
+/// @property {Buffer} lastHeaderHash - Last header hash.
+pub struct PossibleLaunchersResponse {
+    pub launcher_ids: Vec<Buffer>,
+    pub last_height: u32,
+    pub last_header_hash: Buffer,
+}
+
+impl FromJs<PossibleLaunchersResponse> for RustPossibleLaunchersResponse {
+    fn from_js(value: PossibleLaunchersResponse) -> Result<Self> {
+        Ok(RustPossibleLaunchersResponse {
+            last_header_hash: RustBytes32::from_js(value.last_header_hash)?,
+            last_height: value.last_height,
+            launcher_ids: value
+                .launcher_ids
+                .into_iter()
+                .map(RustBytes32::from_js)
+                .collect::<Result<Vec<RustBytes32>>>()?,
+        })
+    }
+}
+
+impl ToJs<PossibleLaunchersResponse> for RustPossibleLaunchersResponse {
+    fn to_js(&self) -> Result<PossibleLaunchersResponse> {
+        Ok(PossibleLaunchersResponse {
+            last_header_hash: self.last_header_hash.to_js()?,
+            last_height: self.last_height,
+            launcher_ids: self
+                .launcher_ids
+                .iter()
+                .map(RustBytes32::to_js)
+                .collect::<Result<Vec<Buffer>>>()?,
+        })
+    }
+}
+
 #[napi]
 pub struct Tls(TlsConnector);
 
@@ -406,6 +451,7 @@ impl Tls {
 pub struct Peer {
     inner: Arc<RustPeer>,
     peak: Arc<Mutex<Option<NewPeakWallet>>>,
+    coin_listeners: Arc<Mutex<HashMap<RustBytes32, UnboundedSender<()>>>>,
 }
 
 #[napi]
@@ -436,8 +482,12 @@ impl Peer {
 
         let inner = Arc::new(peer);
         let peak = Arc::new(Mutex::new(None));
+        let coin_listeners = Arc::new(Mutex::new(
+            HashMap::<RustBytes32, UnboundedSender<()>>::new(),
+        ));
 
         let peak_clone = peak.clone();
+        let coin_listeners_clone = coin_listeners.clone();
         tokio::spawn(async move {
             while let Some(message) = receiver.recv().await {
                 if message.msg_type == ProtocolMessageTypes::NewPeakWallet {
@@ -446,10 +496,33 @@ impl Peer {
                         *peak_guard = Some(new_peak);
                     }
                 }
+
+                if message.msg_type == ProtocolMessageTypes::CoinStateUpdate {
+                    if let Ok(coin_state_update) = CoinStateUpdate::from_bytes(&message.data) {
+                        let mut listeners = coin_listeners_clone.lock().await;
+
+                        for coin_state_update_item in coin_state_update.items {
+                            if coin_state_update_item.spent_height.is_none() {
+                                continue;
+                            }
+
+                            if let Some(listener) =
+                                listeners.get(&coin_state_update_item.coin.coin_id())
+                            {
+                                let _ = listener.send(());
+                                listeners.remove(&coin_state_update_item.coin.coin_id());
+                            }
+                        }
+                    }
+                }
             }
         });
 
-        Ok(Self { inner, peak })
+        Ok(Self {
+            inner,
+            peak,
+            coin_listeners,
+        })
     }
 
     #[napi]
@@ -738,6 +811,71 @@ impl Peer {
         coin.into_iter()
             .map(|c| c.to_js())
             .collect::<Result<Vec<CoinSpend>>>()
+    }
+
+    #[napi]
+    /// Looks up possible datastore launchers by searching for singleton launchers created with a DL-specific hint.
+    ///
+    /// @param {Option<u32>} lastHeight - Min. height to search records from. If null, sync will be done from the genesis block.
+    /// @param {Buffer} headerHash - Header hash corresponding to `lastHeight`. If null, this should be the genesis challenge of the current chain.
+    /// @returns {Promise<PossibleLaunchersResponse>} Possible launcher ids for datastores, as well as a height + header hash combo to use for the next call.
+    pub async fn look_up_possible_launchers(
+        &self,
+        last_height: Option<u32>,
+        header_hash: Buffer,
+    ) -> napi::Result<PossibleLaunchersResponse> {
+        wallet::look_up_possible_launchers(
+            &self.inner.clone(),
+            last_height,
+            RustBytes32::from_js(header_hash)?,
+        )
+        .await
+        .map_err(js::err)?
+        .to_js()
+    }
+
+    #[napi]
+    /// Waits for a coin to be spent on-chain.
+    ///
+    /// @param {Buffer} coin_id - Id of coin to track.
+    /// @param {Option<u32>} lastHeight - Min. height to search records from. If null, sync will be done from the genesis block.
+    /// @param {Buffer} headerHash - Header hash corresponding to `lastHeight`. If null, this should be the genesis challenge of the current chain.
+    /// @returns {Promise<Buffer>} Promise that resolves when the coin is spent (returning the coin id).
+    pub async fn wait_for_coin_to_be_spent(
+        &self,
+        coin_id: Buffer,
+        last_height: Option<u32>,
+        header_hash: Buffer,
+    ) -> napi::Result<Buffer> {
+        let rust_coin_id = RustBytes32::from_js(coin_id)?;
+        let spent_height = wallet::subscribe_to_coin_states(
+            &self.inner.clone(),
+            rust_coin_id,
+            last_height,
+            RustBytes32::from_js(header_hash)?,
+        )
+        .await
+        .map_err(js::err)?;
+
+        if spent_height.is_none() {
+            let (sender, mut receiver) = unbounded_channel::<()>();
+
+            {
+                let mut listeners = self.coin_listeners.lock().await;
+                listeners.insert(rust_coin_id, sender);
+            }
+
+            receiver
+                .recv()
+                .await
+                .ok_or_else(|| js::err("Failed to receive spent notification"))?;
+        }
+
+        wallet::unsubscribe_from_coin_states(&self.inner.clone(), rust_coin_id)
+            .await
+            .map_err(js::err)?;
+
+        rust_coin_id.to_js()
     }
 }
 
