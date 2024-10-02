@@ -26,7 +26,9 @@ use js::{Coin, CoinSpend, CoinState, EveProof, Proof, ServerCoin};
 use napi::bindgen_prelude::*;
 use napi::Result;
 use native_tls::TlsConnector;
+use std::collections::HashMap;
 use std::{net::SocketAddr, sync::Arc};
+use tokio::sync::mpsc::UnboundedSender;
 use tokio::sync::Mutex;
 use wallet::{
     PossibleLaunchersResponse as RustPossibleLaunchersResponse,
@@ -449,6 +451,7 @@ impl Tls {
 pub struct Peer {
     inner: Arc<RustPeer>,
     peak: Arc<Mutex<Option<NewPeakWallet>>>,
+    coin_listeners: Arc<Mutex<HashMap<RustBytes32, UnboundedSender<()>>>>,
 }
 
 #[napi]
@@ -479,8 +482,10 @@ impl Peer {
 
         let inner = Arc::new(peer);
         let peak = Arc::new(Mutex::new(None));
+        let coin_listeners = Arc::new(Mutex::new(HashMap::new()));
 
         let peak_clone = peak.clone();
+        let coin_listeners_clone = coin_listeners.clone();
         tokio::spawn(async move {
             while let Some(message) = receiver.recv().await {
                 if message.msg_type == ProtocolMessageTypes::NewPeakWallet {
@@ -492,7 +497,11 @@ impl Peer {
             }
         });
 
-        Ok(Self { inner, peak })
+        Ok(Self {
+            inner,
+            peak,
+            coin_listeners,
+        })
     }
 
     #[napi]

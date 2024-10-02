@@ -1176,3 +1176,33 @@ pub async fn look_up_possible_launchers(
             .collect(),
     })
 }
+
+pub async fn subscribe_to_coin_states(
+    peer: &Peer,
+    coin_id: Bytes32,
+    previous_height: Option<u32>,
+    previous_header_hash: Bytes32,
+) -> Result<Option<u32>, WalletError> {
+    let response = peer
+        .request_coin_state(vec![coin_id], previous_height, previous_header_hash, true)
+        .await
+        .map_err(WalletError::Client)?
+        .map_err(|_| WalletError::RejectCoinState)?;
+
+    if let Some(coin_state) = response.coin_states.first() {
+        return Ok(coin_state.spent_height);
+    }
+
+    Err(WalletError::UnknownCoin)
+}
+
+pub async fn unsubscribe_from_coin_states(
+    peer: &Peer,
+    coin_id: Bytes32,
+) -> Result<(), WalletError> {
+    peer.remove_coin_subscriptions(Some(vec![coin_id]))
+        .await
+        .map_err(WalletError::Client)?;
+
+    Ok(())
+}
