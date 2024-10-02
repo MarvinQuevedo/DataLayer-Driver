@@ -1,6 +1,6 @@
 {
   "name": "@dignetwork/datalayer-driver",
-  "version": "0.1.28",
+  "version": "0.1.29",
   "main": "index.js",
   "types": "index.d.ts",
   "repository": {
