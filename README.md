@@ -6,9 +6,9 @@ This library offers the following functions:
 
 - wallet: `selectCoins`, `addFee`, `signCoinSpends`, `sendXch`
 - drivers: `mintStore`, `adminDelegatedPuzzleFromKey`, `writerDelegatedPuzzleFromKey`, `oracleDelegatedPuzzle`, `oracleSpend`, `updateStoreMetadata`, `updateStoreOwnership`, `meltStore`, `getCost`, `createServerCoin`, `lookupAndSpendServerCoins`
-- utils: `getCoinId`, `masterPublicKeyToWalletSyntheticKey`, `masterPublicKeyToFirstPuzzleHash`, `masterSecretKeyToWalletSyntheticSecretKey`, `secretKeyToPublicKey`, `puzzleHashToAddress`, `addressToPuzzleHash`, `newLineageProof`, `newEveProof`, `signMessage`, `verifySignedMessage`, `syntheticKeyToPuzzleHash`, `morphLauncherId`, `getMainnetGenesisChallenge`, `getTestnet11GenesisChallenge`, `lookUpPossibleLaunchers`
+- utils: `getCoinId`, `masterPublicKeyToWalletSyntheticKey`, `masterPublicKeyToFirstPuzzleHash`, `masterSecretKeyToWalletSyntheticSecretKey`, `secretKeyToPublicKey`, `puzzleHashToAddress`, `addressToPuzzleHash`, `newLineageProof`, `newEveProof`, `signMessage`, `verifySignedMessage`, `syntheticKeyToPuzzleHash`, `morphLauncherId`, `getMainnetGenesisChallenge`, `getTestnet11GenesisChallenge`.
 
-The `Peer` class also exposes the following methods: `getAllUnspentCoins`, `syncStore`, `syncStoreFromLauncherId`, `broadcastSpend`, `isCoinSpent`, `getHeaderHash`, `getFeeEstimate`, `getPeak`, `getHintedCoinStates`, `fetchServerCoin`, `getStoreCreationHeight`.
+The `Peer` class also exposes the following methods: `getAllUnspentCoins`, `syncStore`, `syncStoreFromLauncherId`, `broadcastSpend`, `isCoinSpent`, `getHeaderHash`, `getFeeEstimate`, `getPeak`, `getHintedCoinStates`, `fetchServerCoin`, `getStoreCreationHeight`, `lookUpPossibleLaunchers`, `waitForCoinToBeSpent`.
 
 Note that all functions come with detailed JSDoc comments.
 

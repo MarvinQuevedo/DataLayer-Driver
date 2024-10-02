@@ -11,7 +11,7 @@ use chia::bls::{
 
 use chia::protocol::{
     Bytes as RustBytes, Bytes32 as RustBytes32, Coin as RustCoin, CoinSpend as RustCoinSpend,
-    NewPeakWallet, ProtocolMessageTypes, SpendBundle as RustSpendBundle,
+    CoinStateUpdate, NewPeakWallet, ProtocolMessageTypes, SpendBundle as RustSpendBundle,
 };
 use chia::puzzles::{standard::StandardArgs, DeriveSynthetic, Proof as RustProof};
 use chia::traits::Streamable;
@@ -28,7 +28,7 @@ use napi::Result;
 use native_tls::TlsConnector;
 use std::collections::HashMap;
 use std::{net::SocketAddr, sync::Arc};
-use tokio::sync::mpsc::UnboundedSender;
+use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
 use tokio::sync::Mutex;
 use wallet::{
     PossibleLaunchersResponse as RustPossibleLaunchersResponse,
@@ -482,7 +482,9 @@ impl Peer {
 
         let inner = Arc::new(peer);
         let peak = Arc::new(Mutex::new(None));
-        let coin_listeners = Arc::new(Mutex::new(HashMap::new()));
+        let coin_listeners = Arc::new(Mutex::new(
+            HashMap::<RustBytes32, UnboundedSender<()>>::new(),
+        ));
 
         let peak_clone = peak.clone();
         let coin_listeners_clone = coin_listeners.clone();
@@ -492,6 +494,25 @@ impl Peer {
                     if let Ok(new_peak) = NewPeakWallet::from_bytes(&message.data) {
                         let mut peak_guard = peak_clone.lock().await;
                         *peak_guard = Some(new_peak);
+                    }
+                }
+
+                if message.msg_type == ProtocolMessageTypes::CoinStateUpdate {
+                    if let Ok(coin_state_update) = CoinStateUpdate::from_bytes(&message.data) {
+                        let mut listeners = coin_listeners_clone.lock().await;
+
+                        for coin_state_update_item in coin_state_update.items {
+                            if coin_state_update_item.spent_height.is_none() {
+                                continue;
+                            }
+
+                            if let Some(listener) =
+                                listeners.get(&coin_state_update_item.coin.coin_id())
+                            {
+                                let _ = listener.send(());
+                                listeners.remove(&coin_state_update_item.coin.coin_id());
+                            }
+                        }
                     }
                 }
             }
@@ -836,7 +857,19 @@ impl Peer {
         .await
         .map_err(js::err)?;
 
-        if spent_height.is_none() {}
+        if spent_height.is_none() {
+            let (sender, mut receiver) = unbounded_channel::<()>();
+
+            {
+                let mut listeners = self.coin_listeners.lock().await;
+                listeners.insert(rust_coin_id, sender);
+            }
+
+            receiver
+                .recv()
+                .await
+                .ok_or_else(|| js::err("Failed to receive spent notification"))?;
+        }
 
         wallet::unsubscribe_from_coin_states(&self.inner.clone(), rust_coin_id)
             .await

@@ -555,4 +555,13 @@ export declare class Peer {
    * @returns {Promise<PossibleLaunchersResponse>} Possible launcher ids for datastores, as well as a height + header hash combo to use for the next call.
    */
   lookUpPossibleLaunchers(lastHeight: number | undefined | null, headerHash: Buffer): Promise<PossibleLaunchersResponse>
+  /**
+   * Waits for a coin to be spent on-chain.
+   *
+   * @param {Buffer} coin_id - Id of coin to track.
+   * @param {Option<u32>} lastHeight - Min. height to search records from. If null, sync will be done from the genesis block.
+   * @param {Buffer} headerHash - Header hash corresponding to `lastHeight`. If null, this should be the genesis challenge of the current chain.
+   * @returns {Promise<Buffer>} Promise that resolves when the coin is spent (returning the coin id).
+   */
+  waitForCoinToBeSpent(coinId: Buffer, lastHeight: number | undefined | null, headerHash: Buffer): Promise<Buffer>
 }
