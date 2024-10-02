@@ -28,7 +28,10 @@ use napi::Result;
 use native_tls::TlsConnector;
 use std::{net::SocketAddr, sync::Arc};
 use tokio::sync::Mutex;
-use wallet::{SuccessResponse as RustSuccessResponse, SyncStoreResponse as RustSyncStoreResponse};
+use wallet::{
+    PossibleLaunchersResponse as RustPossibleLaunchersResponse,
+    SuccessResponse as RustSuccessResponse, SyncStoreResponse as RustSyncStoreResponse,
+};
 
 pub use wallet::*;
 
@@ -381,6 +384,46 @@ impl ToJs<UnspentCoinsResponse> for rust::UnspentCoinsResponse {
                 .collect::<Result<Vec<Coin>>>()?,
             last_height: self.last_height,
             last_header_hash: self.last_header_hash.to_js()?,
+        })
+    }
+}
+
+#[napi(object)]
+/// Represents a response containing possible launcher ids for datastores.
+///
+/// @property {Vec<Buffer>} launcher_ids - Launcher ids of coins that might be datastores.
+/// @property {u32} lastHeight - Last height.
+/// @property {Buffer} lastHeaderHash - Last header hash.
+pub struct PossibleLaunchersResponse {
+    pub launcher_ids: Vec<Buffer>,
+    pub last_height: u32,
+    pub last_header_hash: Buffer,
+}
+
+impl FromJs<PossibleLaunchersResponse> for RustPossibleLaunchersResponse {
+    fn from_js(value: PossibleLaunchersResponse) -> Result<Self> {
+        Ok(RustPossibleLaunchersResponse {
+            last_header_hash: RustBytes32::from_js(value.last_header_hash)?,
+            last_height: value.last_height,
+            launcher_ids: value
+                .launcher_ids
+                .into_iter()
+                .map(RustBytes32::from_js)
+                .collect::<Result<Vec<RustBytes32>>>()?,
+        })
+    }
+}
+
+impl ToJs<PossibleLaunchersResponse> for RustPossibleLaunchersResponse {
+    fn to_js(&self) -> Result<PossibleLaunchersResponse> {
+        Ok(PossibleLaunchersResponse {
+            last_header_hash: self.last_header_hash.to_js()?,
+            last_height: self.last_height,
+            launcher_ids: self
+                .launcher_ids
+                .iter()
+                .map(RustBytes32::to_js)
+                .collect::<Result<Vec<Buffer>>>()?,
         })
     }
 }
@@ -738,6 +781,27 @@ impl Peer {
         coin.into_iter()
             .map(|c| c.to_js())
             .collect::<Result<Vec<CoinSpend>>>()
+    }
+
+    #[napi]
+    /// Looks up possible datastore launchers by searching for singleton launchers created with a DL-specific hint.
+    ///
+    /// @param {Option<u32>} lastHeight - Min. height to search records from. If null, sync will be done from the genesis block.
+    /// @param {Buffer} headerHash - Header hash corresponding to `lastHeight`. If null, this should be the genesis challenge of the current chain.
+    /// @returns {Promise<PossibleLaunchersResponse>} Possible launcher ids for datastores, as well as a height + header hash combo to use for the next call.
+    pub async fn look_up_possible_launchers(
+        &self,
+        last_height: Option<u32>,
+        header_hash: Buffer,
+    ) -> napi::Result<PossibleLaunchersResponse> {
+        wallet::look_up_possible_launchers(
+            &self.inner.clone(),
+            last_height,
+            RustBytes32::from_js(header_hash)?,
+        )
+        .await
+        .map_err(js::err)?
+        .to_js()
     }
 }
 
