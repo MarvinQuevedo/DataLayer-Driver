@@ -21,10 +21,12 @@ use chia::protocol::{
     Bytes, Bytes32, Coin, CoinSpend, CoinStateFilters, RejectHeaderRequest, RequestBlockHeader,
     RequestFeeEstimates, RespondBlockHeader, RespondFeeEstimates, SpendBundle, TransactionAck,
 };
+use chia::puzzles::singleton::SINGLETON_LAUNCHER_PUZZLE_HASH;
 use chia::puzzles::standard::StandardArgs;
 use chia::puzzles::standard::StandardSolution;
 use chia::puzzles::DeriveSynthetic;
 use chia_wallet_sdk::announcement_id;
+use chia_wallet_sdk::CreateCoin;
 use chia_wallet_sdk::TESTNET11_CONSTANTS;
 use chia_wallet_sdk::{
     get_merkle_tree, select_coins as select_coins_algo, ClientError, CoinSelectionError, Condition,
@@ -33,6 +35,7 @@ use chia_wallet_sdk::{
     UpdateDataStoreMerkleRoot, WriterLayer, MAINNET_CONSTANTS,
 };
 use clvmr::Allocator;
+use hex_literal::hex;
 use std::time::{SystemTime, UNIX_EPOCH};
 use thiserror::Error;
 
@@ -42,8 +45,14 @@ use crate::server_coin::MirrorArgs;
 use crate::server_coin::MirrorExt;
 use crate::server_coin::MirrorSolution;
 
-#[derive(Clone, Debug)]
+/* echo -n 'datastore' | sha256sum */
+pub const DATASTORE_LAUNCHER_HINT: Bytes32 = Bytes32::new(hex!(
+    "
+    aa7e5b234e1d55967bf0a316395a2eab6cb3370332c0f251f0e44a5afb84fc68
+    "
+));
 
+#[derive(Clone, Debug)]
 pub struct SuccessResponse {
     pub coin_spends: Vec<CoinSpend>,
     pub new_datastore: DataStore,
@@ -443,6 +452,23 @@ pub fn mint_store(
         owner_puzzle_hash.into(),
         delegated_puzzles,
     )?;
+
+    // patch: add static hint to launcher
+    let launch_singleton = Conditions::new().extend(launch_singleton.into_iter().map(|cond| {
+        if let Condition::CreateCoin(cc) = cond {
+            if cc.puzzle_hash == SINGLETON_LAUNCHER_PUZZLE_HASH.into() {
+                return Condition::CreateCoin(CreateCoin {
+                    puzzle_hash: cc.puzzle_hash,
+                    amount: cc.amount,
+                    memos: vec![DATASTORE_LAUNCHER_HINT.into()],
+                });
+            }
+
+            return Condition::CreateCoin(cc);
+        }
+
+        cond
+    }));
 
     let lead_coin_conditions = if total_amount_from_coins > total_amount {
         launch_singleton.create_coin(
