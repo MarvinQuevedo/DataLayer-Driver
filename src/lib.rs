@@ -812,6 +812,38 @@ impl Peer {
         .map_err(js::err)?
         .to_js()
     }
+
+    #[napi]
+    /// Waits for a coin to be spent on-chain.
+    ///
+    /// @param {Buffer} coin_id - Id of coin to track.
+    /// @param {Option<u32>} lastHeight - Min. height to search records from. If null, sync will be done from the genesis block.
+    /// @param {Buffer} headerHash - Header hash corresponding to `lastHeight`. If null, this should be the genesis challenge of the current chain.
+    /// @returns {Promise<Buffer>} Promise that resolves when the coin is spent (returning the coin id).
+    pub async fn wait_for_coin_to_be_spent(
+        &self,
+        coin_id: Buffer,
+        last_height: Option<u32>,
+        header_hash: Buffer,
+    ) -> napi::Result<Buffer> {
+        let rust_coin_id = RustBytes32::from_js(coin_id)?;
+        let spent_height = wallet::subscribe_to_coin_states(
+            &self.inner.clone(),
+            rust_coin_id,
+            last_height,
+            RustBytes32::from_js(header_hash)?,
+        )
+        .await
+        .map_err(js::err)?;
+
+        if spent_height.is_none() {}
+
+        wallet::unsubscribe_from_coin_states(&self.inner.clone(), rust_coin_id)
+            .await
+            .map_err(js::err)?;
+
+        rust_coin_id.to_js()
+    }
 }
 
 /// Selects coins using the knapsack algorithm.
