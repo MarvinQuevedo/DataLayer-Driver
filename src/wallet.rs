@@ -1139,3 +1139,40 @@ pub fn get_cost(coin_spends: Vec<CoinSpend>) -> Result<u64, WalletError> {
 
     Ok(conds.cost)
 }
+
+pub struct PossibleLaunchersResponse {
+    pub launcher_ids: Vec<Bytes32>,
+    pub last_height: u32,
+    pub last_header_hash: Bytes32,
+}
+
+pub async fn look_up_possible_launchers(
+    peer: &Peer,
+    previous_height: Option<u32>,
+    previous_header_hash: Bytes32,
+) -> Result<PossibleLaunchersResponse, WalletError> {
+    let resp = get_unspent_coin_states(
+        peer,
+        DATASTORE_LAUNCHER_HINT,
+        previous_height,
+        previous_header_hash,
+        true,
+    )
+    .await?;
+
+    Ok(PossibleLaunchersResponse {
+        last_header_hash: resp.last_header_hash,
+        last_height: resp.last_height,
+        launcher_ids: resp
+            .coin_states
+            .into_iter()
+            .filter_map(|coin_state| {
+                if coin_state.coin.puzzle_hash == SINGLETON_LAUNCHER_PUZZLE_HASH.into() {
+                    Some(coin_state.coin.coin_id())
+                } else {
+                    None
+                }
+            })
+            .collect(),
+    })
+}
