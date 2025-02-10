@@ -85,18 +85,11 @@ jobs:
         run: ${{ matrix.settings.build }}
         shell: bash
             
-      - name: Upload artifacts
-        uses: actions/upload-artifact@v4
-        with:
-          name: bindings-${{ matrix.settings.target }}
-          path: '*.node'
-          if-no-files-found: error
-            
       - name: Create Release Assets
         uses: softprops/action-gh-release@v1
-        if: github.ref == 'refs/heads/test_imple_01'
+        if: github.ref == 'refs/heads/main'
         with:
           files: '*.node'
-          tag_name: latest-test-build
+          tag_name: latest-build
           draft: false
           prerelease: true 
