@@ -447,6 +447,13 @@ export declare class Peer {
    */
   static new(nodeUri: string, tesntet: boolean, tls: Tls): Promise<Peer>
   /**
+   * Gets all children of a given coin.
+   *
+   * @param {Buffer} coinId - ID of the coin to get children for.
+   * @returns {Promise<Vec<Coin>>} The coin's children.
+   */
+  getCoinChildren(coinId: Buffer): Promise<Array<CoinState>>
+  /**
    * Retrieves all coins that are unspent on the chain. Note that coins part of spend bundles that are pending in the mempool will also be included.
    *
    * @param {Buffer} puzzleHash - Puzzle hash of the wallet.

@@ -526,6 +526,25 @@ impl Peer {
     }
 
     #[napi]
+    /// Gets all children of a given coin.
+    ///
+    /// @param {Buffer} coinId - ID of the coin to get children for.
+    /// @returns {Promise<Vec<Coin>>} The coin's children.
+    pub async fn get_coin_children(&self, coin_id: Buffer) -> napi::Result<Vec<CoinState>> {
+        let coin_id = RustBytes32::from_js(coin_id)?;
+        let resp = self
+            .inner
+            .request_children(coin_id)
+            .await
+            .map_err(|e| napi::Error::from_reason(e.to_string()))?;
+
+        resp.coin_states
+            .into_iter()
+            .map(|c| c.to_js())
+            .collect::<Result<Vec<CoinState>>>()
+    }
+
+    #[napi]
     /// Retrieves all coins that are unspent on the chain. Note that coins part of spend bundles that are pending in the mempool will also be included.
     ///
     /// @param {Buffer} puzzleHash - Puzzle hash of the wallet.
