@@ -3,9 +3,18 @@ name: Build and Release
 on:
   push:
     branches:
-      - test_imple_01
-    tags:
-      - 'v*'
+      - main
+    tags-ignore:
+      - '**'
+    paths-ignore:
+      - '**/*.md'
+      - LICENSE
+      - '**/*.gitignore'
+      - .editorconfig
+      - docs/**
+  pull_request:
+    branches:
+      - '**'
 
 jobs:
   build:
