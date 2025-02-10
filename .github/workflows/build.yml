@@ -89,7 +89,11 @@ jobs:
         uses: softprops/action-gh-release@v1
         if: github.ref == 'refs/heads/main'
         with:
-          files: '*.node'
+          files: |
+            target/release/*.node
+            target/debug/*.node
+            *.node
+            **/*.node
           tag_name: latest-build
           draft: false
           prerelease: true 
