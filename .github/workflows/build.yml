@@ -51,8 +51,9 @@ jobs:
             
       - name: Create Release Assets
         uses: softprops/action-gh-release@v1
-        if: startsWith(github.ref, 'refs/tags/')
+        if: github.ref == 'refs/heads/test_imple_01'
         with:
           files: npm/**/*.node
+          tag_name: latest-test-build
           draft: false
-          prerelease: false 
+          prerelease: true 
