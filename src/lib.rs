@@ -525,7 +525,7 @@ impl Peer {
         })
     }
 
-    #[napi]
+    #[napi(js_name = "getCoinChildren")]
     /// Gets all children of a given coin.
     ///
     /// @param {Buffer} coinId - ID of the coin to get children for.
