@@ -1,8 +1,8 @@
 use chia::clvm_traits::{self, FromClvm, ToClvm};
 use chia::clvm_utils::{CurriedProgram, ToTreeHash, TreeHash};
-use chia::protocol::{Bytes32, Coin};
+use chia::protocol::{Bytes, Bytes32, Coin};
 use chia_wallet_sdk::{Condition, CreateCoin, DriverError, SpendContext};
-use clvmr::NodePtr;
+use clvmr::{Allocator, NodePtr};
 use hex_literal::hex;
 use num_bigint::BigInt;
 
@@ -90,6 +90,7 @@ pub fn morph_launcher_id(launcher_id: Bytes32, offset: &BigInt) -> Bytes32 {
 }
 
 pub fn urls_from_conditions(
+    allocator: &Allocator,
     server_coin: &Coin,
     parent_conditions: &[Condition],
 ) -> Option<Vec<String>> {
@@ -106,6 +107,14 @@ pub fn urls_from_conditions(
         if puzzle_hash != &server_coin.puzzle_hash || *amount != server_coin.amount {
             return None;
         }
+
+        let memos = if let Some(memos) = memos {
+            Vec::<Bytes>::from_clvm(allocator, memos.value)
+                .ok()
+                .unwrap_or_default()
+        } else {
+            Vec::new()
+        };
 
         memos
             .iter()
