@@ -21,12 +21,18 @@ use chia::protocol::{
     Bytes, Bytes32, Coin, CoinSpend, CoinStateFilters, RejectHeaderRequest, RequestBlockHeader,
     RequestFeeEstimates, RespondBlockHeader, RespondFeeEstimates, SpendBundle, TransactionAck,
 };
+use chia::puzzles::nft::NftMetadata;
 use chia::puzzles::singleton::SINGLETON_LAUNCHER_PUZZLE_HASH;
 use chia::puzzles::standard::StandardArgs;
 use chia::puzzles::standard::StandardSolution;
 use chia::puzzles::DeriveSynthetic;
 use chia_wallet_sdk::announcement_id;
 use chia_wallet_sdk::CreateCoin;
+use chia_wallet_sdk::Did;
+use chia_wallet_sdk::IntermediateLauncher;
+use chia_wallet_sdk::Nft;
+use chia_wallet_sdk::NftMint;
+use chia_wallet_sdk::TransferNft;
 use chia_wallet_sdk::TESTNET11_CONSTANTS;
 use chia_wallet_sdk::{
     get_merkle_tree, select_coins as select_coins_algo, ClientError, CoinSelectionError, Condition,
@@ -98,6 +104,9 @@ pub enum WalletError {
 
     #[error("Fee estimation rejection: {0}")]
     FeeEstimateRejection(String),
+
+    #[error("Insufficient funds for operation")]
+    InsufficientFunds,
 }
 
 pub struct UnspentCoinStates {
@@ -1205,4 +1214,160 @@ pub async fn unsubscribe_from_coin_states(
         .map_err(WalletError::Client)?;
 
     Ok(())
+}
+
+// Add these new structs to support the bulk mint operation
+#[derive(Clone, Debug)]
+pub struct WalletNftMint {
+    pub metadata: NftMetadata,
+    pub royalty_puzzle_hash: Option<Bytes32>,
+    pub royalty_ten_thousandths: u16,
+    pub p2_puzzle_hash: Option<Bytes32>,
+}
+
+pub async fn bulk_mint_nfts(
+    spender_synthetic_key: PublicKey,
+    selected_coins: Vec<Coin>,
+    mints: Vec<WalletNftMint>,
+    did_id: Option<Bytes32>,
+    target_address: Bytes32,
+    fee: u64,
+) -> Result<(Vec<CoinSpend>, Vec<Nft<NftMetadata>>), WalletError> {
+    let ctx = &mut SpendContext::new();
+    let spender_puzzle_hash: Bytes32 = StandardArgs::curry_tree_hash(spender_synthetic_key).into();
+
+    // Calculate total amount needed (fee + 1 mojo per NFT)
+    let total_needed: u64 = fee + (mints.len() as u64);
+    let total_available: u64 = selected_coins.iter().map(|c| c.amount).sum();
+
+    if total_available < total_needed {
+        return Err(WalletError::InsufficientFunds);
+    }
+
+    let lead_coin = selected_coins[0];
+    let lead_coin_name = lead_coin.coin_id();
+
+    // Handle concurrent spends for additional coins
+    for coin in selected_coins.iter().skip(1) {
+        ctx.spend_p2_coin(
+            *coin,
+            spender_synthetic_key,
+            Conditions::new().assert_concurrent_spend(lead_coin_name),
+        )?;
+    }
+
+    let mut all_conditions = Conditions::new();
+    let mut nfts = Vec::with_capacity(mints.len());
+
+    // Process each NFT mint
+    for (i, mint_config) in mints.into_iter().enumerate() {
+        // Create launcher for this NFT
+        let launcher_intermediate = IntermediateLauncher::new(lead_coin_name, i * 2 as usize, 1);
+        let launcher = launcher_intermediate.create(ctx)?;
+
+        // Create NFT mint configuration
+        let nft_mint = NftMint {
+            metadata: mint_config.metadata,
+            metadata_updater_puzzle_hash: target_address,
+            royalty_puzzle_hash: mint_config.royalty_puzzle_hash.unwrap_or(target_address),
+            royalty_ten_thousandths: mint_config.royalty_ten_thousandths,
+            p2_puzzle_hash: mint_config.p2_puzzle_hash.unwrap_or(target_address),
+            owner: if let Some(did_id) = did_id {
+                TransferNft {
+                    did_id: Some(did_id.into()),
+                    trade_prices: vec![],
+                    did_inner_puzzle_hash: Some(target_address),
+                }
+            } else {
+                TransferNft {
+                    did_id: None,
+                    trade_prices: vec![],
+                    did_inner_puzzle_hash: None,
+                }
+            },
+        };
+
+        // Mint the NFT
+        let (mint_conditions, nft) = launcher.mint_nft(ctx, nft_mint)?;
+
+        // Accumulate conditions
+        all_conditions = all_conditions.extend(mint_conditions);
+        nfts.push(nft);
+    }
+
+    // Add fee if specified
+    if fee > 0 {
+        all_conditions = all_conditions.reserve_fee(fee);
+    }
+
+    // Add change output if needed
+    let change = total_available - total_needed;
+    if change > 0 {
+        all_conditions = all_conditions.create_coin(
+            spender_puzzle_hash,
+            change,
+            vec![spender_puzzle_hash.into()],
+        );
+    }
+
+    // Create the spend
+    ctx.spend_p2_coin(lead_coin, spender_synthetic_key, all_conditions)?;
+
+    Ok((ctx.take(), nfts))
+}
+
+pub fn create_did(
+    spender_synthetic_key: PublicKey,
+    selected_coins: Vec<Coin>,
+    fee: u64,
+) -> Result<(Vec<CoinSpend>, Did<()>), WalletError> {
+    let ctx = &mut SpendContext::new();
+    let spender_puzzle_hash: Bytes32 = StandardArgs::curry_tree_hash(spender_synthetic_key).into();
+
+    // Calculate total amount needed (fee + 1 mojo for DID)
+    let total_needed: u64 = fee + 1;
+    let total_available: u64 = selected_coins.iter().map(|c| c.amount).sum();
+
+    if total_available < total_needed {
+        return Err(WalletError::InsufficientFunds);
+    }
+
+    let lead_coin = selected_coins[0];
+    let lead_coin_name = lead_coin.coin_id();
+
+    // Handle concurrent spends for additional coins
+    for coin in selected_coins.iter().skip(1) {
+        ctx.spend_p2_coin(
+            *coin,
+            spender_synthetic_key,
+            Conditions::new().assert_concurrent_spend(lead_coin_name),
+        )?;
+    }
+
+    // Create launcher for DID
+    let launcher = Launcher::new(lead_coin_name, 1);
+
+    // Create the DID
+    let p2 = StandardLayer::new(spender_synthetic_key);
+    let (mut conditions, did) = launcher.create_simple_did(ctx, p2.synthetic_key)?;
+
+    // Add fee if specified
+    if fee > 0 {
+        conditions = conditions.reserve_fee(fee);
+    }
+
+    // Add change output if needed
+    let change = total_available - total_needed;
+    if change > 0 {
+        conditions = conditions.create_coin(
+            spender_puzzle_hash,
+            change,
+            vec![spender_puzzle_hash.into()],
+        );
+    }
+
+    // Create the spend
+    ctx.spend_p2_coin(lead_coin, spender_synthetic_key, conditions)?;
+
+    Ok((ctx.take(), did))
 }

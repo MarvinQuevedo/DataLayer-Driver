@@ -8,7 +8,7 @@ use chia::bls::{
     master_to_wallet_unhardened, PublicKey as RustPublicKey, SecretKey as RustSecretKey,
     Signature as RustSignature,
 };
-
+ 
 use chia::protocol::{
     Bytes as RustBytes, Bytes32 as RustBytes32, Coin as RustCoin, CoinSpend as RustCoinSpend,
     CoinStateUpdate, NewPeakWallet, ProtocolMessageTypes, SpendBundle as RustSpendBundle,
@@ -20,6 +20,8 @@ use chia_wallet_sdk::{
     DataStore as RustDataStore, DataStoreInfo as RustDataStoreInfo,
     DataStoreMetadata as RustDataStoreMetadata, DelegatedPuzzle as RustDelegatedPuzzle, NetworkId,
     Peer as RustPeer, MAINNET_CONSTANTS, TESTNET11_CONSTANTS,
+    Did,
+    Nft,
 };
 use conversions::{ConversionError, FromJs, ToJs};
 use js::{Coin, CoinSpend, CoinState, EveProof, Proof, ServerCoin};
@@ -34,6 +36,7 @@ use wallet::{
     PossibleLaunchersResponse as RustPossibleLaunchersResponse,
     SuccessResponse as RustSuccessResponse, SyncStoreResponse as RustSyncStoreResponse,
 };
+use chia::puzzles::nft::{NftMetadata as RustNftMetadata};
 
 pub use wallet::*;
 
@@ -1495,4 +1498,210 @@ pub fn get_mainnet_genesis_challenge() -> napi::Result<Buffer> {
 /// @returns {Buffer} The testnet11 genesis challenge.
 pub fn get_testnet11_genesis_challenge() -> napi::Result<Buffer> {
     TESTNET11_CONSTANTS.genesis_challenge.to_js()
+}
+
+#[napi(object)]
+/// NFT metadata structure
+pub struct NftMetadata {
+    /// Data URL or hex string containing the metadata
+    pub data_uris: Vec<String>,
+    /// Data hash of the metadata
+    pub data_hash: Option<Buffer>,
+    /// License URL or hex string
+    pub license_uris: Vec<String>,
+    /// License hash
+    pub license_hash: Option<Buffer>,
+    /// NFT metadata URL or hex string
+    pub metadata_uris: Vec<String>,
+    /// NFT metadata hash
+    pub metadata_hash: Option<Buffer>,
+    /// Edition number
+    pub edition_number: u32,
+    /// Maximum number of editions
+    pub edition_total: u32,
+}
+
+impl FromJs<NftMetadata> for RustNftMetadata {
+    fn from_js(value: NftMetadata) -> Result<Self> {
+        Ok(RustNftMetadata {
+            data_uris: value.data_uris,
+            data_hash: if value.data_hash.is_some() {
+                Some(RustBytes32::from_js(value.data_hash.unwrap())?)
+            } else {
+                None
+            },
+            license_uris: value.license_uris,
+            license_hash: if value.license_hash.is_some() {
+                Some(RustBytes32::from_js(value.license_hash.unwrap())?)
+            } else {
+                None
+            },
+            metadata_uris: value.metadata_uris,
+            metadata_hash: if value.metadata_hash.is_some() {
+                Some(RustBytes32::from_js(value.metadata_hash.unwrap())?)
+            } else {
+                None
+            },
+            edition_number: value.edition_number as u64,
+            edition_total: value.edition_total as u64,
+        })
+    }
+}
+
+impl ToJs<NftMetadata> for RustNftMetadata {
+    fn to_js(&self) -> Result<NftMetadata> {
+        Ok(NftMetadata {
+            data_uris: self.data_uris.clone(),
+            data_hash: self.data_hash.map(|hash| hash.to_js()).transpose()?,
+            license_uris: self.license_uris.clone(),
+            license_hash: self.license_hash.map(|hash| hash.to_js()).transpose()?,
+            metadata_uris: self.metadata_uris.clone(),
+            metadata_hash: self.metadata_hash.map(|hash| hash.to_js()).transpose()?,
+            edition_number: self.edition_number as u32,
+            edition_total: self.edition_total as u32,
+        })
+    }
+}
+
+#[napi(object)]
+/// Configuration for minting a single NFT in a bulk operation
+pub struct WalletNftMint {
+    /// Metadata for the NFT
+    pub metadata: NftMetadata,
+    /// Optional royalty puzzle hash - defaults to target address if None
+    pub royalty_puzzle_hash: Option<Buffer>,
+    /// Royalty percentage in basis points (1/10000)
+    pub royalty_ten_thousandths: u16,
+    /// Optional p2 puzzle hash - defaults to target address if None
+    pub p2_puzzle_hash: Option<Buffer>,
+}
+
+impl FromJs<WalletNftMint> for wallet::WalletNftMint {
+    fn from_js(value: WalletNftMint) -> Result<Self> {
+        Ok(wallet::WalletNftMint {
+            metadata: RustNftMetadata::from_js(value.metadata)?,
+            royalty_puzzle_hash: value
+                .royalty_puzzle_hash
+                .map(RustBytes32::from_js)
+                .transpose()?,
+            royalty_ten_thousandths: value.royalty_ten_thousandths,
+            p2_puzzle_hash: value.p2_puzzle_hash.map(RustBytes32::from_js).transpose()?,
+        })
+    }
+}
+
+impl ToJs<WalletNftMint> for wallet::WalletNftMint {
+    fn to_js(&self) -> Result<WalletNftMint> {
+        Ok(WalletNftMint {
+            metadata: self.metadata.to_js()?,
+            royalty_puzzle_hash: self.royalty_puzzle_hash.map(|ph| ph.to_js()).transpose()?,
+            royalty_ten_thousandths: self.royalty_ten_thousandths,
+            p2_puzzle_hash: self.p2_puzzle_hash.map(|ph| ph.to_js()).transpose()?,
+        })
+    }
+}
+
+#[napi(object)]
+/// Response from creating a DID
+pub struct CreateDidResponse {
+    pub coin_spends: Vec<CoinSpend>,
+    pub did_id: Buffer,
+}
+
+impl<T> ToJs<CreateDidResponse> for (Vec<RustCoinSpend>, Did<T>) {
+    fn to_js(&self) -> Result<CreateDidResponse> {
+        Ok(CreateDidResponse {
+            coin_spends: self.0
+                .iter()
+                .map(RustCoinSpend::to_js)
+                .collect::<Result<Vec<CoinSpend>>>()?,
+            did_id: self.1.coin.coin_id().to_js()?,
+        })
+    }
+}
+
+#[napi(object)]
+/// Response from bulk minting NFTs
+pub struct BulkMintNftsResponse {
+    pub coin_spends: Vec<CoinSpend>,
+    pub nft_launcher_ids: Vec<Buffer>,
+}
+
+impl ToJs<BulkMintNftsResponse> for (Vec<RustCoinSpend>, Vec<Nft<RustNftMetadata>>) {
+    fn to_js(&self) -> Result<BulkMintNftsResponse> {
+        Ok(BulkMintNftsResponse {
+            coin_spends: self.0
+                .iter()
+                .map(RustCoinSpend::to_js)
+                .collect::<Result<Vec<CoinSpend>>>()?,
+            nft_launcher_ids: self.1
+                .iter()
+                .map(|nft| nft.coin.coin_id().to_js())
+                .collect::<Result<Vec<Buffer>>>()?,
+        })
+    }
+}
+
+// Now we can update the NAPI functions to use these conversions:
+
+#[napi]
+/// Creates a new Decentralized Identity (DID)
+///
+/// @param {Buffer} spenderSyntheticKey - The synthetic public key of the spender
+/// @param {Vec<Coin>} selectedCoins - Coins to use for the creation
+/// @param {BigInt} fee - Transaction fee in mojos
+/// @returns {Promise<CreateDidResponse>} The coin spends and DID ID
+pub fn create_did(
+    spender_synthetic_key: Buffer,
+    selected_coins: Vec<Coin>,
+    fee: BigInt,
+) -> napi::Result<js::CreateDidResponse> {
+    let result = wallet::create_did(
+        RustPublicKey::from_js(spender_synthetic_key)?,
+        selected_coins
+            .into_iter()
+            .map(RustCoin::from_js)
+            .collect::<Result<Vec<RustCoin>>>()?,
+        u64::from_js(fee)?,
+    )
+    .map_err(js::err)?;
+
+    result.to_js()
+}
+
+#[napi]
+/// Mints multiple NFTs in a single transaction
+///
+/// @param {Buffer} spenderSyntheticKey - The synthetic public key of the spender
+/// @param {Vec<Coin>} selectedCoins - Coins to use for minting
+/// @param {Vec<WalletNftMint>} mints - Vector of NFT configurations to mint
+/// @param {Option<Buffer>} didId - Optional DID to associate with the NFTs
+/// @param {Buffer} targetAddress - Default address for royalties and ownership
+/// @param {BigInt} fee - Transaction fee in mojos
+/// @returns {Promise<BulkMintNftsResponse>} The coin spends and NFT launcher IDs
+pub async fn bulk_mint_nfts(
+    spender_synthetic_key: Buffer,
+    selected_coins: Vec<Coin>,
+    mints: Vec<js::WalletNftMint>,
+    did_id: Option<Buffer>,
+    target_address: Buffer,
+    fee: BigInt,
+) -> napi::Result<js::BulkMintNftsResponse> {
+    let result = wallet::bulk_mint_nfts(
+        RustPublicKey::from_js(spender_synthetic_key)?,
+        selected_coins
+            .into_iter()
+            .map(RustCoin::from_js)
+            .collect::<Result<Vec<RustCoin>>>()?,
+        mints.into_iter()
+            .map(wallet::WalletNftMint::from_js)
+            .collect::<Result<Vec<wallet::WalletNftMint>>>()?,
+        did_id.map(RustBytes32::from_js).transpose()?,
+        RustBytes32::from_js(target_address)?,
+        u64::from_js(fee)?,
+    )
+    .await
+    .map_err(js::err)?;
+
+    result.to_js()
 }
