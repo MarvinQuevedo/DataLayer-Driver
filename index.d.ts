@@ -83,6 +83,46 @@ export interface ServerCoin {
   p2PuzzleHash: Buffer
   memoUrls: Array<string>
 }
+/** NFT metadata structure */
+export interface NftMetadata {
+  /** Data URL or hex string containing the metadata */
+  dataUris: Array<string>
+  /** Data hash of the metadata */
+  dataHash?: Buffer
+  /** License URL or hex string */
+  licenseUris: Array<string>
+  /** License hash */
+  licenseHash?: Buffer
+  /** NFT metadata URL or hex string */
+  metadataUris: Array<string>
+  /** NFT metadata hash */
+  metadataHash?: Buffer
+  /** Edition number */
+  editionNumber: number
+  /** Maximum number of editions */
+  editionTotal: number
+}
+/** Configuration for minting a single NFT in a bulk operation */
+export interface WalletNftMint {
+  /** Metadata for the NFT */
+  metadata: NftMetadata
+  /** Optional royalty puzzle hash - defaults to target address if None */
+  royaltyPuzzleHash?: Buffer
+  /** Royalty percentage in basis points (1/10000) */
+  royaltyTenThousandths: number
+  /** Optional p2 puzzle hash - defaults to target address if None */
+  p2PuzzleHash?: Buffer
+}
+/** Response from creating a DID */
+export interface CreateDidResponse {
+  coinSpends: Array<CoinSpend>
+  didId: Buffer
+}
+/** Response from bulk minting NFTs */
+export interface BulkMintNftsResponse {
+  coinSpends: Array<CoinSpend>
+  nftLauncherIds: Array<Buffer>
+}
 /**
  * Creates a new lineage proof.
  *
@@ -427,6 +467,27 @@ export declare function getMainnetGenesisChallenge(): Buffer
  * @returns {Buffer} The testnet11 genesis challenge.
  */
 export declare function getTestnet11GenesisChallenge(): Buffer
+/**
+ * Creates a new Decentralized Identity (DID)
+ *
+ * @param {Buffer} spenderSyntheticKey - The synthetic public key of the spender
+ * @param {Vec<Coin>} selectedCoins - Coins to use for the creation
+ * @param {BigInt} fee - Transaction fee in mojos
+ * @returns {Promise<CreateDidResponse>} The coin spends and DID ID
+ */
+export declare function createDid(spenderSyntheticKey: Buffer, selectedCoins: Array<Coin>, fee: bigint): CreateDidResponse
+/**
+ * Mints multiple NFTs in a single transaction
+ *
+ * @param {Buffer} spenderSyntheticKey - The synthetic public key of the spender
+ * @param {Vec<Coin>} selectedCoins - Coins to use for minting
+ * @param {Vec<WalletNftMint>} mints - Vector of NFT configurations to mint
+ * @param {Option<Buffer>} didId - Optional DID to associate with the NFTs
+ * @param {Buffer} targetAddress - Default address for royalties and ownership
+ * @param {BigInt} fee - Transaction fee in mojos
+ * @returns {Promise<BulkMintNftsResponse>} The coin spends and NFT launcher IDs
+ */
+export declare function bulkMintNfts(spenderSyntheticKey: Buffer, selectedCoins: Array<Coin>, mints: Array<WalletNftMint>, didId: Buffer | undefined | null, targetAddress: Buffer, fee: bigint): Promise<BulkMintNftsResponse>
 export declare class Tls {
   /**
    * Creates a new TLS connector.
