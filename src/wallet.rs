@@ -1371,3 +1371,59 @@ pub fn create_did(
 
     Ok((ctx.take(), did))
 }
+
+pub async fn get_last_spendable_did_coin(
+    peer: &Peer,
+    did_id: Bytes32,
+    network: TargetNetwork,
+) -> Result<Option<Coin>, WalletError> {
+    let mut current_coin_id = did_id;
+    let global_header_hash = match network {
+        TargetNetwork::Mainnet => MAINNET_CONSTANTS.genesis_challenge,
+        TargetNetwork::Testnet11 => TESTNET11_CONSTANTS.genesis_challenge,
+    };
+    loop {
+        // Get current coin state
+        let response = peer
+            .request_coin_state(vec![current_coin_id], None, global_header_hash, false)
+            .await
+            .map_err(WalletError::from)?
+            .map_err(|_| WalletError::RejectCoinState)?;
+
+        let Some(coin_state) = response.coin_states.first() else {
+            return Ok(None);
+        };
+
+        // If coin is unspent, return it
+        if coin_state.spent_height.is_none() {
+            return Ok(Some(coin_state.coin));
+        }
+
+        // Get the children of this coin
+        let Some(spent_height) = coin_state.spent_height else {
+            return Ok(None);
+        };
+
+        let header_hash = get_header_hash(peer, spent_height)
+            .await?;
+
+        let children_response = peer
+            .request_coin_state(vec![], Some(spent_height), header_hash, false)
+            .await
+            .map_err(WalletError::Client)?
+            .map_err(|_| WalletError::RejectCoinState)?;
+
+        // Find the child with 1 mojo (DID coins always have 1 mojo)
+        let next_did_coin = children_response
+            .coin_states
+            .iter()
+            .find(|cs| cs.coin.parent_coin_info == current_coin_id && cs.coin.amount == 1);
+
+        match next_did_coin {
+            Some(next_coin_state) => {
+                current_coin_id = next_coin_state.coin.coin_id();
+            }
+            None => return Ok(None),
+        }
+    }
+}
