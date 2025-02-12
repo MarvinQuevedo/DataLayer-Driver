@@ -1654,9 +1654,10 @@ impl<T> ToJs<CreateDidResponse> for (Vec<RustCoinSpend>, RustDid<T>) {
 pub struct BulkMintNftsResponse {
     pub coin_spends: Vec<CoinSpend>,
     pub nft_launcher_ids: Vec<Buffer>,
+    pub log_list: Vec<String>,
 }
 
-impl ToJs<BulkMintNftsResponse> for (Vec<RustCoinSpend>, Vec<Nft<RustNftMetadata>>) {
+impl ToJs<BulkMintNftsResponse> for (Vec<RustCoinSpend>, Vec<Nft<RustNftMetadata>>, Vec<String>) {
     fn to_js(&self) -> Result<BulkMintNftsResponse> {
         Ok(BulkMintNftsResponse {
             coin_spends: self
@@ -1669,6 +1670,7 @@ impl ToJs<BulkMintNftsResponse> for (Vec<RustCoinSpend>, Vec<Nft<RustNftMetadata
                 .iter()
                 .map(|nft| nft.coin.coin_id().to_js())
                 .collect::<Result<Vec<Buffer>>>()?,
+            log_list: self.2.clone(),
         })
     }
 }
@@ -1747,5 +1749,6 @@ pub async fn bulk_mint_nfts(
             .iter()
             .map(|nft| nft.coin.coin_id().to_js())
             .collect::<Result<Vec<Buffer>>>()?,
+        log_list: result.3.clone(),
     })
 }
