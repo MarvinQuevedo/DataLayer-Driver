@@ -38,7 +38,6 @@ use chia_wallet_sdk::Did;
 use chia_wallet_sdk::DidInfo;
 use chia_wallet_sdk::DidOwner;
 use chia_wallet_sdk::HashedPtr;
-use chia_wallet_sdk::IntermediateLauncher;
 use chia_wallet_sdk::Memos;
 use chia_wallet_sdk::Nft;
 use chia_wallet_sdk::NftMint;
@@ -1293,8 +1292,18 @@ pub async fn bulk_mint_nfts(
     did: Did<()>,
     target_address: Bytes32,
     fee: u64,
-) -> Result<(Vec<CoinSpend>, Vec<Nft<NftMetadata>>, Did<Program>), WalletError> {
+) -> Result<
+    (
+        Vec<CoinSpend>,
+        Vec<Nft<NftMetadata>>,
+        Did<Program>,
+        Vec<String>,
+    ),
+    WalletError,
+> {
     // Get the DID from the database
+
+    let mut log_list: Vec<String> = Vec::new();
 
     // Calculate total amount needed (fee + 1 mojo per NFT)
     let total_amount = fee as u128 + mints.len() as u128;
@@ -1311,11 +1320,16 @@ pub async fn bulk_mint_nfts(
     // Get puzzle hash for change output
     let p2_puzzle_hash = target_address;
 
+    log_list.push(format!("Creating context"));
     let mut ctx = SpendContext::new();
+    log_list.push(format!("Context created"));
 
     // Set up DID metadata
+    log_list.push(format!("Setting up DID metadata"));
     let did_metadata_ptr = ctx.alloc(&did.info.metadata)?;
+    log_list.push(format!("DID metadata set up"));
     let did = did.with_metadata(HashedPtr::from_ptr(&ctx.allocator, did_metadata_ptr));
+    log_list.push(format!("DID metadata set"));
 
     // Get synthetic key for the DID's p2_puzzle_hash
     let synthetic_key = spender_synthetic_key;
@@ -1326,6 +1340,7 @@ pub async fn bulk_mint_nfts(
 
     // Process each NFT mint
     for (i, mint) in mints.into_iter().enumerate() {
+        log_list.push(format!("Processing NFT mint {}", i));
         let nft_mint = NftMint {
             metadata: mint.metadata,
             metadata_updater_puzzle_hash: NFT_METADATA_UPDATER_PUZZLE_HASH.into(),
@@ -1334,22 +1349,28 @@ pub async fn bulk_mint_nfts(
             p2_puzzle_hash: mint.p2_puzzle_hash.unwrap_or(p2_puzzle_hash),
             owner: Some(DidOwner::from_did_info(&did.info)),
         };
+        log_list.push(format!("NFT mint set up"));
 
         // Create and mint the NFT
+        log_list.push(format!("Creating NFT"));
         let (mint_conditions, nft) = Launcher::new(did.coin.coin_id(), i as u64 * 2)
             .with_singleton_amount(1)
             .mint_nft(&mut ctx, nft_mint)?;
-
+        log_list.push(format!("NFT minted"));
         // Accumulate conditions and NFTs
         did_conditions = did_conditions.extend(mint_conditions);
         nfts.push(nft);
     }
 
     // Update DID with accumulated conditions
+    log_list.push(format!("Updating DID"));
     let new_did = did.update(&mut ctx, &p2, did_conditions)?;
+    log_list.push(format!("DID updated"));
 
     // Set up conditions for P2 coins
+    log_list.push(format!("Setting up conditions"));
     let mut conditions = Conditions::new().assert_concurrent_spend(did.coin.coin_id());
+    log_list.push(format!("Conditions set up"));
 
     // Add fee if specified
     if fee > 0 {
@@ -1358,16 +1379,22 @@ pub async fn bulk_mint_nfts(
 
     // Add change output if needed
     if change > 0 {
+        log_list.push(format!("Adding change output"));
         conditions = conditions.create_coin(p2_puzzle_hash, change, None);
+        log_list.push(format!("Change output added"));
     }
 
     // Use the new helper function
+    log_list.push(format!("Spending coins"));
     spend_coins_with_conditions(&mut ctx, spender_synthetic_key, coins, conditions)?;
+    log_list.push(format!("Coins spent"));
 
     // Finalize the new DID state
+    log_list.push(format!("Finalizing DID"));
     let new_did = new_did.with_metadata(ctx.serialize(&new_did.info.metadata)?);
+    log_list.push(format!("DID finalized"));
 
-    Ok((ctx.take(), nfts, new_did))
+    Ok((ctx.take(), nfts, new_did, log_list))
 }
 
 pub fn create_did(
@@ -1436,7 +1463,7 @@ pub async fn get_last_spendable_did_coin(
         TargetNetwork::Mainnet => MAINNET_CONSTANTS.genesis_challenge,
         TargetNetwork::Testnet11 => TESTNET11_CONSTANTS.genesis_challenge,
     };
-    let did_info = DidInfo::new(did_id, None, 0, (), spender_puzzle_hash);
+    let did_info = DidInfo::new(did_id, None, 1, (), spender_puzzle_hash);
 
     loop {
         // Get current coin state
