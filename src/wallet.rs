@@ -11,8 +11,9 @@ use chia::clvm_traits::ToClvm;
 use chia::clvm_utils::tree_hash;
 use chia::clvm_utils::CurriedProgram;
 use chia::consensus::consensus_constants::ConsensusConstants;
+use chia::consensus::gen::flags::DONT_VALIDATE_SIGNATURE;
 use chia::consensus::gen::{
-    conditions::EmptyVisitor, flags::MEMPOOL_MODE, owned_conditions::OwnedSpendBundleConditions,
+    flags::MEMPOOL_MODE, owned_conditions::OwnedSpendBundleConditions,
     run_block_generator::run_block_generator, solution_generator::solution_generator,
     validation_error::ValidationErr,
 };
@@ -26,13 +27,19 @@ use chia::puzzles::singleton::SINGLETON_LAUNCHER_PUZZLE_HASH;
 use chia::puzzles::standard::StandardArgs;
 use chia::puzzles::standard::StandardSolution;
 use chia::puzzles::DeriveSynthetic;
+use chia::puzzles::EveProof;
+use chia::puzzles::Proof;
 use chia_wallet_sdk::announcement_id;
+use chia_wallet_sdk::AggSigConstants;
 use chia_wallet_sdk::CreateCoin;
 use chia_wallet_sdk::Did;
+use chia_wallet_sdk::DidInfo;
+use chia_wallet_sdk::DidOwner;
 use chia_wallet_sdk::IntermediateLauncher;
+use chia_wallet_sdk::Memos;
 use chia_wallet_sdk::Nft;
 use chia_wallet_sdk::NftMint;
-use chia_wallet_sdk::TransferNft;
+use chia_wallet_sdk::SpendWithConditions;
 use chia_wallet_sdk::TESTNET11_CONSTANTS;
 use chia_wallet_sdk::{
     get_merkle_tree, select_coins as select_coins_algo, ClientError, CoinSelectionError, Condition,
@@ -182,6 +189,8 @@ fn spend_coins_together(
     output: i64,
     change_puzzle_hash: Bytes32,
 ) -> Result<(), WalletError> {
+    let p2 = StandardLayer::new(synthetic_key);
+
     let change = i64::try_from(coins.iter().map(|coin| coin.amount).sum::<u64>()).unwrap() - output;
     assert!(change >= 0);
     let change = change as u64;
@@ -193,14 +202,14 @@ fn spend_coins_together(
             let mut conditions = extra_conditions.clone();
 
             if change > 0 {
-                conditions = conditions.create_coin(change_puzzle_hash, change, Vec::new());
+                conditions = conditions.create_coin(change_puzzle_hash, change, None);
             }
 
-            ctx.spend_p2_coin(coin, synthetic_key, conditions)?;
+            p2.spend(ctx, coin, conditions)?;
         } else {
-            ctx.spend_p2_coin(
+            p2.spend(
+                ctx,
                 coin,
-                synthetic_key,
                 Conditions::new().assert_concurrent_spend(first_coin_id),
             )?;
         }
@@ -220,7 +229,8 @@ pub fn send_xch(
     let mut total_amount = fee;
 
     for output in outputs {
-        conditions = conditions.create_coin(output.0, output.1, output.2.clone());
+        let memos = ctx.alloc(&output.2)?;
+        conditions = conditions.create_coin(output.0, output.1, Some(Memos::new(memos)));
         total_amount += output.1;
     }
 
@@ -247,16 +257,22 @@ pub fn create_server_coin(
     let puzzle_hash = StandardArgs::curry_tree_hash(synthetic_key).into();
 
     let mut memos = Vec::with_capacity(uris.len() + 1);
-    memos.push(hint.to_vec().into());
+    memos.push(hint.to_vec());
 
     for url in &uris {
-        memos.push(url.as_bytes().into());
+        memos.push(url.as_bytes().to_vec());
     }
 
     let mut ctx = SpendContext::new();
 
+    let memos = ctx.alloc(&memos)?;
+
     let conditions = Conditions::new()
-        .create_coin(MirrorArgs::curry_tree_hash().into(), amount, memos)
+        .create_coin(
+            MirrorArgs::curry_tree_hash().into(),
+            amount,
+            Some(Memos::new(memos)),
+        )
         .reserve_fee(fee);
 
     spend_coins_together(
@@ -324,7 +340,6 @@ pub async fn spend_server_coins(
     let mut ctx = SpendContext::new();
 
     let mirror_puzzle = ctx.mirror_puzzle()?;
-    let standard_puzzle = ctx.standard_puzzle()?;
 
     let puzzle_reveal = ctx.serialize(&CurriedProgram {
         program: mirror_puzzle,
@@ -345,12 +360,11 @@ pub async fn spend_server_coins(
             return Err(WalletError::Permission);
         }
 
+        let parent_inner_puzzle = ctx.curry(StandardArgs::new(synthetic_key))?;
+
         let solution = ctx.serialize(&MirrorSolution {
             parent_parent_id: parent_coin.coin.parent_coin_info,
-            parent_inner_puzzle: CurriedProgram {
-                program: standard_puzzle,
-                args: StandardArgs::new(synthetic_key),
-            },
+            parent_inner_puzzle,
             parent_amount: parent_coin.coin.amount,
             parent_solution: StandardSolution {
                 original_public_key: None,
@@ -404,7 +418,7 @@ pub async fn fetch_server_coin(
         return Err(WalletError::Parse);
     };
 
-    let Some(urls) = urls_from_conditions(&coin_state.coin, &conditions) else {
+    let Some(urls) = urls_from_conditions(&allocator, &coin_state.coin, &conditions) else {
         return Err(WalletError::Parse);
     };
 
@@ -439,13 +453,15 @@ pub fn mint_store(
 
     let mut ctx = SpendContext::new();
 
+    let p2 = StandardLayer::new(minter_synthetic_key);
+
     let lead_coin = selected_coins[0];
     let lead_coin_name = lead_coin.coin_id();
 
     for coin in selected_coins.into_iter().skip(1) {
-        ctx.spend_p2_coin(
+        p2.spend(
+            &mut ctx,
             coin,
-            minter_synthetic_key,
             Conditions::new().assert_concurrent_spend(lead_coin_name),
         )?;
     }
@@ -463,32 +479,41 @@ pub fn mint_store(
     )?;
 
     // patch: add static hint to launcher
-    let launch_singleton = Conditions::new().extend(launch_singleton.into_iter().map(|cond| {
-        if let Condition::CreateCoin(cc) = cond {
-            if cc.puzzle_hash == SINGLETON_LAUNCHER_PUZZLE_HASH.into() {
-                return Condition::CreateCoin(CreateCoin {
-                    puzzle_hash: cc.puzzle_hash,
-                    amount: cc.amount,
-                    memos: vec![DATASTORE_LAUNCHER_HINT.into()],
-                });
-            }
+    let launch_singleton = Conditions::new().extend(
+        launch_singleton
+            .into_iter()
+            .map(|cond| {
+                if let Condition::CreateCoin(cc) = cond {
+                    if cc.puzzle_hash == SINGLETON_LAUNCHER_PUZZLE_HASH.into() {
+                        let hint = ctx.hint(DATASTORE_LAUNCHER_HINT)?;
 
-            return Condition::CreateCoin(cc);
-        }
+                        return Ok(Condition::CreateCoin(CreateCoin {
+                            puzzle_hash: cc.puzzle_hash,
+                            amount: cc.amount,
+                            memos: Some(hint),
+                        }));
+                    }
 
-        cond
-    }));
+                    return Ok(Condition::CreateCoin(cc));
+                }
+
+                Ok(cond)
+            })
+            .collect::<Result<Vec<_>, WalletError>>()?,
+    );
 
     let lead_coin_conditions = if total_amount_from_coins > total_amount {
+        let hint = ctx.hint(minter_puzzle_hash)?;
+
         launch_singleton.create_coin(
             minter_puzzle_hash,
             total_amount_from_coins - total_amount,
-            vec![minter_puzzle_hash.into()],
+            Some(hint),
         )
     } else {
         launch_singleton
     };
-    ctx.spend_p2_coin(lead_coin, minter_synthetic_key, lead_coin_conditions)?;
+    p2.spend(&mut ctx, lead_coin, lead_coin_conditions)?;
 
     Ok(SuccessResponse {
         coin_spends: ctx.take(),
@@ -721,13 +746,15 @@ fn update_store_with_conditions(
     allow_writer: bool,
 ) -> Result<SuccessResponse, WalletError> {
     let inner_datastore_spend = match inner_spend_info {
-        DataStoreInnerSpend::Owner(pk) => StandardLayer::new(pk).spend(ctx, conditions)?,
+        DataStoreInnerSpend::Owner(pk) => {
+            StandardLayer::new(pk).spend_with_conditions(ctx, conditions)?
+        }
         DataStoreInnerSpend::Admin(pk) => {
             if !allow_admin {
                 return Err(WalletError::Permission);
             }
 
-            StandardLayer::new(pk).spend(ctx, conditions)?
+            StandardLayer::new(pk).spend_with_conditions(ctx, conditions)?
         }
         DataStoreInnerSpend::Writer(pk) => {
             if !allow_writer {
@@ -776,7 +803,7 @@ pub fn update_store_ownership(
             let merkle_tree = get_merkle_tree(ctx, new_delegated_puzzles.clone())?;
 
             let new_merkle_root_condition = UpdateDataStoreMerkleRoot {
-                new_merkle_root: merkle_tree.root,
+                new_merkle_root: merkle_tree.root(),
                 memos: DataStore::<DataStoreMetadata>::get_recreation_memos(
                     datastore.info.launcher_id,
                     new_owner_puzzle_hash.into(),
@@ -859,7 +886,8 @@ pub fn melt_store(
                 .map_err(DriverError::ToClvm)?,
         ));
 
-    let inner_datastore_spend = StandardLayer::new(owner_pk).spend(ctx, melt_conditions)?;
+    let inner_datastore_spend =
+        StandardLayer::new(owner_pk).spend_with_conditions(ctx, melt_conditions)?;
 
     let new_spend = datastore.spend(ctx, inner_datastore_spend)?;
 
@@ -887,14 +915,16 @@ pub fn oracle_spend(
 
     let ctx = &mut SpendContext::new();
 
+    let p2 = StandardLayer::new(spender_synthetic_key);
+
     let lead_coin = selected_coins[0];
     let lead_coin_name = lead_coin.coin_id();
 
     let total_amount_from_coins = selected_coins.iter().map(|c| c.amount).sum::<u64>();
     for coin in selected_coins.into_iter().skip(1) {
-        ctx.spend_p2_coin(
+        p2.spend(
+            ctx,
             coin,
-            spender_synthetic_key,
             Conditions::new().assert_concurrent_spend(lead_coin_name),
         )?;
     }
@@ -906,16 +936,18 @@ pub fn oracle_spend(
 
     let mut lead_coin_conditions = assert_oracle_conds;
     if total_amount_from_coins > total_amount {
+        let hint = ctx.hint(spender_puzzle_hash)?;
+
         lead_coin_conditions = lead_coin_conditions.create_coin(
             spender_puzzle_hash,
             total_amount_from_coins - total_amount,
-            vec![spender_puzzle_hash.into()],
+            Some(hint),
         );
     }
     if fee > 0 {
         lead_coin_conditions = lead_coin_conditions.reserve_fee(fee);
     }
-    ctx.spend_p2_coin(lead_coin, spender_synthetic_key, lead_coin_conditions)?;
+    p2.spend(ctx, lead_coin, lead_coin_conditions)?;
 
     let inner_datastore_spend = OracleLayer::new(*oracle_ph, *oracle_fee)
         .ok_or(DriverError::OddOracleFee)?
@@ -946,30 +978,34 @@ pub fn add_fee(
 
     let mut ctx = SpendContext::new();
 
+    let p2 = StandardLayer::new(spender_synthetic_key);
+
     let lead_coin = selected_coins[0];
     let lead_coin_name = lead_coin.coin_id();
 
     for coin in selected_coins.into_iter().skip(1) {
-        ctx.spend_p2_coin(
+        p2.spend(
+            &mut ctx,
             coin,
-            spender_synthetic_key,
             Conditions::new().assert_concurrent_spend(lead_coin_name),
         )?;
     }
 
     let mut lead_coin_conditions = Conditions::new().reserve_fee(fee);
     if total_amount_from_coins > fee {
+        let hint = ctx.hint(spender_puzzle_hash)?;
+
         lead_coin_conditions = lead_coin_conditions.create_coin(
             spender_puzzle_hash,
             total_amount_from_coins - fee,
-            vec![spender_puzzle_hash.into()],
+            Some(hint),
         );
     }
     for coin_id in coin_ids {
         lead_coin_conditions = lead_coin_conditions.assert_concurrent_spend(coin_id);
     }
 
-    ctx.spend_p2_coin(lead_coin, spender_synthetic_key, lead_coin_conditions)?;
+    p2.spend(&mut ctx, lead_coin, lead_coin_conditions)?;
 
     Ok(ctx.take())
 }
@@ -1004,8 +1040,11 @@ pub fn sign_coin_spends(
 ) -> Result<Signature, SignerError> {
     let mut allocator = Allocator::new();
 
-    let required_signatures =
-        RequiredSignature::from_coin_spends(&mut allocator, &coin_spends, network.get_constants())?;
+    let required_signatures = RequiredSignature::from_coin_spends(
+        &mut allocator,
+        &coin_spends,
+        &AggSigConstants::new(network.get_constants().agg_sig_me_additional_data),
+    )?;
 
     let key_pairs = private_keys
         .iter()
@@ -1023,10 +1062,14 @@ pub fn sign_coin_spends(
     let mut sig = Signature::default();
 
     for required in required_signatures {
-        let sk = key_pairs.get(&required.public_key());
+        let RequiredSignature::Bls(required) = required else {
+            continue;
+        };
+
+        let sk = key_pairs.get(&required.public_key);
 
         if let Some(sk) = sk {
-            sig += &sign(sk, required.final_message());
+            sig += &sign(sk, required.message());
         }
     }
 
@@ -1135,12 +1178,14 @@ pub fn get_cost(coin_spends: Vec<CoinSpend>) -> Result<u64, WalletError> {
     )
     .map_err(WalletError::Io)?;
 
-    let conds = run_block_generator::<&[u8], EmptyVisitor, _>(
+    let conds = run_block_generator::<&[u8], _>(
         &mut alloc,
         &generator,
         [],
         u64::MAX,
-        MEMPOOL_MODE,
+        MEMPOOL_MODE | DONT_VALIDATE_SIGNATURE,
+        &Signature::default(),
+        None,
         TargetNetwork::Mainnet.get_constants(),
     )?;
 
@@ -1215,7 +1260,6 @@ pub async fn unsubscribe_from_coin_states(
 
     Ok(())
 }
-
 // Add these new structs to support the bulk mint operation
 #[derive(Clone, Debug)]
 pub struct WalletNftMint {
@@ -1226,15 +1270,20 @@ pub struct WalletNftMint {
 }
 
 pub async fn bulk_mint_nfts(
+    peer: &Peer,
     spender_synthetic_key: PublicKey,
     selected_coins: Vec<Coin>,
     mints: Vec<WalletNftMint>,
     did_id: Option<Bytes32>,
     target_address: Bytes32,
     fee: u64,
+    network: TargetNetwork,
 ) -> Result<(Vec<CoinSpend>, Vec<Nft<NftMetadata>>), WalletError> {
     let ctx = &mut SpendContext::new();
     let spender_puzzle_hash: Bytes32 = StandardArgs::curry_tree_hash(spender_synthetic_key).into();
+
+    let did =
+        get_last_spendable_did_coin(peer, did_id.unwrap(), network, spender_synthetic_key).await?;
 
     // Calculate total amount needed (fee + 1 mojo per NFT)
     let total_needed: u64 = fee + (mints.len() as u64);
@@ -1249,11 +1298,11 @@ pub async fn bulk_mint_nfts(
 
     // Handle concurrent spends for additional coins
     for coin in selected_coins.iter().skip(1) {
-        ctx.spend_p2_coin(
+        let _ = StandardLayer::new(spender_synthetic_key).spend(
+            ctx,
             *coin,
-            spender_synthetic_key,
             Conditions::new().assert_concurrent_spend(lead_coin_name),
-        )?;
+        );
     }
 
     let mut all_conditions = Conditions::new();
@@ -1272,18 +1321,10 @@ pub async fn bulk_mint_nfts(
             royalty_puzzle_hash: mint_config.royalty_puzzle_hash.unwrap_or(target_address),
             royalty_ten_thousandths: mint_config.royalty_ten_thousandths,
             p2_puzzle_hash: mint_config.p2_puzzle_hash.unwrap_or(target_address),
-            owner: if let Some(did_id) = did_id {
-                TransferNft {
-                    did_id: Some(did_id.into()),
-                    trade_prices: vec![],
-                    did_inner_puzzle_hash: Some(target_address),
-                }
+            owner: if let Some(did) = did {
+                Some(DidOwner::from_did_info(&did.info))
             } else {
-                TransferNft {
-                    did_id: None,
-                    trade_prices: vec![],
-                    did_inner_puzzle_hash: None,
-                }
+                None
             },
         };
 
@@ -1302,16 +1343,13 @@ pub async fn bulk_mint_nfts(
 
     // Add change output if needed
     let change = total_available - total_needed;
+    let memos = ctx.hint(spender_puzzle_hash)?;
     if change > 0 {
-        all_conditions = all_conditions.create_coin(
-            spender_puzzle_hash,
-            change,
-            vec![spender_puzzle_hash.into()],
-        );
+        all_conditions = all_conditions.create_coin(spender_puzzle_hash, change, Some(memos));
     }
 
     // Create the spend
-    ctx.spend_p2_coin(lead_coin, spender_synthetic_key, all_conditions)?;
+    StandardLayer::new(spender_synthetic_key).spend(ctx, lead_coin, all_conditions)?;
 
     Ok((ctx.take(), nfts))
 }
@@ -1337,11 +1375,11 @@ pub fn create_did(
 
     // Handle concurrent spends for additional coins
     for coin in selected_coins.iter().skip(1) {
-        ctx.spend_p2_coin(
+        let _ = StandardLayer::new(spender_synthetic_key).spend(
+            ctx,
             *coin,
-            spender_synthetic_key,
             Conditions::new().assert_concurrent_spend(lead_coin_name),
-        )?;
+        );
     }
 
     // Create launcher for DID
@@ -1349,7 +1387,7 @@ pub fn create_did(
 
     // Create the DID
     let p2 = StandardLayer::new(spender_synthetic_key);
-    let (mut conditions, did) = launcher.create_simple_did(ctx, p2.synthetic_key)?;
+    let (mut conditions, did) = launcher.create_simple_did(ctx, &p2)?;
 
     // Add fee if specified
     if fee > 0 {
@@ -1358,17 +1396,14 @@ pub fn create_did(
 
     // Add change output if needed
     let change = total_available - total_needed;
+    let memos = ctx.hint(spender_puzzle_hash)?;
     if change > 0 {
-        conditions = conditions.create_coin(
-            spender_puzzle_hash,
-            change,
-            vec![spender_puzzle_hash.into()],
-        );
+        conditions = conditions.create_coin(spender_puzzle_hash, change, Some(memos));
     }
 
     // Create the spend
-    ctx.spend_p2_coin(lead_coin, spender_synthetic_key, conditions)?;
-
+    conditions = conditions.assert_concurrent_spend(lead_coin_name);
+    let _ = StandardLayer::new(spender_synthetic_key).spend(ctx, lead_coin, conditions);
     Ok((ctx.take(), did))
 }
 
@@ -1376,12 +1411,17 @@ pub async fn get_last_spendable_did_coin(
     peer: &Peer,
     did_id: Bytes32,
     network: TargetNetwork,
-) -> Result<Option<Coin>, WalletError> {
+    spender_synthetic_key: PublicKey,
+) -> Result<Option<Did<()>>, WalletError> {
+    let spender_puzzle_hash: Bytes32 = StandardArgs::curry_tree_hash(spender_synthetic_key).into();
+
     let mut current_coin_id = did_id;
     let global_header_hash = match network {
         TargetNetwork::Mainnet => MAINNET_CONSTANTS.genesis_challenge,
         TargetNetwork::Testnet11 => TESTNET11_CONSTANTS.genesis_challenge,
     };
+    let did_info = DidInfo::new(did_id, None, 0, (), spender_puzzle_hash);
+
     loop {
         // Get current coin state
         let response = peer
@@ -1396,22 +1436,23 @@ pub async fn get_last_spendable_did_coin(
 
         // If coin is unspent, return it
         if coin_state.spent_height.is_none() {
-            return Ok(Some(coin_state.coin));
+            let proof = Proof::Eve(EveProof {
+                parent_parent_coin_info: coin_state.coin.parent_coin_info,
+                parent_amount: coin_state.coin.amount,
+            });
+            let did = Some(Did::new(coin_state.coin, proof, did_info));
+            return Ok(did);
         }
 
         // Get the children of this coin
-        let Some(spent_height) = coin_state.spent_height else {
+        let Some(_) = coin_state.spent_height else {
             return Ok(None);
         };
 
-        let header_hash = get_header_hash(peer, spent_height)
-            .await?;
-
         let children_response = peer
-            .request_coin_state(vec![], Some(spent_height), header_hash, false)
+            .request_children(current_coin_id.into())
             .await
-            .map_err(WalletError::Client)?
-            .map_err(|_| WalletError::RejectCoinState)?;
+            .map_err(WalletError::Client)?;
 
         // Find the child with 1 mojo (DID coins always have 1 mojo)
         let next_did_coin = children_response

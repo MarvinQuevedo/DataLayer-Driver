@@ -1,3 +1,5 @@
+#![allow(unexpected_cfgs)]
+
 mod conversions;
 mod js;
 mod rust;
@@ -8,26 +10,20 @@ use chia::bls::{
     master_to_wallet_unhardened, PublicKey as RustPublicKey, SecretKey as RustSecretKey,
     Signature as RustSignature,
 };
- 
 use chia::protocol::{
     Bytes as RustBytes, Bytes32 as RustBytes32, Coin as RustCoin, CoinSpend as RustCoinSpend,
     CoinStateUpdate, NewPeakWallet, ProtocolMessageTypes, SpendBundle as RustSpendBundle,
 };
+use chia::puzzles::nft::NftMetadata as RustNftMetadata;
 use chia::puzzles::{standard::StandardArgs, DeriveSynthetic, Proof as RustProof};
 use chia::traits::Streamable;
 use chia_wallet_sdk::{
-    connect_peer, create_tls_connector, decode_address, encode_address, load_ssl_cert,
-    DataStore as RustDataStore, DataStoreInfo as RustDataStoreInfo,
-    DataStoreMetadata as RustDataStoreMetadata, DelegatedPuzzle as RustDelegatedPuzzle, NetworkId,
-    Peer as RustPeer, MAINNET_CONSTANTS, TESTNET11_CONSTANTS,
-    Did,
-    Nft,
+    connect_peer, create_native_tls_connector, decode_address, encode_address, load_ssl_cert, Connector, DataStore as RustDataStore, DataStoreInfo as RustDataStoreInfo, DataStoreMetadata as RustDataStoreMetadata, DelegatedPuzzle as RustDelegatedPuzzle, Did, Nft, Peer as RustPeer, PeerOptions, MAINNET_CONSTANTS, TESTNET11_CONSTANTS
 };
 use conversions::{ConversionError, FromJs, ToJs};
 use js::{Coin, CoinSpend, CoinState, EveProof, Proof, ServerCoin};
 use napi::bindgen_prelude::*;
 use napi::Result;
-use native_tls::TlsConnector;
 use std::collections::HashMap;
 use std::{net::SocketAddr, sync::Arc};
 use tokio::sync::mpsc::{unbounded_channel, UnboundedSender};
@@ -36,7 +32,6 @@ use wallet::{
     PossibleLaunchersResponse as RustPossibleLaunchersResponse,
     SuccessResponse as RustSuccessResponse, SyncStoreResponse as RustSyncStoreResponse,
 };
-use chia::puzzles::nft::{NftMetadata as RustNftMetadata};
 
 pub use wallet::*;
 
@@ -434,7 +429,7 @@ impl ToJs<PossibleLaunchersResponse> for RustPossibleLaunchersResponse {
 }
 
 #[napi]
-pub struct Tls(TlsConnector);
+pub struct Tls(Connector);
 
 #[napi]
 impl Tls {
@@ -445,7 +440,7 @@ impl Tls {
     /// @param {String} keyPath - Path to the key file (usually '~/.chia/mainnet/config/ssl/wallet/wallet_node.key').
     pub fn new(cert_path: String, key_path: String) -> napi::Result<Self> {
         let cert = load_ssl_cert(&cert_path, &key_path).map_err(js::err)?;
-        let tls = create_tls_connector(&cert).map_err(js::err)?;
+        let tls = create_native_tls_connector(&cert).map_err(js::err)?;
         Ok(Self(tls))
     }
 }
@@ -466,12 +461,12 @@ impl Peer {
     /// @param {bool} testnet - True for connecting to testnet11, false for mainnet.
     /// @param {Tls} tls - TLS connector.
     /// @returns {Promise<Peer>} A new Peer instance.
-    pub async fn new(node_uri: String, tesntet: bool, tls: &Tls) -> napi::Result<Self> {
+    pub async fn new(node_uri: String, testnet: bool, tls: &Tls) -> napi::Result<Self> {
         let (peer, mut receiver) = connect_peer(
-            if tesntet {
-                NetworkId::Testnet11
+            if testnet {
+                "testnet11".to_string()
             } else {
-                NetworkId::Mainnet
+                "mainnet".to_string()
             },
             tls.0.clone(),
             if let Ok(socket_addr) = node_uri.parse::<SocketAddr>() {
@@ -479,6 +474,7 @@ impl Peer {
             } else {
                 return Err(js::err(ConversionError::InvalidUri(node_uri)));
             },
+            PeerOptions::default(),
         )
         .await
         .map_err(js::err)?;
@@ -1611,7 +1607,8 @@ pub struct CreateDidResponse {
 impl<T> ToJs<CreateDidResponse> for (Vec<RustCoinSpend>, Did<T>) {
     fn to_js(&self) -> Result<CreateDidResponse> {
         Ok(CreateDidResponse {
-            coin_spends: self.0
+            coin_spends: self
+                .0
                 .iter()
                 .map(RustCoinSpend::to_js)
                 .collect::<Result<Vec<CoinSpend>>>()?,
@@ -1630,11 +1627,13 @@ pub struct BulkMintNftsResponse {
 impl ToJs<BulkMintNftsResponse> for (Vec<RustCoinSpend>, Vec<Nft<RustNftMetadata>>) {
     fn to_js(&self) -> Result<BulkMintNftsResponse> {
         Ok(BulkMintNftsResponse {
-            coin_spends: self.0
+            coin_spends: self
+                .0
                 .iter()
                 .map(RustCoinSpend::to_js)
                 .collect::<Result<Vec<CoinSpend>>>()?,
-            nft_launcher_ids: self.1
+            nft_launcher_ids: self
+                .1
                 .iter()
                 .map(|nft| nft.coin.coin_id().to_js())
                 .collect::<Result<Vec<Buffer>>>()?,
@@ -1680,25 +1679,34 @@ pub fn create_did(
 /// @param {BigInt} fee - Transaction fee in mojos
 /// @returns {Promise<BulkMintNftsResponse>} The coin spends and NFT launcher IDs
 pub async fn bulk_mint_nfts(
+    peer: &Peer,
     spender_synthetic_key: Buffer,
     selected_coins: Vec<Coin>,
     mints: Vec<js::WalletNftMint>,
     did_id: Option<Buffer>,
     target_address: Buffer,
     fee: BigInt,
+    testnet: bool,
 ) -> napi::Result<js::BulkMintNftsResponse> {
     let result = wallet::bulk_mint_nfts(
+        &peer.inner,
         RustPublicKey::from_js(spender_synthetic_key)?,
         selected_coins
             .into_iter()
             .map(RustCoin::from_js)
             .collect::<Result<Vec<RustCoin>>>()?,
-        mints.into_iter()
+        mints
+            .into_iter()
             .map(wallet::WalletNftMint::from_js)
             .collect::<Result<Vec<wallet::WalletNftMint>>>()?,
         did_id.map(RustBytes32::from_js).transpose()?,
         RustBytes32::from_js(target_address)?,
         u64::from_js(fee)?,
+        if testnet {
+            TargetNetwork::Testnet11
+        } else {
+            TargetNetwork::Mainnet
+        },
     )
     .await
     .map_err(js::err)?;
