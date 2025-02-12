@@ -18,11 +18,13 @@ use chia::consensus::gen::{
     validation_error::ValidationErr,
 };
 use chia::protocol::CoinState;
+use chia::protocol::Program;
 use chia::protocol::{
     Bytes, Bytes32, Coin, CoinSpend, CoinStateFilters, RejectHeaderRequest, RequestBlockHeader,
     RequestFeeEstimates, RespondBlockHeader, RespondFeeEstimates, SpendBundle, TransactionAck,
 };
 use chia::puzzles::nft::NftMetadata;
+use chia::puzzles::nft::NFT_METADATA_UPDATER_PUZZLE_HASH;
 use chia::puzzles::singleton::SINGLETON_LAUNCHER_PUZZLE_HASH;
 use chia::puzzles::standard::StandardArgs;
 use chia::puzzles::standard::StandardSolution;
@@ -35,6 +37,7 @@ use chia_wallet_sdk::CreateCoin;
 use chia_wallet_sdk::Did;
 use chia_wallet_sdk::DidInfo;
 use chia_wallet_sdk::DidOwner;
+use chia_wallet_sdk::HashedPtr;
 use chia_wallet_sdk::IntermediateLauncher;
 use chia_wallet_sdk::Memos;
 use chia_wallet_sdk::Nft;
@@ -114,6 +117,9 @@ pub enum WalletError {
 
     #[error("Insufficient funds for operation")]
     InsufficientFunds,
+
+    #[error("MissingDid")]
+    MissingDid(Bytes32),
 }
 
 pub struct UnspentCoinStates {
@@ -179,6 +185,31 @@ pub async fn get_unspent_coin_states(
 
 pub fn select_coins(coins: Vec<Coin>, total_amount: u64) -> Result<Vec<Coin>, CoinSelectionError> {
     select_coins_algo(coins.into_iter().collect(), total_amount.into())
+}
+
+/// Spends the coins with the first coin producing all of the output conditions.
+/// The other coins assert that the first coin is spent within the transaction.
+/// This prevents the first coin from being removed from the transaction to steal the funds.
+pub fn spend_coins_with_conditions(
+    ctx: &mut SpendContext,
+    spender_synthetic_key: PublicKey,
+    coins: Vec<Coin>,
+    conditions: Conditions,
+) -> Result<(), WalletError> {
+    let first_coin_id = coins[0].coin_id();
+    let p2 = StandardLayer::new(spender_synthetic_key);
+
+    for (i, coin) in coins.into_iter().enumerate() {
+        let coin_conditions = if i == 0 {
+            conditions.clone()
+        } else {
+            Conditions::new().assert_concurrent_spend(first_coin_id)
+        };
+
+        p2.spend(ctx, coin, coin_conditions)?;
+    }
+
+    Ok(())
 }
 
 fn spend_coins_together(
@@ -275,14 +306,7 @@ pub fn create_server_coin(
         )
         .reserve_fee(fee);
 
-    spend_coins_together(
-        &mut ctx,
-        synthetic_key,
-        &selected_coins,
-        conditions,
-        (amount + fee).try_into().unwrap(),
-        puzzle_hash,
-    )?;
+    spend_coins_with_conditions(&mut ctx, synthetic_key, selected_coins.clone(), conditions)?;
 
     let server_coin = ServerCoin {
         coin: Coin::new(
@@ -379,14 +403,7 @@ pub async fn spend_server_coins(
         conditions = conditions.assert_concurrent_spend(server_coin.coin_id());
     }
 
-    spend_coins_together(
-        &mut ctx,
-        synthetic_key,
-        &fee_coins,
-        conditions,
-        total_fee,
-        puzzle_hash,
-    )?;
+    spend_coins_with_conditions(&mut ctx, synthetic_key, fee_coins, conditions)?;
 
     Ok(ctx.take())
 }
@@ -1273,80 +1290,84 @@ pub async fn bulk_mint_nfts(
     spender_synthetic_key: PublicKey,
     selected_coins: Vec<Coin>,
     mints: Vec<WalletNftMint>,
-    did: Option<Did<()>>,
+    did: Did<()>,
     target_address: Bytes32,
     fee: u64,
-) -> Result<(Vec<CoinSpend>, Vec<Nft<NftMetadata>>), WalletError> {
-    let ctx = &mut SpendContext::new();
-    let spender_puzzle_hash: Bytes32 = StandardArgs::curry_tree_hash(spender_synthetic_key).into();
+) -> Result<(Vec<CoinSpend>, Vec<Nft<NftMetadata>>, Did<Program>), WalletError> {
+    // Get the DID from the database
 
     // Calculate total amount needed (fee + 1 mojo per NFT)
-    let total_needed: u64 = fee + (mints.len() as u64);
-    let total_available: u64 = selected_coins.iter().map(|c| c.amount).sum();
+    let total_amount = fee as u128 + mints.len() as u128;
 
-    if total_available < total_needed {
-        return Err(WalletError::InsufficientFunds);
-    }
+    // Select coins to cover the total amount
+    let coins = selected_coins;
+    let selected: u128 = coins.iter().map(|coin| coin.amount as u128).sum();
 
-    let lead_coin = selected_coins[0];
-    let lead_coin_name = lead_coin.coin_id();
+    // Calculate change amount
+    let change: u64 = (selected - total_amount)
+        .try_into()
+        .expect("change amount overflow");
 
-    // Handle concurrent spends for additional coins
-    for coin in selected_coins.iter().skip(1) {
-        let _ = StandardLayer::new(spender_synthetic_key).spend(
-            ctx,
-            *coin,
-            Conditions::new().assert_concurrent_spend(lead_coin_name),
-        );
-    }
+    // Get puzzle hash for change output
+    let p2_puzzle_hash = target_address;
 
-    let mut all_conditions = Conditions::new();
+    let mut ctx = SpendContext::new();
+
+    // Set up DID metadata
+    let did_metadata_ptr = ctx.alloc(&did.info.metadata)?;
+    let did = did.with_metadata(HashedPtr::from_ptr(&ctx.allocator, did_metadata_ptr));
+
+    // Get synthetic key for the DID's p2_puzzle_hash
+    let synthetic_key = spender_synthetic_key;
+    let p2 = StandardLayer::new(synthetic_key);
+
+    let mut did_conditions = Conditions::new();
     let mut nfts = Vec::with_capacity(mints.len());
 
     // Process each NFT mint
-    for (i, mint_config) in mints.into_iter().enumerate() {
-        // Create launcher for this NFT
-        let launcher_intermediate = IntermediateLauncher::new(lead_coin_name, i * 2 as usize, 1);
-        let launcher = launcher_intermediate.create(ctx)?;
-
-        // Create NFT mint configuration
+    for (i, mint) in mints.into_iter().enumerate() {
         let nft_mint = NftMint {
-            metadata: mint_config.metadata,
-            metadata_updater_puzzle_hash: target_address,
-            royalty_puzzle_hash: mint_config.royalty_puzzle_hash.unwrap_or(target_address),
-            royalty_ten_thousandths: mint_config.royalty_ten_thousandths,
-            p2_puzzle_hash: mint_config.p2_puzzle_hash.unwrap_or(target_address),
-            owner: if let Some(did) = did {
-                Some(DidOwner::from_did_info(&did.info))
-            } else {
-                None
-            },
+            metadata: mint.metadata,
+            metadata_updater_puzzle_hash: NFT_METADATA_UPDATER_PUZZLE_HASH.into(),
+            royalty_puzzle_hash: mint.royalty_puzzle_hash.unwrap_or(p2_puzzle_hash),
+            royalty_ten_thousandths: mint.royalty_ten_thousandths,
+            p2_puzzle_hash: mint.p2_puzzle_hash.unwrap_or(p2_puzzle_hash),
+            owner: Some(DidOwner::from_did_info(&did.info)),
         };
 
-        // Mint the NFT
-        let (mint_conditions, nft) = launcher.mint_nft(ctx, nft_mint)?;
+        // Create and mint the NFT
+        let (mint_conditions, nft) = Launcher::new(did.coin.coin_id(), i as u64 * 2)
+            .with_singleton_amount(1)
+            .mint_nft(&mut ctx, nft_mint)?;
 
-        // Accumulate conditions
-        all_conditions = all_conditions.extend(mint_conditions);
+        // Accumulate conditions and NFTs
+        did_conditions = did_conditions.extend(mint_conditions);
         nfts.push(nft);
     }
 
+    // Update DID with accumulated conditions
+    let new_did = did.update(&mut ctx, &p2, did_conditions)?;
+
+    // Set up conditions for P2 coins
+    let mut conditions = Conditions::new().assert_concurrent_spend(did.coin.coin_id());
+
     // Add fee if specified
     if fee > 0 {
-        all_conditions = all_conditions.reserve_fee(fee);
+        conditions = conditions.reserve_fee(fee);
     }
 
     // Add change output if needed
-    let change = total_available - total_needed;
-    let memos = ctx.hint(spender_puzzle_hash)?;
     if change > 0 {
-        all_conditions = all_conditions.create_coin(spender_puzzle_hash, change, Some(memos));
+        conditions = conditions.create_coin(p2_puzzle_hash, change, None);
     }
 
-    // Create the spend
-    StandardLayer::new(spender_synthetic_key).spend(ctx, lead_coin, all_conditions)?;
+    // Use the new helper function
+    spend_coins_with_conditions(&mut ctx, spender_synthetic_key, coins, conditions)?;
 
-    Ok((ctx.take(), nfts))
+    // Finalize the new DID state
+    let new_did = new_did.with_metadata(ctx.serialize(&new_did.info.metadata)?);
+
+    Ok((ctx.take(), nfts, new_did))
 }
 
 pub fn create_did(
