@@ -83,6 +83,26 @@ export interface ServerCoin {
   p2PuzzleHash: Buffer
   memoUrls: Array<string>
 }
+/** Represents DID information */
+export interface DidInfo {
+  /** The DID ID (launcher ID) */
+  launcherId: Buffer
+  /** Optional recovery list hash */
+  recoveryListHash?: Buffer
+  /** Number of verifications required for recovery */
+  numVerification: number
+  /** Owner's puzzle hash */
+  ownerPuzzleHash: Buffer
+}
+/** Represents a DID (Decentralized Identity) */
+export interface Did {
+  /** The coin that represents this DID */
+  coin: Coin
+  /** The proof (either lineage or eve) */
+  proof: Proof
+  /** DID information */
+  info: DidInfo
+}
 /** NFT metadata structure */
 export interface NftMetadata {
   /** Data URL or hex string containing the metadata */
@@ -482,12 +502,13 @@ export declare function createDid(spenderSyntheticKey: Buffer, selectedCoins: Ar
  * @param {Buffer} spenderSyntheticKey - The synthetic public key of the spender
  * @param {Vec<Coin>} selectedCoins - Coins to use for minting
  * @param {Vec<WalletNftMint>} mints - Vector of NFT configurations to mint
- * @param {Option<Buffer>} didId - Optional DID to associate with the NFTs
+ * @param {Option<Did>} did - Optional DID to associate with the NFTs
  * @param {Buffer} targetAddress - Default address for royalties and ownership
  * @param {BigInt} fee - Transaction fee in mojos
+ * @param {bool} forTestnet - True for testnet, false for mainnet
  * @returns {Promise<BulkMintNftsResponse>} The coin spends and NFT launcher IDs
  */
-export declare function bulkMintNfts(peer: Peer, spenderSyntheticKey: Buffer, selectedCoins: Array<Coin>, mints: Array<WalletNftMint>, didId: Buffer | undefined | null, targetAddress: Buffer, fee: bigint, testnet: boolean): Promise<BulkMintNftsResponse>
+export declare function bulkMintNfts(spenderSyntheticKey: Buffer, selectedCoins: Array<Coin>, mints: Array<WalletNftMint>, did: Did | undefined | null, targetAddress: Buffer, fee: bigint): Promise<BulkMintNftsResponse>
 export declare class Tls {
   /**
    * Creates a new TLS connector.
@@ -632,4 +653,13 @@ export declare class Peer {
    * @returns {Promise<Buffer>} Promise that resolves when the coin is spent (returning the coin id).
    */
   waitForCoinToBeSpent(coinId: Buffer, lastHeight: number | undefined | null, headerHash: Buffer): Promise<Buffer>
+  /**
+   * Gets the last spendable DID coin in the chain
+   *
+   * @param {Buffer} didId - The DID ID to look up
+   * @param {Buffer} spenderSyntheticKey - The synthetic public key of the spender
+   * @param {bool} forTestnet - True for testnet, false for mainnet
+   * @returns {Promise<Option<Did>>} The last spendable DID coin, if found
+   */
+  getLastSpendableDidCoin(didId: Buffer, spenderSyntheticKey: Buffer, forTestnet: boolean): Promise<Did | null>
 }

@@ -18,7 +18,10 @@ use chia::puzzles::nft::NftMetadata as RustNftMetadata;
 use chia::puzzles::{standard::StandardArgs, DeriveSynthetic, Proof as RustProof};
 use chia::traits::Streamable;
 use chia_wallet_sdk::{
-    connect_peer, create_native_tls_connector, decode_address, encode_address, load_ssl_cert, Connector, DataStore as RustDataStore, DataStoreInfo as RustDataStoreInfo, DataStoreMetadata as RustDataStoreMetadata, DelegatedPuzzle as RustDelegatedPuzzle, Did, Nft, Peer as RustPeer, PeerOptions, MAINNET_CONSTANTS, TESTNET11_CONSTANTS
+    connect_peer, create_native_tls_connector, decode_address, encode_address, load_ssl_cert,
+    Connector, DataStore as RustDataStore, DataStoreInfo as RustDataStoreInfo,
+    DataStoreMetadata as RustDataStoreMetadata, DelegatedPuzzle as RustDelegatedPuzzle,
+    Did as RustDid, Nft, Peer as RustPeer, PeerOptions, MAINNET_CONSTANTS, TESTNET11_CONSTANTS,
 };
 use conversions::{ConversionError, FromJs, ToJs};
 use js::{Coin, CoinSpend, CoinState, EveProof, Proof, ServerCoin};
@@ -895,6 +898,35 @@ impl Peer {
 
         rust_coin_id.to_js()
     }
+
+    #[napi]
+    /// Gets the last spendable DID coin in the chain
+    ///
+    /// @param {Buffer} didId - The DID ID to look up
+    /// @param {Buffer} spenderSyntheticKey - The synthetic public key of the spender
+    /// @param {bool} forTestnet - True for testnet, false for mainnet
+    /// @returns {Promise<Option<Did>>} The last spendable DID coin, if found
+    pub async fn get_last_spendable_did_coin(
+        &self,
+        did_id: Buffer,
+        spender_synthetic_key: Buffer,
+        for_testnet: bool,
+    ) -> napi::Result<Option<js::Did>> {
+        let result = wallet::get_last_spendable_did_coin(
+            &self.inner.clone(),
+            RustBytes32::from_js(did_id)?,
+            if for_testnet {
+                TargetNetwork::Testnet11
+            } else {
+                TargetNetwork::Mainnet
+            },
+            RustPublicKey::from_js(spender_synthetic_key)?,
+        )
+        .await
+        .map_err(js::err)?;
+
+        result.map(|did| did.to_js()).transpose()
+    }
 }
 
 /// Selects coins using the knapsack algorithm.
@@ -1604,7 +1636,7 @@ pub struct CreateDidResponse {
     pub did_id: Buffer,
 }
 
-impl<T> ToJs<CreateDidResponse> for (Vec<RustCoinSpend>, Did<T>) {
+impl<T> ToJs<CreateDidResponse> for (Vec<RustCoinSpend>, RustDid<T>) {
     fn to_js(&self) -> Result<CreateDidResponse> {
         Ok(CreateDidResponse {
             coin_spends: self
@@ -1674,22 +1706,20 @@ pub fn create_did(
 /// @param {Buffer} spenderSyntheticKey - The synthetic public key of the spender
 /// @param {Vec<Coin>} selectedCoins - Coins to use for minting
 /// @param {Vec<WalletNftMint>} mints - Vector of NFT configurations to mint
-/// @param {Option<Buffer>} didId - Optional DID to associate with the NFTs
+/// @param {Option<Did>} did - Optional DID to associate with the NFTs
 /// @param {Buffer} targetAddress - Default address for royalties and ownership
 /// @param {BigInt} fee - Transaction fee in mojos
+/// @param {bool} forTestnet - True for testnet, false for mainnet
 /// @returns {Promise<BulkMintNftsResponse>} The coin spends and NFT launcher IDs
 pub async fn bulk_mint_nfts(
-    peer: &Peer,
     spender_synthetic_key: Buffer,
-    selected_coins: Vec<Coin>,
-    mints: Vec<js::WalletNftMint>,
-    did_id: Option<Buffer>,
+    selected_coins: Vec<js::Coin>,
+    mints: Vec<WalletNftMint>,
+    did: Option<js::Did>,
     target_address: Buffer,
     fee: BigInt,
-    testnet: bool,
-) -> napi::Result<js::BulkMintNftsResponse> {
+) -> napi::Result<BulkMintNftsResponse> {
     let result = wallet::bulk_mint_nfts(
-        &peer.inner,
         RustPublicKey::from_js(spender_synthetic_key)?,
         selected_coins
             .into_iter()
@@ -1699,14 +1729,9 @@ pub async fn bulk_mint_nfts(
             .into_iter()
             .map(wallet::WalletNftMint::from_js)
             .collect::<Result<Vec<wallet::WalletNftMint>>>()?,
-        did_id.map(RustBytes32::from_js).transpose()?,
+        did.map(RustDid::from_js).transpose()?,
         RustBytes32::from_js(target_address)?,
         u64::from_js(fee)?,
-        if testnet {
-            TargetNetwork::Testnet11
-        } else {
-            TargetNetwork::Mainnet
-        },
     )
     .await
     .map_err(js::err)?;

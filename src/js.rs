@@ -1,8 +1,9 @@
 use crate::conversions::{FromJs, ToJs};
 use crate::wallet;
 
-use chia::protocol::{Bytes32 as RustBytes32, CoinSpend as RustCoinSpend};
+use chia::protocol::{Bytes32 as RustBytes32, Coin as RustCoin, CoinSpend as RustCoinSpend};
 use chia::puzzles::nft::NftMetadata as RustNftMetadata;
+use chia::puzzles::Proof as RustProof;
 use chia_wallet_sdk::{Did as RustDid, Nft as RustNft};
 use napi::bindgen_prelude::*;
 
@@ -90,6 +91,30 @@ pub struct ServerCoin {
     pub coin: Coin,
     pub p2_puzzle_hash: Buffer,
     pub memo_urls: Vec<String>,
+}
+
+#[napi(object)]
+/// Represents DID information
+pub struct DidInfo {
+    /// The DID ID (launcher ID)
+    pub launcher_id: Buffer,
+    /// Optional recovery list hash
+    pub recovery_list_hash: Option<Buffer>,
+    /// Number of verifications required for recovery
+    pub num_verification: u32,
+    /// Owner's puzzle hash
+    pub owner_puzzle_hash: Buffer,
+}
+
+#[napi(object)]
+/// Represents a DID (Decentralized Identity)
+pub struct Did {
+    /// The coin that represents this DID
+    pub coin: Coin,
+    /// The proof (either lineage or eve)
+    pub proof: Proof,
+    /// DID information
+    pub info: DidInfo,
 }
 
 pub fn err<T>(error: T) -> napi::Error
@@ -248,6 +273,52 @@ impl ToJs<BulkMintNftsResponse> for (Vec<RustCoinSpend>, Vec<RustNft<RustNftMeta
                 .iter()
                 .map(|nft| nft.coin.coin_id().to_js())
                 .collect::<Result<Vec<Buffer>>>()?,
+        })
+    }
+}
+
+impl FromJs<DidInfo> for chia_wallet_sdk::DidInfo<()> {
+    fn from_js(value: DidInfo) -> Result<Self> {
+        Ok(Self::new(
+            RustBytes32::from_js(value.launcher_id)?,
+            value
+                .recovery_list_hash
+                .map(RustBytes32::from_js)
+                .transpose()?,
+            value.num_verification as u64,
+            (),
+            RustBytes32::from_js(value.owner_puzzle_hash)?,
+        ))
+    }
+}
+
+impl ToJs<DidInfo> for chia_wallet_sdk::DidInfo<()> {
+    fn to_js(&self) -> Result<DidInfo> {
+        Ok(DidInfo {
+            launcher_id: self.launcher_id.to_js()?,
+            recovery_list_hash: self.recovery_list_hash.map(|h| h.to_js()).transpose()?,
+            num_verification: self.num_verifications_required as u32,
+            owner_puzzle_hash: self.p2_puzzle_hash.to_js()?,
+        })
+    }
+}
+
+impl FromJs<Did> for RustDid<()> {
+    fn from_js(value: Did) -> Result<Self> {
+        Ok(Self::new(
+            RustCoin::from_js(value.coin)?,
+            RustProof::from_js(value.proof)?,
+            chia_wallet_sdk::DidInfo::from_js(value.info)?,
+        ))
+    }
+}
+
+impl ToJs<Did> for RustDid<()> {
+    fn to_js(&self) -> Result<Did> {
+        Ok(Did {
+            coin: self.coin.to_js()?,
+            proof: self.proof.to_js()?,
+            info: self.info.to_js()?,
         })
     }
 }

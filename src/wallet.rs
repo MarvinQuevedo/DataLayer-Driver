@@ -1270,20 +1270,15 @@ pub struct WalletNftMint {
 }
 
 pub async fn bulk_mint_nfts(
-    peer: &Peer,
     spender_synthetic_key: PublicKey,
     selected_coins: Vec<Coin>,
     mints: Vec<WalletNftMint>,
-    did_id: Option<Bytes32>,
+    did: Option<Did<()>>,
     target_address: Bytes32,
     fee: u64,
-    network: TargetNetwork,
 ) -> Result<(Vec<CoinSpend>, Vec<Nft<NftMetadata>>), WalletError> {
     let ctx = &mut SpendContext::new();
     let spender_puzzle_hash: Bytes32 = StandardArgs::curry_tree_hash(spender_synthetic_key).into();
-
-    let did =
-        get_last_spendable_did_coin(peer, did_id.unwrap(), network, spender_synthetic_key).await?;
 
     // Calculate total amount needed (fee + 1 mojo per NFT)
     let total_needed: u64 = fee + (mints.len() as u64);
