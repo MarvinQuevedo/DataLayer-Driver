@@ -1715,7 +1715,7 @@ pub async fn bulk_mint_nfts(
     spender_synthetic_key: Buffer,
     selected_coins: Vec<js::Coin>,
     mints: Vec<WalletNftMint>,
-    did: Option<js::Did>,
+    did: js::Did,
     target_address: Buffer,
     fee: BigInt,
 ) -> napi::Result<BulkMintNftsResponse> {
@@ -1729,12 +1729,23 @@ pub async fn bulk_mint_nfts(
             .into_iter()
             .map(wallet::WalletNftMint::from_js)
             .collect::<Result<Vec<wallet::WalletNftMint>>>()?,
-        did.map(RustDid::from_js).transpose()?,
+        RustDid::from_js(did)?,
         RustBytes32::from_js(target_address)?,
         u64::from_js(fee)?,
     )
     .await
     .map_err(js::err)?;
 
-    result.to_js()
+    Ok(BulkMintNftsResponse {
+        coin_spends: result
+            .0
+            .iter()
+            .map(RustCoinSpend::to_js)
+            .collect::<Result<Vec<CoinSpend>>>()?,
+        nft_launcher_ids: result
+            .1
+            .iter()
+            .map(|nft| nft.coin.coin_id().to_js())
+            .collect::<Result<Vec<Buffer>>>()?,
+    })
 }

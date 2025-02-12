@@ -508,7 +508,7 @@ export declare function createDid(spenderSyntheticKey: Buffer, selectedCoins: Ar
  * @param {bool} forTestnet - True for testnet, false for mainnet
  * @returns {Promise<BulkMintNftsResponse>} The coin spends and NFT launcher IDs
  */
-export declare function bulkMintNfts(spenderSyntheticKey: Buffer, selectedCoins: Array<Coin>, mints: Array<WalletNftMint>, did: Did | undefined | null, targetAddress: Buffer, fee: bigint): Promise<BulkMintNftsResponse>
+export declare function bulkMintNfts(spenderSyntheticKey: Buffer, selectedCoins: Array<Coin>, mints: Array<WalletNftMint>, did: Did, targetAddress: Buffer, fee: bigint): Promise<BulkMintNftsResponse>
 export declare class Tls {
   /**
    * Creates a new TLS connector.
