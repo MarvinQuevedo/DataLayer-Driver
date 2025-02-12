@@ -10,18 +10,15 @@ use chia::bls::{
     master_to_wallet_unhardened, PublicKey as RustPublicKey, SecretKey as RustSecretKey,
     Signature as RustSignature,
 };
- 
 use chia::protocol::{
     Bytes as RustBytes, Bytes32 as RustBytes32, Coin as RustCoin, CoinSpend as RustCoinSpend,
     CoinStateUpdate, NewPeakWallet, ProtocolMessageTypes, SpendBundle as RustSpendBundle,
 };
+use chia::puzzles::nft::NftMetadata as RustNftMetadata;
 use chia::puzzles::{standard::StandardArgs, DeriveSynthetic, Proof as RustProof};
 use chia::traits::Streamable;
 use chia_wallet_sdk::{
-    connect_peer, create_native_tls_connector, decode_address, encode_address, load_ssl_cert,
-    Connector, DataStore as RustDataStore, DataStoreInfo as RustDataStoreInfo,
-    DataStoreMetadata as RustDataStoreMetadata, DelegatedPuzzle as RustDelegatedPuzzle,
-    Peer as RustPeer, PeerOptions, MAINNET_CONSTANTS, TESTNET11_CONSTANTS,
+    connect_peer, create_native_tls_connector, decode_address, encode_address, load_ssl_cert, Connector, DataStore as RustDataStore, DataStoreInfo as RustDataStoreInfo, DataStoreMetadata as RustDataStoreMetadata, DelegatedPuzzle as RustDelegatedPuzzle, Did, Nft, Peer as RustPeer, PeerOptions, MAINNET_CONSTANTS, TESTNET11_CONSTANTS
 };
 use conversions::{ConversionError, FromJs, ToJs};
 use js::{Coin, CoinSpend, CoinState, EveProof, Proof, ServerCoin};
@@ -35,7 +32,6 @@ use wallet::{
     PossibleLaunchersResponse as RustPossibleLaunchersResponse,
     SuccessResponse as RustSuccessResponse, SyncStoreResponse as RustSyncStoreResponse,
 };
-use chia::puzzles::nft::{NftMetadata as RustNftMetadata};
 
 pub use wallet::*;
 
@@ -1611,7 +1607,8 @@ pub struct CreateDidResponse {
 impl<T> ToJs<CreateDidResponse> for (Vec<RustCoinSpend>, Did<T>) {
     fn to_js(&self) -> Result<CreateDidResponse> {
         Ok(CreateDidResponse {
-            coin_spends: self.0
+            coin_spends: self
+                .0
                 .iter()
                 .map(RustCoinSpend::to_js)
                 .collect::<Result<Vec<CoinSpend>>>()?,
@@ -1630,11 +1627,13 @@ pub struct BulkMintNftsResponse {
 impl ToJs<BulkMintNftsResponse> for (Vec<RustCoinSpend>, Vec<Nft<RustNftMetadata>>) {
     fn to_js(&self) -> Result<BulkMintNftsResponse> {
         Ok(BulkMintNftsResponse {
-            coin_spends: self.0
+            coin_spends: self
+                .0
                 .iter()
                 .map(RustCoinSpend::to_js)
                 .collect::<Result<Vec<CoinSpend>>>()?,
-            nft_launcher_ids: self.1
+            nft_launcher_ids: self
+                .1
                 .iter()
                 .map(|nft| nft.coin.coin_id().to_js())
                 .collect::<Result<Vec<Buffer>>>()?,
@@ -1680,25 +1679,34 @@ pub fn create_did(
 /// @param {BigInt} fee - Transaction fee in mojos
 /// @returns {Promise<BulkMintNftsResponse>} The coin spends and NFT launcher IDs
 pub async fn bulk_mint_nfts(
+    peer: &Peer,
     spender_synthetic_key: Buffer,
     selected_coins: Vec<Coin>,
     mints: Vec<js::WalletNftMint>,
     did_id: Option<Buffer>,
     target_address: Buffer,
     fee: BigInt,
+    testnet: bool,
 ) -> napi::Result<js::BulkMintNftsResponse> {
     let result = wallet::bulk_mint_nfts(
+        &peer.inner,
         RustPublicKey::from_js(spender_synthetic_key)?,
         selected_coins
             .into_iter()
             .map(RustCoin::from_js)
             .collect::<Result<Vec<RustCoin>>>()?,
-        mints.into_iter()
+        mints
+            .into_iter()
             .map(wallet::WalletNftMint::from_js)
             .collect::<Result<Vec<wallet::WalletNftMint>>>()?,
         did_id.map(RustBytes32::from_js).transpose()?,
         RustBytes32::from_js(target_address)?,
         u64::from_js(fee)?,
+        if testnet {
+            TargetNetwork::Testnet11
+        } else {
+            TargetNetwork::Mainnet
+        },
     )
     .await
     .map_err(js::err)?;

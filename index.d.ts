@@ -487,7 +487,7 @@ export declare function createDid(spenderSyntheticKey: Buffer, selectedCoins: Ar
  * @param {BigInt} fee - Transaction fee in mojos
  * @returns {Promise<BulkMintNftsResponse>} The coin spends and NFT launcher IDs
  */
-export declare function bulkMintNfts(spenderSyntheticKey: Buffer, selectedCoins: Array<Coin>, mints: Array<WalletNftMint>, didId: Buffer | undefined | null, targetAddress: Buffer, fee: bigint): Promise<BulkMintNftsResponse>
+export declare function bulkMintNfts(peer: Peer, spenderSyntheticKey: Buffer, selectedCoins: Array<Coin>, mints: Array<WalletNftMint>, didId: Buffer | undefined | null, targetAddress: Buffer, fee: bigint, testnet: boolean): Promise<BulkMintNftsResponse>
 export declare class Tls {
   /**
    * Creates a new TLS connector.
@@ -506,7 +506,7 @@ export declare class Peer {
    * @param {Tls} tls - TLS connector.
    * @returns {Promise<Peer>} A new Peer instance.
    */
-  static new(nodeUri: string, tesntet: boolean, tls: Tls): Promise<Peer>
+  static new(nodeUri: string, testnet: boolean, tls: Tls): Promise<Peer>
   /**
    * Gets all children of a given coin.
    *
