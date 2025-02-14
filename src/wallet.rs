@@ -1511,3 +1511,19 @@ pub async fn get_last_spendable_did_coin(
         }
     }
 }
+
+pub async fn request_coin_state(
+    peer: &Peer,
+    coin_ids: Vec<Bytes32>,
+    previous_height: Option<u32>,
+    header_hash: Bytes32,
+    subscribe: bool,
+) -> Result<Vec<CoinState>, WalletError> {
+    let response = peer
+        .request_coin_state(coin_ids, previous_height, header_hash, subscribe)
+        .await
+        .map_err(WalletError::Client)?
+        .map_err(|_| WalletError::RejectCoinState)?;
+
+    Ok(response.coin_states)
+}

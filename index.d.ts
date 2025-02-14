@@ -487,6 +487,12 @@ export declare function getMainnetGenesisChallenge(): Buffer
  * @returns {Buffer} The testnet11 genesis challenge.
  */
 export declare function getTestnet11GenesisChallenge(): Buffer
+/** Response from bulk minting NFTs */
+export interface BulkMintNftsResponse {
+  coinSpends: Array<CoinSpend>
+  nftLauncherIds: Array<Buffer>
+  logList: Array<string>
+}
 /**
  * Creates a new Decentralized Identity (DID)
  *
@@ -662,4 +668,14 @@ export declare class Peer {
    * @returns {Promise<Option<Did>>} The last spendable DID coin, if found
    */
   getLastSpendableDidCoin(didId: Buffer, spenderSyntheticKey: Buffer, forTestnet: boolean): Promise<Did | null>
+  /**
+   * Requests the state of specific coins from the network.
+   *
+   * @param {Vec<Buffer>} coinIds - IDs of the coins to look up.
+   * @param {Option<u32>} previousHeight - Previous height that was spent. If null, sync will be done from the genesis block.
+   * @param {Buffer} headerHash - Header hash corresponding to the previous height.
+   * @param {bool} subscribe - Whether to subscribe to updates for these coins.
+   * @returns {Promise<Vec<CoinState>>} The coin states.
+   */
+  requestCoinState(coinIds: Array<Buffer>, previousHeight: number | undefined | null, headerHash: Buffer, subscribe: boolean): Promise<Array<CoinState>>
 }

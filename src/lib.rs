@@ -927,6 +927,38 @@ impl Peer {
 
         result.map(|did| did.to_js()).transpose()
     }
+
+    #[napi]
+    /// Requests the state of specific coins from the network.
+    ///
+    /// @param {Vec<Buffer>} coinIds - IDs of the coins to look up.
+    /// @param {Option<u32>} previousHeight - Previous height that was spent. If null, sync will be done from the genesis block.
+    /// @param {Buffer} headerHash - Header hash corresponding to the previous height.
+    /// @param {bool} subscribe - Whether to subscribe to updates for these coins.
+    /// @returns {Promise<Vec<CoinState>>} The coin states.
+    pub async fn request_coin_state(
+        &self,
+        coin_ids: Vec<Buffer>,
+        previous_height: Option<u32>,
+        header_hash: Buffer,
+        subscribe: bool,
+    ) -> napi::Result<Vec<CoinState>> {
+        wallet::request_coin_state(
+            &self.inner,
+            coin_ids
+                .into_iter()
+                .map(RustBytes32::from_js)
+                .collect::<Result<Vec<RustBytes32>>>()?,
+            previous_height,
+            RustBytes32::from_js(header_hash)?,
+            subscribe,
+        )
+        .await
+        .map_err(|e| napi::Error::from_reason(e.to_string()))?
+        .into_iter()
+        .map(|c| c.to_js())
+        .collect()
+    }
 }
 
 /// Selects coins using the knapsack algorithm.
